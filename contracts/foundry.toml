@@ -40,6 +40,12 @@ runs = 1024
 runs = 512
 depth = 128
 
+[lint]
+# `block.timestamp` est le pivot du contrat : `expiry` est une borne dure sur le pouvoir du
+# settler (invariant I9). Les fenêtres sont de 15 min à 7 jours, très au-delà de la marge de
+# manipulation d'un séquenceur — l'avertissement ne s'applique pas ici.
+exclude_lints = ["block-timestamp"]
+
 [fmt]
 line_length = 110
 tab_width = 4
