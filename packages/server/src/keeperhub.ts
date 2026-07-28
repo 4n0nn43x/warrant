@@ -296,6 +296,22 @@ function pickBigInt(
   return undefined
 }
 
+/**
+ * Lit le corps d'erreur sans jamais lever : une réponse d'erreur mal formée ne
+ * doit pas masquer le code HTTP, qui est l'information la plus utile.
+ */
+async function safeErrorBody(res: Response): Promise<KeeperHubErrorBody> {
+  try {
+    const parsed = (await res.json()) as Partial<KeeperHubErrorBody>
+    if (parsed && typeof parsed.error === 'string') {
+      return parsed as KeeperHubErrorBody
+    }
+    return { error: `http_${res.status}`, detail: JSON.stringify(parsed) }
+  } catch {
+    return { error: `http_${res.status}`, detail: res.statusText }
+  }
+}
+
 function backoffMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15_000)
 }

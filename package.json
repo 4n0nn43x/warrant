@@ -13,7 +13,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "test:contracts": "cd contracts && forge test -vv",
-    "fixtures": "node --experimental-strip-types packages/core/scripts/gen-fixtures.ts"
+    "fixtures": "vite-node packages/core/scripts/gen-fixtures.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

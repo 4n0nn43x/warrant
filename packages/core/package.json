@@ -11,7 +11,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "registry", "fixtures"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

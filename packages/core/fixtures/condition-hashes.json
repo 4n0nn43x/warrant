@@ -1,0 +1,635 @@
+[
+  {
+    "name": "raw/key-sorting-utf16-code-units",
+    "type": "raw",
+    "spec": {
+      "1": "One",
+      "€": "Euro Sign",
+      "\r": "Carriage Return",
+      "\n": "Newline",
+      "": "Control",
+      "😂": "Smiley",
+      "ö": "Latin Small Letter O With Diaeresis",
+      "": "Empty",
+      "❤️": "Heart",
+      "𝄞": "G Clef"
+    },
+    "canonical": "{\"\":\"Empty\",\"\\n\":\"Newline\",\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"❤️\":\"Heart\",\"𝄞\":\"G Clef\",\"😂\":\"Smiley\"}",
+    "hash": "0xcef37a7cb59cdd1bbbe5d290d5b3ee2f5e84c235698446e53a196de142e4e102"
+  },
+  {
+    "name": "raw/nested-structure-sorting",
+    "type": "raw",
+    "spec": {
+      "1": {
+        "f": {
+          "f": "hi",
+          "F": 5
+        },
+        "\n": 56
+      },
+      "10": {},
+      "111": [
+        {
+          "e": "yes",
+          "E": "no"
+        }
+      ],
+      "": "empty",
+      "a": {},
+      "A": {}
+    },
+    "canonical": "{\"\":\"empty\",\"1\":{\"\\n\":56,\"f\":{\"F\":5,\"f\":\"hi\"}},\"10\":{},\"111\":[{\"E\":\"no\",\"e\":\"yes\"}],\"A\":{},\"a\":{}}",
+    "hash": "0xd37a988635094ca30c4b3aaacb14af300c72f0e0de2534dc0f94d6e20874961b"
+  },
+  {
+    "name": "raw/string-escapes",
+    "type": "raw",
+    "spec": {
+      "quote": "\"",
+      "backslash": "\\",
+      "slash": "/",
+      "backspace": "\b",
+      "formfeed": "\f",
+      "newline": "\n",
+      "carriage": "\r",
+      "tab": "\t",
+      "nul": "\u0000",
+      "unit_separator": "\u001f",
+      "del": "",
+      "accents": "caution déposée — 1 500 €",
+      "cjk": "保証",
+      "emoji": "🛡️"
+    },
+    "canonical": "{\"accents\":\"caution déposée — 1 500 €\",\"backslash\":\"\\\\\",\"backspace\":\"\\b\",\"carriage\":\"\\r\",\"cjk\":\"保証\",\"del\":\"\",\"emoji\":\"🛡️\",\"formfeed\":\"\\f\",\"newline\":\"\\n\",\"nul\":\"\\u0000\",\"quote\":\"\\\"\",\"slash\":\"/\",\"tab\":\"\\t\",\"unit_separator\":\"\\u001f\"}",
+    "hash": "0x51f876264a730aa151a6a70e64c175e2374a5eecf76ae04b654f0162f006a96f"
+  },
+  {
+    "name": "raw/scalars-and-empty-containers",
+    "type": "raw",
+    "spec": {
+      "nullValue": null,
+      "trueValue": true,
+      "falseValue": false,
+      "zero": 0,
+      "negative": -1,
+      "emptyObject": {},
+      "emptyArray": [],
+      "emptyString": ""
+    },
+    "canonical": "{\"emptyArray\":[],\"emptyObject\":{},\"emptyString\":\"\",\"falseValue\":false,\"negative\":-1,\"nullValue\":null,\"trueValue\":true,\"zero\":0}",
+    "hash": "0x702eacf9687d43f13592664dcf6142ba1a189b934688a99d8985d3cc9ce21fb6"
+  },
+  {
+    "name": "raw/array-order-is-preserved",
+    "type": "raw",
+    "spec": {
+      "z": [
+        3,
+        2,
+        1
+      ],
+      "a": [
+        {
+          "b": 1,
+          "a": 2
+        },
+        [
+          2,
+          1
+        ]
+      ]
+    },
+    "canonical": "{\"a\":[{\"a\":2,\"b\":1},[2,1]],\"z\":[3,2,1]}",
+    "hash": "0xa9c489a5d63a32c833c4c81d80dc43f219b4a5ef5dff146ce168e711ed13fd8b"
+  },
+  {
+    "name": "raw/uint256-amounts-as-decimal-strings",
+    "type": "raw",
+    "spec": {
+      "maxUint256": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "oneWeiOverSafeInteger": "9007199254740992",
+      "oneEther": "1000000000000000000",
+      "healthFactor": "1500000000000000000",
+      "negativeDelta": "-115792089237316195423570985008687907853269984665640564039457584007913129639935"
+    },
+    "canonical": "{\"healthFactor\":\"1500000000000000000\",\"maxUint256\":\"115792089237316195423570985008687907853269984665640564039457584007913129639935\",\"negativeDelta\":\"-115792089237316195423570985008687907853269984665640564039457584007913129639935\",\"oneEther\":\"1000000000000000000\",\"oneWeiOverSafeInteger\":\"9007199254740992\"}",
+    "hash": "0x571dc47fb0da73ea0e3cc0ed289e8d15c72d7bf1f9604778d3babbd7de1908ca"
+  },
+  {
+    "name": "check/erc20_allowance",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "erc20_allowance",
+          "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "spender": "0x2222222222222222222222222222222222222222",
+          "op": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"erc20_allowance\",\"op\":\"eq\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"spender\":\"0x2222222222222222222222222222222222222222\",\"token\":\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\",\"value\":\"0\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xd3339a647d2ca439a6551080ef6aecd69c2b0e2ede1b9673882195828e4af68f"
+  },
+  {
+    "name": "check/erc20_balance",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "evaluateAt": "tx",
+      "confirmations": 3,
+      "checks": [
+        {
+          "kind": "erc20_balance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x4444444444444444444444444444444444444444",
+          "op": "gte",
+          "value": "1000000"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":8453,\"checks\":[{\"account\":\"0x4444444444444444444444444444444444444444\",\"kind\":\"erc20_balance\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"1000000\"}],\"confirmations\":3,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x36f0d3aac9a96bc210571837f122471c36cb3b7883c9d05369f61ba414e0f05e"
+  },
+  {
+    "name": "check/erc20_balance_delta-negative",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "evaluateAt": "tx",
+      "confirmations": 3,
+      "checks": [
+        {
+          "kind": "erc20_balance_delta",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-1000000000"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":8453,\"checks\":[{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"erc20_balance_delta\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"-1000000000\"}],\"confirmations\":3,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xd1a51cc5477afd970cb6e55011aed9634c9a8e4a9ef8a5570aaf9d72a878e7b2"
+  },
+  {
+    "name": "check/native_balance_delta",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx+1",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "native_balance_delta",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-50000000000000000"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"native_balance_delta\",\"op\":\"gte\",\"value\":\"-50000000000000000\"}],\"confirmations\":12,\"evaluateAt\":\"tx+1\",\"version\":1}",
+    "hash": "0x447be74fbf934b43d1c34457d4fcb23748d8bc5d30eec6f1ed825aa00958e7eb"
+  },
+  {
+    "name": "check/aave_health_factor",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "aave_health_factor",
+          "pool": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "user": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "1500000000000000000"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"aave_health_factor\",\"op\":\"gte\",\"pool\":\"0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2\",\"user\":\"0x1111111111111111111111111111111111111111\",\"value\":\"1500000000000000000\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x40e85c3510465fe5d33f8e49e7e7a751abc06e536982d0cd0ca2a3aaf1a5c8e9"
+  },
+  {
+    "name": "check/staticcall_result-uint256",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "staticcall_result",
+          "target": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "data": "0x70a082310000000000000000000000001111111111111111111111111111111111111111",
+          "decodeAs": "uint256",
+          "op": "lte",
+          "value": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"data\":\"0x70a082310000000000000000000000001111111111111111111111111111111111111111\",\"decodeAs\":\"uint256\",\"kind\":\"staticcall_result\",\"op\":\"lte\",\"target\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"value\":\"115792089237316195423570985008687907853269984665640564039457584007913129639935\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xf83e8452f9826a42bdeb2850737d5f8a9c96c546af9790d48c837d093a6558f0"
+  },
+  {
+    "name": "check/staticcall_result-bytes32",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": {
+        "block": 21000000
+      },
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "staticcall_result",
+          "target": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "data": "0x06fdde03",
+          "decodeAs": "bytes32",
+          "op": "eq",
+          "value": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"data\":\"0x06fdde03\",\"decodeAs\":\"bytes32\",\"kind\":\"staticcall_result\",\"op\":\"eq\",\"target\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"value\":\"0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925\"}],\"confirmations\":12,\"evaluateAt\":{\"block\":21000000},\"version\":1}",
+    "hash": "0x8f52074b672992b06256f7d8af22dfae658acd4aa9844d36b3c7d715ccff7f78"
+  },
+  {
+    "name": "check/event_emitted",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "event_emitted",
+          "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "topic0": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+          "minCount": 1
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"address\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"kind\":\"event_emitted\",\"minCount\":1,\"topic0\":\"0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x6f4792e1ef88ca41131e1b79a75818ff5a4e948ed5aade7b3767b0eaf74363dc"
+  },
+  {
+    "name": "check/nonce_advanced",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "nonce_advanced",
+          "account": "0x3333333333333333333333333333333333333333",
+          "op": "eq",
+          "value": "1"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"account\":\"0x3333333333333333333333333333333333333333\",\"kind\":\"nonce_advanced\",\"op\":\"eq\",\"value\":\"1\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x744577d204d77d2fb2eae71dacd3b046e0e41154a638e73a55e87c2a34aab7a8"
+  },
+  {
+    "name": "check/no_new_approvals",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "no_new_approvals",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "tokens": [
+            "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+            "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+          ]
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"no_new_approvals\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"tokens\":[\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\"]}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x225c052b2998a2576d0539baf7732e948567f7de944d8493c89906f605b334b2"
+  },
+  {
+    "name": "check/calldata_matches_commitment",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "nonce_advanced",
+          "account": "0x3333333333333333333333333333333333333333",
+          "op": "eq",
+          "value": "1"
+        },
+        {
+          "kind": "calldata_matches_commitment",
+          "actionHash": "0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"account\":\"0x3333333333333333333333333333333333333333\",\"kind\":\"nonce_advanced\",\"op\":\"eq\",\"value\":\"1\"},{\"actionHash\":\"0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48\",\"kind\":\"calldata_matches_commitment\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xcd31cff85c77f92777cbfad74a93cec3a80ffc70adf4795e0c8f2f3baa778a91"
+  },
+  {
+    "name": "normalize/checksummed-addresses-are-lowercased",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "erc20_allowance",
+          "token": "0xA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "spender": "0x2222222222222222222222222222222222222222",
+          "op": "eq",
+          "value": "0"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"erc20_allowance\",\"op\":\"eq\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"spender\":\"0x2222222222222222222222222222222222222222\",\"token\":\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\",\"value\":\"0\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xd3339a647d2ca439a6551080ef6aecd69c2b0e2ede1b9673882195828e4af68f"
+  },
+  {
+    "name": "normalize/defaults-are-injected",
+    "type": "conditionSpec",
+    "spec": {
+      "chainId": 1,
+      "checks": [
+        {
+          "kind": "event_emitted",
+          "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "topic0": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"address\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"kind\":\"event_emitted\",\"minCount\":1,\"topic0\":\"0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x6f4792e1ef88ca41131e1b79a75818ff5a4e948ed5aade7b3767b0eaf74363dc"
+  },
+  {
+    "name": "normalize/amounts-are-canonical-decimals",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "evaluateAt": "tx",
+      "confirmations": 3,
+      "checks": [
+        {
+          "kind": "erc20_allowance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "spender": "0x2222222222222222222222222222222222222222",
+          "op": "eq",
+          "value": "0000"
+        },
+        {
+          "kind": "erc20_balance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x4444444444444444444444444444444444444444",
+          "op": "gte",
+          "value": "+42"
+        },
+        {
+          "kind": "native_balance_delta",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-0"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":8453,\"checks\":[{\"kind\":\"erc20_allowance\",\"op\":\"eq\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"spender\":\"0x2222222222222222222222222222222222222222\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"0\"},{\"account\":\"0x4444444444444444444444444444444444444444\",\"kind\":\"erc20_balance\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"42\"},{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"native_balance_delta\",\"op\":\"gte\",\"value\":\"0\"}],\"confirmations\":3,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x41be65ebdcb73503e9cebb941af4d45b2859ec763315443e9120152608a87c04"
+  },
+  {
+    "name": "spec/allowance-revocation-bankr",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "erc20_allowance",
+          "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "spender": "0x2222222222222222222222222222222222222222",
+          "op": "eq",
+          "value": "0"
+        },
+        {
+          "kind": "no_new_approvals",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "tokens": [
+            "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+          ]
+        },
+        {
+          "kind": "erc20_balance_delta",
+          "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "0"
+        },
+        {
+          "kind": "calldata_matches_commitment",
+          "actionHash": "0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"erc20_allowance\",\"op\":\"eq\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"spender\":\"0x2222222222222222222222222222222222222222\",\"token\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"value\":\"0\"},{\"kind\":\"no_new_approvals\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"tokens\":[\"0xdac17f958d2ee523a2206206994597c13d831ec7\"]},{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"erc20_balance_delta\",\"op\":\"gte\",\"token\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\",\"value\":\"0\"},{\"actionHash\":\"0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48\",\"kind\":\"calldata_matches_commitment\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x5292a76f36d3cbd242d4a39548d9f739867290a663d8d4a7c0449c1b58afa1f0"
+  },
+  {
+    "name": "spec/aave-rebalancing",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "evaluateAt": "tx",
+      "confirmations": 12,
+      "checks": [
+        {
+          "kind": "aave_health_factor",
+          "pool": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "user": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "1500000000000000000"
+        },
+        {
+          "kind": "nonce_advanced",
+          "account": "0x3333333333333333333333333333333333333333",
+          "op": "eq",
+          "value": "1"
+        },
+        {
+          "kind": "calldata_matches_commitment",
+          "actionHash": "0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":1,\"checks\":[{\"kind\":\"aave_health_factor\",\"op\":\"gte\",\"pool\":\"0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2\",\"user\":\"0x1111111111111111111111111111111111111111\",\"value\":\"1500000000000000000\"},{\"account\":\"0x3333333333333333333333333333333333333333\",\"kind\":\"nonce_advanced\",\"op\":\"eq\",\"value\":\"1\"},{\"actionHash\":\"0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48\",\"kind\":\"calldata_matches_commitment\"}],\"confirmations\":12,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0x0da7f132f8a50df8ab3b65b6124001bf508e62161dfb6717a7d8ce21339ee324"
+  },
+  {
+    "name": "spec/bounded-outbound-transfer",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "evaluateAt": "tx",
+      "confirmations": 3,
+      "checks": [
+        {
+          "kind": "erc20_balance_delta",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-1000000000"
+        },
+        {
+          "kind": "erc20_balance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x4444444444444444444444444444444444444444",
+          "op": "gte",
+          "value": "1000000000"
+        },
+        {
+          "kind": "calldata_matches_commitment",
+          "actionHash": "0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":8453,\"checks\":[{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"erc20_balance_delta\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"-1000000000\"},{\"account\":\"0x4444444444444444444444444444444444444444\",\"kind\":\"erc20_balance\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"1000000000\"},{\"actionHash\":\"0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48\",\"kind\":\"calldata_matches_commitment\"}],\"confirmations\":3,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xd71abed2c4e17febff1af73436cf03d1023a72cefab4264228d945cdcfc5c94a"
+  },
+  {
+    "name": "spec/full-quota-eight-declared-checks",
+    "type": "conditionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "evaluateAt": "tx",
+      "confirmations": 3,
+      "checks": [
+        {
+          "kind": "erc20_allowance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "spender": "0x2222222222222222222222222222222222222222",
+          "op": "eq",
+          "value": "0"
+        },
+        {
+          "kind": "erc20_balance",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "1"
+        },
+        {
+          "kind": "erc20_balance_delta",
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-1"
+        },
+        {
+          "kind": "native_balance_delta",
+          "account": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "-1"
+        },
+        {
+          "kind": "aave_health_factor",
+          "pool": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+          "user": "0x1111111111111111111111111111111111111111",
+          "op": "gte",
+          "value": "1000000000000000000"
+        },
+        {
+          "kind": "staticcall_result",
+          "target": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "data": "0x18160ddd",
+          "decodeAs": "uint256",
+          "op": "lte",
+          "value": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+        },
+        {
+          "kind": "event_emitted",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "topic0": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+          "minCount": 2
+        },
+        {
+          "kind": "no_new_approvals",
+          "owner": "0x1111111111111111111111111111111111111111",
+          "tokens": [
+            "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+            "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+          ]
+        },
+        {
+          "kind": "calldata_matches_commitment",
+          "actionHash": "0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48"
+        }
+      ]
+    },
+    "canonical": "{\"chainId\":8453,\"checks\":[{\"kind\":\"erc20_allowance\",\"op\":\"eq\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"spender\":\"0x2222222222222222222222222222222222222222\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"0\"},{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"erc20_balance\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"1\"},{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"erc20_balance_delta\",\"op\":\"gte\",\"token\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"-1\"},{\"account\":\"0x1111111111111111111111111111111111111111\",\"kind\":\"native_balance_delta\",\"op\":\"gte\",\"value\":\"-1\"},{\"kind\":\"aave_health_factor\",\"op\":\"gte\",\"pool\":\"0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2\",\"user\":\"0x1111111111111111111111111111111111111111\",\"value\":\"1000000000000000000\"},{\"data\":\"0x18160ddd\",\"decodeAs\":\"uint256\",\"kind\":\"staticcall_result\",\"op\":\"lte\",\"target\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"value\":\"115792089237316195423570985008687907853269984665640564039457584007913129639935\"},{\"address\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"kind\":\"event_emitted\",\"minCount\":2,\"topic0\":\"0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925\"},{\"kind\":\"no_new_approvals\",\"owner\":\"0x1111111111111111111111111111111111111111\",\"tokens\":[\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"0xdac17f958d2ee523a2206206994597c13d831ec7\"]},{\"actionHash\":\"0x9d8f2c1e4b6a0537d1c9e2a4f60b8d3c5a7e91f24b6d8036c1e5a9f7b3d20c48\",\"kind\":\"calldata_matches_commitment\"}],\"confirmations\":3,\"evaluateAt\":\"tx\",\"version\":1}",
+    "hash": "0xd03c5ad5a3ed0d5e6fc18a0ef4c151d26bd0032e1e9628d705a8cf0ee0bec668"
+  },
+  {
+    "name": "action/erc20-transfer",
+    "type": "actionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 1,
+      "target": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "value": "0",
+      "calldata": "0xa9059cbb0000000000000000000000004444444444444444444444444444444444444444000000000000000000000000000000000000000000000000000000003b9aca00",
+      "registryRef": "0x5c1f7a93e0b46d28f3a5c7091e6b4d82a0f39c5d71b8e2460a93f5c7d1e08b36"
+    },
+    "canonical": "{\"calldata\":\"0xa9059cbb0000000000000000000000004444444444444444444444444444444444444444000000000000000000000000000000000000000000000000000000003b9aca00\",\"chainId\":1,\"registryRef\":\"0x5c1f7a93e0b46d28f3a5c7091e6b4d82a0f39c5d71b8e2460a93f5c7d1e08b36\",\"target\":\"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48\",\"value\":\"0\",\"version\":1}",
+    "hash": "0x62468aa5afec266a32fcb0bda641141b6ce34b6bfbaaef5dba7cdcf0be0da501"
+  },
+  {
+    "name": "action/native-value-max-uint256",
+    "type": "actionSpec",
+    "spec": {
+      "version": 1,
+      "chainId": 8453,
+      "target": "0x4444444444444444444444444444444444444444",
+      "value": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "calldata": "0x",
+      "registryRef": "0x5c1f7a93e0b46d28f3a5c7091e6b4d82a0f39c5d71b8e2460a93f5c7d1e08b36"
+    },
+    "canonical": "{\"calldata\":\"0x\",\"chainId\":8453,\"registryRef\":\"0x5c1f7a93e0b46d28f3a5c7091e6b4d82a0f39c5d71b8e2460a93f5c7d1e08b36\",\"target\":\"0x4444444444444444444444444444444444444444\",\"value\":\"115792089237316195423570985008687907853269984665640564039457584007913129639935\",\"version\":1}",
+    "hash": "0x619040048464e9983fa297592654f324cb641d36c7c7040167924b823e02f3e3"
+  }
+]
