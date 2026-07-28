@@ -86,6 +86,132 @@ moment.
 **Correctif proposé** : ajouter un `LICENSE` explicite à la racine, et le
 mentionner dans le brief du bounty.
 
+### 13:40 — Deux familles de clés, un seul préfixe documenté en évidence
+
+**Ce qu'on a fait** : collé dans `.env` la clé récupérée dans les paramètres du
+compte. Elle commence par `wfb_`.
+
+**Ce qui s'est passé** : 401 partout. Sur `/mcp` (`invalid_token`), sur
+`/api/user`, sur toute route authentifiée.
+
+**La cause** : KeeperHub a **deux** familles de clés, gérées par **deux**
+endpoints différents, et la page « API Keys » présente les deux onglets côte à
+côte sans avertissement :
+
+| Préfixe | Scope | Créée dans | Utilisable pour |
+|---|---|---|---|
+| `kh_` | Organisation | Settings → API Keys → onglet **Organisation** | REST, MCP, plugin Claude Code |
+| `wfb_` | Utilisateur | Settings → API Keys | **une seule route** : `POST /api/workflows/{id}/webhook` |
+
+Une clé `wfb_` est donc rejetée par 99 % de la plateforme, et le message d'erreur
+(`invalid_token`) ne dit pas pourquoi.
+
+**Correctifs proposés**, par ordre de rendement :
+1. Faire dire au 401 *quelle* famille de clé a été présentée :
+   « this endpoint requires an organization key (`kh_`); you presented a user
+   webhook key (`wfb_`) ». Le préfixe est connu du serveur, l'information est
+   gratuite.
+2. Renommer l'onglet « User » en « Webhook keys (`wfb_`) » dans l'UI.
+3. Mettre le tableau des préfixes en tête de `docs.keeperhub.com/api`, pas
+   seulement dans `/api/authentication`.
+
+### 13:45 — Aucune route REST n'est découvrable depuis l'API
+
+**Ce qu'on a fait** : cherché l'endpoint de lecture d'une exécution en sondant
+les noms plausibles.
+
+**Ce qui s'est passé** : `/api/executions`, `/api/runs`, `/api/keeper-runs`,
+`/api/execute`, `/api/wallets` → tous `404 not_found`. Aucun ne suggère la bonne
+forme.
+
+**Les vraies routes**, trouvées seulement en lisant la doc HTML page par page :
+
+| Ce qu'on cherche | Route réelle |
+|---|---|
+| exécuter un appel de contrat | `POST /api/execute/contract-call` |
+| statut d'une exécution directe | `GET /api/execute/{id}/status` |
+| statut d'une exécution de workflow | `GET /api/workflows/executions/{id}/status` |
+| attendre l'état terminal | `GET /api/workflows/executions/{id}/wait` |
+| wallet de l'organisation | `GET /api/user/wallet` |
+
+Les exécutions de workflow vivent sous `/api/workflows/executions/…` et non sous
+`/api/executions` : c'est la cause exacte de nos 404.
+
+**Correctif proposé** : une route `GET /api` renvoyant l'index des routes, ou un
+`404` qui propose la route la plus proche (« did you mean
+`/api/workflows/executions/{id}/status` ? »). Coût : quelques lignes. Gain : la
+demi-heure que chaque nouveau builder perd ici.
+
+### 13:50 — Le marketplace entier répond 503
+
+Tous les workflows testés — `helloworld`, `aave-v3-health-check`,
+`usdc-yield-rates-aave-vs-compound`, `defi-risk-snapshot` — renvoient
+`503 « The workflow owner has disabled this workflow »`, avec **et** sans
+authentification.
+
+Le catalogue `GET /api/mcp/workflows` répond pourtant 200 et ne liste plus que
+**20** workflows, contre **79** dans l'OpenAPI live consulté deux heures plus tôt
+le même jour.
+
+Un builder qui commence par le quickstart marketplace conclut que sa
+configuration est en cause et perd son après-midi. **Correctif proposé** : une
+page de statut, ou au minimum un message distinguant « ce workflow est désactivé
+par son auteur » de « le service est indisponible ».
+
+### 13:55 — `initialize` du MCP ne teste pas l'authentification
+
+`POST /mcp` `initialize` renvoie **toujours** `200` avec
+`authentication.required: true`, même sans token, même avec un token invalide.
+C'est une annonce de capacité, pas un verdict.
+
+On a donc cru la clé acceptée alors qu'elle ne l'était pas. Le vrai contrôle
+n'apparaît que sur `tools/list`.
+
+**Correctif proposé** : le documenter en une phrase dans
+`ai-tools/mcp-server` — « pour vérifier vos identifiants, appelez `tools/list`,
+pas `initialize` ».
+
+---
+
+## Contradictions relevées dans la documentation
+
+### Gas sponsorship sur Ethereum mainnet
+
+La page du hackathon annonce : *« KeeperHub offers gas sponsorship on mainnet
+Ethereum. »*
+
+`docs.keeperhub.com/wallet-management/gas` pose quatre conditions cumulatives,
+dont la troisième : *« transactions routed through a private mempool are not
+sponsored »*.
+
+Or `GET /api/chains` renvoie `usePrivateMempoolRpc: true` pour **Ethereum
+Mainnet (1)** et Sepolia — et pour aucune autre chaîne.
+
+Pris littéralement, Ethereum mainnet est donc **exclu** du sponsoring que le
+hackathon met en avant. Soit un override existe pour l'événement, soit
+l'annonce devance la configuration. **À faire trancher sur le Discord avant de
+bâtir une démo sur l'hypothèse du gas gratuit en L1.**
+
+### Simulation absente de l'audit trail
+
+`docs/08-integration-keeperhub.md` § 4 de ce projet supposait que le résultat de
+simulation était lisible dans l'audit trail. Il ne l'est pas : `simulate: true`
+n'insère **aucune** ligne d'exécution, et le résultat n'existe que dans la
+réponse HTTP synchrone.
+
+Conséquence pour Warrant : la simulation doit être appelée explicitement **avant**
+l'ouverture du mandat, et son résultat conservé par nos soins. C'est faisable et
+même plus propre, mais la doc de conception doit être corrigée.
+
+### `blockNumber` n'est exposé nulle part
+
+Aucune route ne renvoie le numéro de bloc d'inclusion. Il faut le dériver du
+`txHash` via un RPC.
+
+Sans conséquence pour Warrant — le Settler attend de toute façon les
+confirmations sur un RPC indépendant, et c'est ce receipt qui fait foi — mais
+c'est une surprise pour qui construit un indexeur sur l'audit trail seul.
+
 ---
 
 ## À vérifier au premier contact avec l'API
@@ -94,9 +220,15 @@ Ces points ne peuvent pas être tranchés sans clé API. Ils sont ouverts.
 
 | # | Question | Pourquoi ça bloque |
 |---|---|---|
-| 1 | **Plafonds du wallet agentique** : 200 USDC/jour, 100 USDC/transfert sont-ils relevables ? | La cible de volume du projet est de ~3 750 USDC/jour de cautions. Sans relèvement, elle est inatteignable |
-| 2 | Le record d'exécution expose-t-il `blockNumber` et le résultat de **simulation** via l'API, ou seulement dans l'UI ? | Tout le règlement en dépend |
-| 3 | Conditions et **quotas** du gas sponsoring sur Ethereum mainnet | Dimensionne le volume de démo |
-| 4 | Le wallet agentique peut-il exécuter sur **Ethereum mainnet** ? L'allowlist par défaut est Base + Tempo | Le plan de démo suppose L1 |
-| 5 | Délai et revue de publication d'un workflow sur la marketplace | Jalon J9–J11 |
+| 1 | **Cap de dépense journalier de l'organisation** : quelle est la valeur par défaut, et où se règle-t-elle ? `GET /api/analytics/spend-cap` le lit, aucune route ne l'écrit | Un dépassement fait échouer les exécutions en 403 jusqu'à minuit UTC |
+| 2 | **Gas sponsorship mainnet** : l'override hackathon existe-t-il malgré `usePrivateMempoolRpc: true` ? | Contradiction relevée ci-dessus. Dimensionne toute la démo |
 | 6 | Y a-t-il une limite au montant d'un paiement x402 accepté ? | Dimensionne `maxBond` |
+
+**Résolus le 28/07** : la forme du record d'exécution, les routes REST, le format
+des clés, l'authentification MCP headless (une clé `kh_` en Bearer suffit, pas
+d'OAuth), et les plafonds du wallet agentique — 200 USDC/jour, 100 USDC par
+transfert, allowlist Base + Tempo, **non configurables** (« not user-configurable
+today », un relèvement demande une action opérateur). Ces plafonds ne concernent
+que le **wallet agentique** qui paie les workflows x402, pas le wallet
+d'exécution de l'organisation, qui lui couvre les 22 chaînes dont Ethereum
+mainnet.

@@ -1,36 +1,36 @@
 /**
- * Client KeeperHub — REST + marketplace.
+ * Client KeeperHub — exécution directe et audit trail.
  *
- * Deux surfaces sont utilisées :
- *   1. l'exécution onchain (`execute_contract_call`, `execute_transfer`, …)
- *   2. l'audit trail (`get_execution`), qui **localise et date** une exécution.
+ * Routes vérifiées contre `docs.keeperhub.com/api/*` le 28/07/2026. Elles ne
+ * figurent PAS dans l'OpenAPI live (`/api/openapi`), qui ne couvre que la
+ * marketplace `/api/mcp/workflows/{slug}/call`. C'est la friction n°1 du
+ * teardown d'onboarding.
  *
- * L'audit trail ne décide jamais d'un verdict. La décision est une lecture
- * onchain indépendante faite par l'évaluateur sur un RPC tiers — utiliser
- * KeeperHub pour exécuter *et* pour juger réintroduirait une circularité.
+ * Division du travail, à ne jamais inverser : l'audit trail **localise et
+ * date** une exécution ; la décision de verdict est une lecture onchain
+ * indépendante faite par l'évaluateur sur un RPC tiers. Utiliser KeeperHub
+ * pour exécuter *et* pour juger réintroduirait une circularité.
  * Voir docs/08-integration-keeperhub.md § 4.
- *
- * ⚠ La forme exacte du record d'exécution n'est pas publiée dans un schéma
- * machine (l'OpenAPI live de KeeperHub est le catalogue marketplace, pas le
- * CRUD REST). Le parsing ci-dessous est donc **défensif** : il accepte
- * plusieurs noms de champs plausibles et signale ce qu'il n'a pas trouvé,
- * plutôt que de supposer. C'est le risque R3 de docs/13-risques.md.
  */
 
 import type { Address, Hex } from '@warrant/core'
 
 export interface KeeperHubConfig {
-  /** Clé API scoped organisation, préfixe `kh_`. Jamais dans le dépôt. */
+  /**
+   * Clé API **d'organisation**, préfixe `kh_`.
+   *
+   * Une clé `wfb_` est une clé *utilisateur* et n'est acceptée que par
+   * `POST /api/workflows/{id}/webhook` — elle est rejetée en 401 partout
+   * ailleurs, y compris sur le serveur MCP.
+   */
   apiKey: string
   baseUrl?: string
-  /** Nombre de tentatives sur 429 et 5xx. */
   maxRetries?: number
   fetchImpl?: typeof fetch
 }
 
 const DEFAULT_BASE_URL = 'https://app.keeperhub.com'
 
-/** Enveloppe d'erreur documentée : `{ error, detail, hint, docs, request_id }`. */
 export interface KeeperHubErrorBody {
   error: string
   detail?: string
@@ -42,7 +42,6 @@ export interface KeeperHubErrorBody {
 export class KeeperHubError extends Error {
   readonly status: number
   readonly body: KeeperHubErrorBody
-  /** Journalisé systématiquement : c'est ce qui permet de remonter un incident. */
   readonly requestId: string | undefined
 
   constructor(status: number, body: KeeperHubErrorBody) {
@@ -55,36 +54,85 @@ export class KeeperHubError extends Error {
   }
 }
 
-/** Statut d'une exécution KeeperHub, normalisé. */
-export type ExecutionStatus = 'pending' | 'running' | 'success' | 'failed' | 'unknown'
+/** Le cap journalier du wallet d'exécution est dépassé (HTTP 403). */
+export class SpendCapExceededError extends KeeperHubError {
+  constructor(body: KeeperHubErrorBody) {
+    super(403, body)
+    this.name = 'SpendCapExceededError'
+  }
+}
+
+export type ExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'cancelled'
+  | 'unknown'
+
+export interface TransactionRef {
+  hash: Hex
+  nodeId?: string
+  nodeName?: string
+  chainId?: number
+}
 
 /**
  * Record d'exécution normalisé.
  *
- * Les champs optionnels le sont réellement : ne jamais supposer leur présence.
- * `raw` conserve la réponse intégrale pour l'audit et pour le teardown
- * d'onboarding.
+ * ⚠ `blockNumber` n'est **pas** exposé par l'API KeeperHub, sur aucune route.
+ * Il doit être dérivé du `txHash` via un RPC — ce que fait le Settler, qui
+ * attend de toute façon les confirmations sur un RPC indépendant.
+ *
+ * ⚠ Le résultat de simulation n'apparaît pas non plus dans l'audit trail :
+ * `simulate: true` ne crée aucune ligne d'exécution. Il n'existe que dans la
+ * réponse HTTP synchrone de l'appel de simulation.
  */
 export interface Execution {
   executionId: string
   status: ExecutionStatus
   txHash?: Hex
-  blockNumber?: bigint
-  gasUsed?: bigint
-  /** Distingue un échec d'exécution d'une exécution réussie non conforme. */
+  transactions: TransactionRef[]
+  gasUsedWei?: bigint
   outcome?: string
-  /** Résultat de la simulation pré-soumission, si l'API l'expose. */
-  simulation?: unknown
-  retries?: number
-  timestamp?: string
+  error?: string
+  completedAt?: string
   raw: unknown
+}
+
+export interface SimulationResult {
+  success: boolean
+  status: 'simulated'
+  from: Address
+  to: Address
+  value?: string
+  gasEstimate?: string
+  simulatedReturnValue?: unknown
+  wouldRevert: boolean
+  revertReason?: string
+}
+
+export interface WalletInfo {
+  hasWallet: boolean
+  walletAddress?: Address
+  walletId?: string
+  isActive?: boolean
+}
+
+export interface SpendCap {
+  dailyCapWei: string
+  spentTodayWei: string
+  remainingWei: string
+  percentUsed: number
 }
 
 export interface ContractCallRequest {
   chainId: number
-  to: Address
+  contractAddress: Address
+  /** Calldata complet. */
   data: Hex
   value?: string
+  gasLimitMultiplier?: string
 }
 
 export class KeeperHubClient {
@@ -93,13 +141,20 @@ export class KeeperHubClient {
   private readonly maxRetries: number
   private readonly fetchImpl: typeof fetch
 
-  /** Derniers `request_id` vus, pour le journal de debug et les office hours. */
+  /** Journal des `request_id`, pour remonter un incident en office hours. */
   readonly requestIds: string[] = []
 
   constructor(cfg: KeeperHubConfig) {
     if (!cfg.apiKey) throw new Error('KeeperHubClient: apiKey manquante')
+    if (cfg.apiKey.startsWith('wfb_')) {
+      throw new Error(
+        'KeeperHubClient: une clé `wfb_` est une clé webhook utilisateur, ' +
+          "acceptée uniquement par POST /api/workflows/{id}/webhook. Il faut une clé d'organisation `kh_` " +
+          '(Settings → API Keys → onglet Organisation, ou `kh auth login`).',
+      )
+    }
     this.apiKey = cfg.apiKey
-    this.baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '')
+    this.baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
     this.maxRetries = cfg.maxRetries ?? 4
     this.fetchImpl = cfg.fetchImpl ?? fetch
   }
@@ -108,6 +163,7 @@ export class KeeperHubClient {
     method: string,
     path: string,
     body?: unknown,
+    extraHeaders: Record<string, string> = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`
     let lastErr: unknown
@@ -121,6 +177,7 @@ export class KeeperHubClient {
             authorization: `Bearer ${this.apiKey}`,
             'content-type': 'application/json',
             accept: 'application/json',
+            ...extraHeaders,
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         })
@@ -134,7 +191,7 @@ export class KeeperHubClient {
       const requestId = res.headers.get('x-request-id')
       if (requestId) this.requestIds.push(requestId)
 
-      // 429 : la limite documentée est de 100 req/min authentifié.
+      // La limite documentée est de 60 req/min par clé sur l'exécution directe.
       if (res.status === 429 || res.status >= 500) {
         if (attempt === this.maxRetries) {
           throw new KeeperHubError(res.status, await safeErrorBody(res))
@@ -151,13 +208,16 @@ export class KeeperHubClient {
       if (!res.ok) {
         const errBody = await safeErrorBody(res)
         if (errBody.request_id) this.requestIds.push(errBody.request_id)
+        // Le cap journalier n'est pas une erreur transitoire : ne pas réessayer.
+        if (res.status === 403 && /spending cap/i.test(errBody.detail ?? errBody.error)) {
+          throw new SpendCapExceededError(errBody)
+        }
         throw new KeeperHubError(res.status, errBody)
       }
 
       const json = (await res.json()) as { data?: T } | T
-      // Enveloppe documentée `{ data }`, mais certaines routes répondent à plat.
       return (json as { data?: T }).data !== undefined
-        ? ((json as { data: T }).data)
+        ? (json as { data: T }).data
         : (json as T)
     }
 
@@ -166,50 +226,123 @@ export class KeeperHubClient {
       : new Error(`KeeperHub: échec réseau sur ${method} ${path}`)
   }
 
-  /** Exécute un appel de contrat arbitraire — le chemin générique de Warrant. */
-  async executeContractCall(
-    req: ContractCallRequest,
-  ): Promise<{ executionId: string; status: string }> {
+  // ── Exécution directe ─────────────────────────────────────────────────────
+
+  /**
+   * Simule un appel de contrat sans rien diffuser.
+   *
+   * `simulate` doit être un **booléen strict** : l'API rejette `"true"` et `1`
+   * en 400, précisément pour qu'une coercition accidentelle ne se transforme
+   * pas en diffusion réelle. On ne prend donc jamais ce paramètre de
+   * l'extérieur.
+   *
+   * Un mandat dont la simulation échoue n'est jamais ouvert : la caution n'est
+   * pas prélevée pour un échec prévisible.
+   */
+  async simulateContractCall(req: ContractCallRequest): Promise<SimulationResult> {
     return this.request('POST', '/api/execute/contract-call', {
-      chainId: req.chainId,
-      to: req.to,
-      data: req.data,
-      value: req.value ?? '0',
+      ...contractCallBody(req),
+      simulate: true,
     })
   }
 
-  /** Appelle un workflow du marketplace. Peut répondre 402 si payant. */
-  async callWorkflow(
-    slug: string,
-    input: Record<string, unknown>,
-  ): Promise<{ executionId: string; status: string }> {
-    return this.request('POST', `/api/mcp/workflows/${slug}/call`, input)
+  /**
+   * Exécute un appel de contrat. Synchrone côté API.
+   *
+   * `idempotencyKey` est indispensable dès qu'un retry est possible : la
+   * fenêtre de replay est de 24 h, à l'échelle de l'organisation. Sans elle,
+   * un timeout réseau suivi d'un retry diffuse deux transactions.
+   */
+  async executeContractCall(
+    req: ContractCallRequest,
+    idempotencyKey?: string,
+  ): Promise<Execution> {
+    const raw = await this.request<unknown>(
+      'POST',
+      '/api/execute/contract-call',
+      { ...contractCallBody(req), simulate: false },
+      idempotencyKey ? { 'idempotency-key': idempotencyKey } : {},
+    )
+    return normalizeExecution(raw)
   }
 
-  async getExecution(executionId: string): Promise<Execution> {
+  async executeTransfer(
+    req: {
+      chainId: number
+      recipientAddress: Address
+      /** Montant en unités humaines, ex. "0.1". */
+      amount: string
+      tokenAddress?: Address
+    },
+    idempotencyKey?: string,
+  ): Promise<Execution> {
+    const raw = await this.request<unknown>(
+      'POST',
+      '/api/execute/transfer',
+      { ...req, simulate: false },
+      idempotencyKey ? { 'idempotency-key': idempotencyKey } : {},
+    )
+    return normalizeExecution(raw)
+  }
+
+  /** Statut d'une exécution directe. */
+  async getDirectExecution(executionId: string): Promise<Execution> {
     const raw = await this.request<unknown>(
       'GET',
-      `/api/executions/${encodeURIComponent(executionId)}`,
+      `/api/execute/${encodeURIComponent(executionId)}/status`,
     )
-    return normalizeExecution(executionId, raw)
+    return normalizeExecution(raw, executionId)
+  }
+
+  // ── Exécutions de workflow ────────────────────────────────────────────────
+
+  async getWorkflowExecution(executionId: string): Promise<Execution> {
+    const raw = await this.request<unknown>(
+      'GET',
+      `/api/workflows/executions/${encodeURIComponent(executionId)}/status`,
+    )
+    return normalizeExecution(raw, executionId)
   }
 
   /**
-   * Suit une exécution jusqu'à terminaison.
+   * Attend l'état terminal côté serveur. Préférable à une boucle de polling :
+   * un seul appel, et pas de rate limit consommé pour rien.
+   *
+   * `timeoutMs` est plafonné à 60 s par l'API.
+   */
+  async waitForWorkflowExecution(
+    executionId: string,
+    timeoutMs = 25_000,
+  ): Promise<Execution> {
+    const capped = Math.min(Math.max(timeoutMs, 1_000), 60_000)
+    const raw = await this.request<unknown>(
+      'GET',
+      `/api/workflows/executions/${encodeURIComponent(executionId)}/wait?timeoutMs=${capped}`,
+    )
+    return normalizeExecution(raw, executionId)
+  }
+
+  /**
+   * Suit une exécution jusqu'à terminaison, quel que soit son type.
    *
    * Ne décide de rien : rend le record pour que le Settler aille lire la chaîne.
    */
   async pollExecution(
     executionId: string,
-    opts: { timeoutMs?: number; intervalMs?: number } = {},
+    opts: { timeoutMs?: number; intervalMs?: number; kind?: 'direct' | 'workflow' } = {},
   ): Promise<Execution> {
     const timeoutMs = opts.timeoutMs ?? 180_000
     const intervalMs = opts.intervalMs ?? 3_000
+    const kind = opts.kind ?? 'direct'
     const deadline = Date.now() + timeoutMs
 
     for (;;) {
-      const exec = await this.getExecution(executionId)
-      if (exec.status === 'success' || exec.status === 'failed') return exec
+      const exec =
+        kind === 'workflow'
+          ? await this.getWorkflowExecution(executionId)
+          : await this.getDirectExecution(executionId)
+
+      if (isTerminal(exec.status)) return exec
       if (Date.now() >= deadline) {
         throw new Error(
           `KeeperHub: exécution ${executionId} toujours ${exec.status} après ${timeoutMs} ms`,
@@ -218,34 +351,97 @@ export class KeeperHubClient {
       await sleep(intervalMs)
     }
   }
+
+  // ── Wallet et budget ──────────────────────────────────────────────────────
+
+  /** Wallet Turnkey de l'organisation active. Les soldes sont ailleurs. */
+  async getWallet(): Promise<WalletInfo> {
+    return this.request('GET', '/api/user/wallet')
+  }
+
+  async getWalletBalances(): Promise<unknown> {
+    return this.request('GET', '/api/user/wallet/balances')
+  }
+
+  /**
+   * Cap de dépense journalier de l'organisation, en wei.
+   *
+   * À surveiller avant un runner de volume : un dépassement fait échouer les
+   * exécutions en 403, et le compteur ne se remet à zéro qu'à minuit UTC.
+   */
+  async getSpendCap(): Promise<SpendCap> {
+    return this.request('GET', '/api/analytics/spend-cap')
+  }
+
+  async getChains(): Promise<unknown[]> {
+    return this.request('GET', '/api/chains')
+  }
+}
+
+function contractCallBody(req: ContractCallRequest): Record<string, unknown> {
+  return {
+    chainId: req.chainId,
+    contractAddress: req.contractAddress,
+    data: req.data,
+    value: req.value ?? '0',
+    ...(req.gasLimitMultiplier ? { gasLimitMultiplier: req.gasLimitMultiplier } : {}),
+  }
+}
+
+function isTerminal(status: ExecutionStatus): boolean {
+  return status === 'success' || status === 'failed' || status === 'cancelled'
 }
 
 /**
- * Normalise un record d'exécution en acceptant plusieurs conventions de nommage.
+ * Normalise un record d'exécution.
  *
- * Tant que la forme réelle n'est pas confirmée contre l'API live (spike J1–J2),
- * il serait imprudent de coder contre un seul jeu de noms.
+ * Les deux familles de routes n'ont pas le même vocabulaire : l'exécution
+ * directe dit `completed`/`failed` et `transactionHash`, le workflow dit
+ * `success`/`error` et `transactionHashes[]`. On ramène tout à une forme unique.
  */
-export function normalizeExecution(executionId: string, raw: unknown): Execution {
+export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
   const r = (raw ?? {}) as Record<string, unknown>
 
-  const txHash = pickString(r, ['txHash', 'transactionHash', 'tx_hash', 'hash'])
-  const blockNumber = pickBigInt(r, ['blockNumber', 'block_number', 'block'])
-  const gasUsed = pickBigInt(r, ['gasUsed', 'gas_used'])
+  const transactions: TransactionRef[] = []
+  const list = r['transactionHashes']
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      if (typeof item === 'string') {
+        transactions.push({ hash: item as Hex })
+      } else if (item && typeof item === 'object') {
+        const o = item as Record<string, unknown>
+        const hash = pickString(o, ['hash', 'transactionHash', 'txHash'])
+        if (hash) {
+          transactions.push({
+            hash: hash as Hex,
+            ...(typeof o['nodeId'] === 'string' ? { nodeId: o['nodeId'] } : {}),
+            ...(typeof o['nodeName'] === 'string' ? { nodeName: o['nodeName'] } : {}),
+            ...(typeof o['chainId'] === 'number' ? { chainId: o['chainId'] } : {}),
+          })
+        }
+      }
+    }
+  }
+
+  const single = pickString(r, ['transactionHash', 'txHash', 'hash'])
+  if (single && !transactions.some((t) => t.hash.toLowerCase() === single.toLowerCase())) {
+    transactions.push({ hash: single as Hex })
+  }
+
+  const gasUsedWei = pickBigInt(r, ['gasUsedWei', 'gasUsed'])
   const outcome = pickString(r, ['outcome', 'result'])
-  const timestamp = pickString(r, ['timestamp', 'createdAt', 'created_at'])
-  const retries = pickBigInt(r, ['retries', 'retryCount', 'retry_count'])
+  const errorText = pickString(r, ['error', 'errorMessage'])
+  const completedAt = pickString(r, ['completedAt', 'completed_at', 'timestamp'])
 
   return {
-    executionId,
+    executionId: pickString(r, ['executionId', 'id']) ?? fallbackId,
     status: normalizeStatus(pickString(r, ['status', 'state'])),
-    ...(txHash ? { txHash: txHash as Hex } : {}),
-    ...(blockNumber !== undefined ? { blockNumber } : {}),
-    ...(gasUsed !== undefined ? { gasUsed } : {}),
+    ...(transactions[0] ? { txHash: transactions[0].hash } : {}),
+    transactions,
+    ...(gasUsedWei !== undefined ? { gasUsedWei } : {}),
     ...(outcome ? { outcome } : {}),
-    ...(r['simulation'] !== undefined ? { simulation: r['simulation'] } : {}),
-    ...(retries !== undefined ? { retries: Number(retries) } : {}),
-    ...(timestamp ? { timestamp } : {}),
+    ...(errorText ? { error: errorText } : {}),
+    ...(completedAt ? { completedAt } : {}),
     raw,
   }
 }
@@ -261,6 +457,9 @@ function normalizeStatus(s: string | undefined): ExecutionStatus {
     case 'error':
     case 'reverted':
       return 'failed'
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled'
     case 'running':
     case 'executing':
       return 'running'
@@ -272,10 +471,7 @@ function normalizeStatus(s: string | undefined): ExecutionStatus {
   }
 }
 
-function pickString(
-  o: Record<string, unknown>,
-  keys: string[],
-): string | undefined {
+function pickString(o: Record<string, unknown>, keys: string[]): string | undefined {
   for (const k of keys) {
     const v = o[k]
     if (typeof v === 'string' && v.length > 0) return v
@@ -283,10 +479,7 @@ function pickString(
   return undefined
 }
 
-function pickBigInt(
-  o: Record<string, unknown>,
-  keys: string[],
-): bigint | undefined {
+function pickBigInt(o: Record<string, unknown>, keys: string[]): bigint | undefined {
   for (const k of keys) {
     const v = o[k]
     if (typeof v === 'bigint') return v
@@ -296,10 +489,6 @@ function pickBigInt(
   return undefined
 }
 
-/**
- * Lit le corps d'erreur sans jamais lever : une réponse d'erreur mal formée ne
- * doit pas masquer le code HTTP, qui est l'information la plus utile.
- */
 async function safeErrorBody(res: Response): Promise<KeeperHubErrorBody> {
   try {
     const parsed = (await res.json()) as Partial<KeeperHubErrorBody>
@@ -320,10 +509,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/**
- * Référence compacte reliant un verdict à la fois à l'exécution KeeperHub et à
- * la transaction onchain : `keccak256(executionId ‖ txHash)`.
- */
+/** `execRef` relie un verdict à l'exécution KeeperHub et à la transaction. */
 export function execRefInput(executionId: string, txHash: Hex): string {
   return `${executionId}${txHash}`
 }
