@@ -88,15 +88,45 @@ export interface TransactionRef {
  * `simulate: true` ne crée aucune ligne d'exécution. Il n'existe que dans la
  * réponse HTTP synchrone de l'appel de simulation.
  */
+/** L'appel tel que KeeperHub le rapporte avoir exécuté. */
+export interface ExecutedCall {
+  contractAddress?: Address
+  functionName?: string
+  functionSignature?: string
+  args?: Record<string, unknown>
+  reverted?: boolean
+  sponsored?: boolean
+  /**
+   * Destinataire de la transaction top-level.
+   *
+   * Diffère de `contractAddress` quand le gas est sponsorisé : c'est alors
+   * l'adresse du **forwarder**, pas celle du contrat cible. C'est le champ qui
+   * révèle qu'une décapsulation sera nécessaire côté évaluateur.
+   */
+  topLevelTo?: Address
+}
+
 export interface Execution {
   executionId: string
   status: ExecutionStatus
   txHash?: Hex
   transactions: TransactionRef[]
   gasUsedWei?: bigint
+  gasPriceWei?: bigint
   outcome?: string
   error?: string
   completedAt?: string
+  /** `contract-call`, `transfer`, … */
+  type?: string
+  /** Réseau rapporté sous forme de chaîne par l'API. */
+  chainId?: number
+  /** Nombre de tentatives. Alimente la métrique de fiabilité du dashboard. */
+  retryCount?: number
+  /** Vrai si KeeperHub a payé le gas — implique un passage par forwarder. */
+  sponsored?: boolean
+  executedCall?: ExecutedCall
+  /** Lien d'explorateur fourni par l'API, réutilisé tel quel dans les verdicts. */
+  transactionLink?: string
   raw: unknown
 }
 
@@ -401,6 +431,9 @@ function isTerminal(status: ExecutionStatus): boolean {
  */
 export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
   const r = (raw ?? {}) as Record<string, unknown>
+  // L'exécution directe imbrique l'essentiel sous `result`.
+  const result = (r['result'] ?? {}) as Record<string, unknown>
+  const call = (result['executedCall'] ?? {}) as Record<string, unknown>
 
   const transactions: TransactionRef[] = []
   const list = r['transactionHashes']
@@ -423,27 +456,84 @@ export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
     }
   }
 
-  const single = pickString(r, ['transactionHash', 'txHash', 'hash'])
+  const single =
+    pickString(r, ['transactionHash', 'txHash', 'hash']) ??
+    pickString(result, ['transactionHash', 'txHash'])
   if (single && !transactions.some((t) => t.hash.toLowerCase() === single.toLowerCase())) {
     transactions.push({ hash: single as Hex })
   }
 
-  const gasUsedWei = pickBigInt(r, ['gasUsedWei', 'gasUsed'])
-  const outcome = pickString(r, ['outcome', 'result'])
+  const gasUsedWei = pickBigInt(r, ['gasUsedWei']) ?? pickBigInt(result, ['gasUsed'])
+  const gasPriceWei =
+    pickBigInt(r, ['gasPriceWei']) ?? pickBigInt(result, ['effectiveGasPrice'])
   const errorText = pickString(r, ['error', 'errorMessage'])
   const completedAt = pickString(r, ['completedAt', 'completed_at', 'timestamp'])
+  const retryCount = pickBigInt(r, ['retryCount', 'retries'])
+  // `network` est une chaîne dans la réponse de l'exécution directe.
+  const chainId = pickBigInt(r, ['network', 'chainId'])
+  const sponsored =
+    pickBool(result, ['sponsored']) ?? pickBool(call, ['sponsored'])
+
+  const executedCall: ExecutedCall = {
+    ...(pickString(call, ['contractAddress'])
+      ? { contractAddress: pickString(call, ['contractAddress']) as Address }
+      : {}),
+    ...(pickString(call, ['functionName'])
+      ? { functionName: pickString(call, ['functionName'])! }
+      : {}),
+    ...(pickString(call, ['functionSignature'])
+      ? { functionSignature: pickString(call, ['functionSignature'])! }
+      : {}),
+    ...(call['args'] && typeof call['args'] === 'object'
+      ? { args: call['args'] as Record<string, unknown> }
+      : {}),
+    ...(pickBool(call, ['reverted']) !== undefined
+      ? { reverted: pickBool(call, ['reverted'])! }
+      : {}),
+    ...(pickBool(call, ['sponsored']) !== undefined
+      ? { sponsored: pickBool(call, ['sponsored'])! }
+      : {}),
+    ...(pickString(call, ['topLevelTo'])
+      ? { topLevelTo: pickString(call, ['topLevelTo']) as Address }
+      : {}),
+  }
+
+  // `result.success === false` signale une exécution qui a bien été soumise mais
+  // dont l'appel a reverté. C'est un échec d'exécution, pas une non-conformité.
+  const innerSuccess = pickBool(result, ['success'])
+  const rawStatus = normalizeStatus(pickString(r, ['status', 'state']))
+  const status: ExecutionStatus =
+    rawStatus === 'success' && innerSuccess === false ? 'failed' : rawStatus
 
   return {
     executionId: pickString(r, ['executionId', 'id']) ?? fallbackId,
-    status: normalizeStatus(pickString(r, ['status', 'state'])),
+    status,
     ...(transactions[0] ? { txHash: transactions[0].hash } : {}),
     transactions,
     ...(gasUsedWei !== undefined ? { gasUsedWei } : {}),
-    ...(outcome ? { outcome } : {}),
+    ...(gasPriceWei !== undefined ? { gasPriceWei } : {}),
+    ...(pickString(r, ['type']) ? { type: pickString(r, ['type'])! } : {}),
+    ...(chainId !== undefined ? { chainId: Number(chainId) } : {}),
+    ...(retryCount !== undefined ? { retryCount: Number(retryCount) } : {}),
+    ...(sponsored !== undefined ? { sponsored } : {}),
+    ...(Object.keys(executedCall).length > 0 ? { executedCall } : {}),
+    ...(pickString(r, ['transactionLink']) ?? pickString(result, ['transactionLink'])
+      ? {
+          transactionLink: (pickString(r, ['transactionLink']) ??
+            pickString(result, ['transactionLink']))!,
+        }
+      : {}),
     ...(errorText ? { error: errorText } : {}),
     ...(completedAt ? { completedAt } : {}),
     raw,
   }
+}
+
+function pickBool(o: Record<string, unknown>, keys: string[]): boolean | undefined {
+  for (const k of keys) {
+    if (typeof o[k] === 'boolean') return o[k] as boolean
+  }
+  return undefined
 }
 
 function normalizeStatus(s: string | undefined): ExecutionStatus {
