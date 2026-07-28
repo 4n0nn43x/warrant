@@ -1,0 +1,35 @@
+{
+  "name": "@warrant/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Warrant MCP server — four tools, x402 v2 MCP transport, HTTP streamable",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "warrant-mcp": "./dist/bin/mcp.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "start": "node --experimental-strip-types src/bin/mcp.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@warrant/core": "workspace:*",
+    "@warrant/sdk": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
