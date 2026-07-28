@@ -1,0 +1,16 @@
+{
+  "network": "ethereum-sepolia",
+  "chainId": 11155111,
+  "deployedAt": "2026-07-28",
+  "note": "Deploiement de developpement. La cible de la soumission est Base (8453) avec l'USDC natif Circle; celui-ci sert a valider le cycle complet onchain avant de disposer de fonds sur Base.",
+  "contracts": {
+    "WarrantEscrow": "0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12",
+    "MockUSDC": "0x719bc756859fd2D8cdF312b3D7295A127e9576E5"
+  },
+  "roles": {
+    "opener": "0xE9D3d40A1e80F1C20A318EDFC70869D61F971567",
+    "settler": "0x3e7f79962eD7C93BDf4A88Ce35Fb1061048136Ec",
+    "treasury": "0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b"
+  },
+  "params": { "feeBps": 250, "minDurationSeconds": 900, "maxDurationSeconds": 604800 }
+}
