@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import './glass.css'
 
 /** Durées de chaque phase, en millisecondes. Cycle total ≈ 3,4 s. */
 const PHASE_MS = { p1: 800, splash: 800, p2: 800, idle: 1000 } as const
@@ -177,7 +178,7 @@ export default function App() {
           </ul>
 
           <div className="nav-actions">
-            <a href="#" className="btn-login">
+            <a href="#" className="btn-login glass">
               Log in
             </a>
             <a href="#" className="btn-signup">
@@ -228,10 +229,11 @@ export default function App() {
           </svg>
 
           <div
-            className="icon-node node-light-right"
+            className="icon-node glass node-light-right"
             id="node-stack"
             ref={nodeStackRef}
           >
+            <span className="node-ring" />
             <svg viewBox="0 0 24 24">
               <polygon points="12 2 2 7 12 12 22 7 12 2" />
               <polyline points="2 17 12 22 22 17" />
@@ -243,7 +245,7 @@ export default function App() {
 
           <div className="pipeline-center">
             <div className="splash" ref={splashRef} />
-            <div className="icon-node-center" id="node-x" ref={nodeXRef}>
+            <div className="icon-node-center glass glass-rim" id="node-x" ref={nodeXRef}>
               <XeroMark />
             </div>
           </div>
@@ -251,10 +253,11 @@ export default function App() {
           <div className="pipeline-line right" />
 
           <div
-            className="icon-node node-light-left"
+            className="icon-node glass node-light-left"
             id="node-shield"
             ref={nodeShieldRef}
           >
+            <span className="node-ring" />
             <svg viewBox="0 0 24 24">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
               <polyline points="9 12 11 14 15 10" />

@@ -88,14 +88,16 @@ nav {
 }
 
 .btn-login {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border);
+  --glass-radius: 999px;
+  --glass-blur: 10px;
+  border: none;
   color: #fff;
   font-weight: 500;
+  transition: --glass-bright 0.2s, transform 0.2s;
 }
 
 .btn-login:hover {
-  background: rgba(255, 255, 255, 0.12);
+  --glass-bright: 1.7;
 }
 
 .btn-signup {
@@ -232,49 +234,41 @@ nav {
   opacity: 0.6;
 }
 
+/* Les nœuds sont en verre, pas en neumorphisme : les deux langages sont
+   opposés — l'un est creusé et opaque, l'autre translucide et flottant. */
 .icon-node {
+  --glass-radius: 50%;
+  --glass-blur: 12px;
   position: relative;
   width: 46px;
   height: 46px;
-  border-radius: 50%;
-  background: #1a1a24;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
   z-index: 3;
-  box-shadow:
-    6px 6px 12px rgba(0, 0, 0, 0.4),
-    -4px -4px 10px rgba(255, 255, 255, 0.03),
-    inset 1px 1px 1px rgba(255, 255, 255, 0.05),
-    inset 4px 4px 8px rgba(0, 0, 0, 0.4);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s, --glass-bright 0.2s;
 }
 
-.icon-node::after {
-  content: '';
+/* L'anneau pointillé extérieur, conservé du design d'origine. Il ne peut plus
+   passer par ::after, qui porte désormais le liseré du verre. */
+.icon-node .node-ring {
   position: absolute;
   inset: -7px;
-  border: 1px dotted #1a1a24;
+  border: 1px dotted rgba(255, 255, 255, 0.14);
   border-radius: 50%;
   pointer-events: none;
 }
 
 .icon-node:hover {
   transform: translateY(-1px);
-  box-shadow:
-    8px 8px 16px rgba(0, 0, 0, 0.5),
-    -5px -5px 12px rgba(255, 255, 255, 0.04),
-    inset 1px 1px 1px rgba(255, 255, 255, 0.06),
-    inset 4px 4px 8px rgba(0, 0, 0, 0.4);
+  --glass-bright: 1.6;
 }
 
 .icon-node:active {
   transform: translateY(0);
-  box-shadow:
-    inset 3px 3px 8px rgba(0, 0, 0, 0.6),
-    inset -2px -2px 6px rgba(255, 255, 255, 0.03);
+  --glass-bright: 1.2;
 }
 
 .icon-node svg {
@@ -366,22 +360,20 @@ nav {
   }
 }
 
+/* Le nœud central est le seul à porter un liseré animé : c'est la pièce
+   maîtresse, et multiplier les rims tournants les banaliserait. */
 .icon-node-center {
+  --glass-radius: 50%;
+  --glass-blur: 16px;
+  --glass-tint: color-mix(in srgb, var(--accent-pink) 12%, rgba(12, 12, 20, 0.5));
   position: relative;
   width: 64px;
   height: 64px;
-  border-radius: 50%;
-  background: #1e1e2c;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   z-index: 3;
-  box-shadow:
-    8px 8px 16px rgba(0, 0, 0, 0.5),
-    -6px -6px 14px rgba(255, 255, 255, 0.04),
-    inset 1px 1px 2px rgba(255, 255, 255, 0.06),
-    inset 6px 6px 12px rgba(0, 0, 0, 0.5);
 }
 
 .icon-node-center svg {
@@ -395,8 +387,33 @@ nav {
 /* ─── HERO TEXT ───────────────────────────────────────────────────────── */
 
 .hero-content {
+  position: relative;
   max-width: 620px;
   z-index: 1;
+}
+
+/**
+ * Scrim de lisibilité.
+ *
+ * Sans lui, le texte est posé à même l'arc magenta et les ratios sont
+ * indéfendables : 1,61:1 sur la fin du dégradé du titre, 1,2:1 sur le
+ * sous-titre, là où WCAG demande 4,5:1. Le halo reste intact autour ; on
+ * assombrit seulement la zone que le texte occupe, avec une transition assez
+ * large pour qu'aucune arête ne soit visible.
+ */
+.hero-content::before {
+  content: '';
+  position: absolute;
+  inset: -14% -24%;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    62% 58% at 50% 46%,
+    rgba(10, 10, 15, 0.88) 0%,
+    rgba(10, 10, 15, 0.72) 42%,
+    rgba(10, 10, 15, 0.34) 68%,
+    transparent 82%
+  );
 }
 
 .hero-heading {
@@ -411,7 +428,9 @@ nav {
   display: block;
   font-weight: 400;
   margin-top: 4px;
-  background: linear-gradient(to right, #ffffff, #a98597);
+  /* #a98597 donnait 3,47:1 au-dessus du coeur du halo, sous le seuil
+     WCAG de 4,5. #bfa3b4 tient la meme intention chromatique a 4,87. */
+  background: linear-gradient(to right, #ffffff, #bfa3b4);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -419,7 +438,8 @@ nav {
 
 .hero-sub {
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.4);
+  /* 0.4 donnait 3,19:1 : illisible. 0.62 monte a 5,41. */
+  color: rgba(255, 255, 255, 0.62);
   line-height: 1.6;
   max-width: 440px;
   margin: 0 auto 36px;

@@ -1,0 +1,176 @@
+/**
+ * Liquid Glass — socle cross-browser.
+ *
+ * Trois choses qui distinguent une recette « fond sombre » des tutoriels
+ * habituels, tous écrits pour du fond clair :
+ *
+ *  1. Sur #0a0a0f, il n'y a rien à flouter. Le verre n'existe que s'il y a de
+ *     la lumière derrière — ici l'arc rose de la carte héros.
+ *  2. La teinte est SOMBRE, et le blanc n'intervient qu'en sheen directionnel.
+ *     Un voile blanc uniforme donne 3,2:1 de contraste au-dessus du magenta,
+ *     donc un échec WCAG ; une teinte sombre à 46 % donne ~8:1.
+ *  3. `contrast()` descend sous 1 au lieu de monter : dé-contraster relève les
+ *     noirs, et c'est ce qui rend le flou visible sur du sombre.
+ */
+
+@property --rim-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --glass-bright {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1.38;
+}
+
+:root {
+  --glass-radius: 20px;
+  --glass-blur: 18px;
+  --glass-sat: 190%;
+  --glass-contrast: 0.92;
+
+  /* C'est cette teinte qui porte la lisibilité, pas le texte lui-même. */
+  --glass-tint: color-mix(in srgb, var(--accent-pink) 7%, rgba(12, 12, 20, 0.46));
+  --glass-rim: rgba(255, 255, 255, 0.3);
+}
+
+.glass {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--glass-radius);
+
+  background:
+    linear-gradient(
+      148deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      rgba(255, 255, 255, 0.05) 26%,
+      rgba(255, 255, 255, 0) 52%,
+      rgba(255, 255, 255, 0.03) 100%
+    ),
+    radial-gradient(
+      120% 60% at 50% 118%,
+      color-mix(in srgb, var(--accent) 22%, transparent) 0%,
+      transparent 70%
+    ),
+    var(--glass-tint);
+
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
+    brightness(var(--glass-bright)) contrast(var(--glass-contrast));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat))
+    brightness(var(--glass-bright)) contrast(var(--glass-contrast));
+
+  box-shadow:
+    /* séparation du fond */
+    0 24px 48px -18px rgba(0, 0, 0, 0.85),
+    /* halo d'accent : une ombre noire sur du noir ne sépare rien */
+    0 0 40px -16px color-mix(in srgb, var(--accent-pink) 70%, transparent),
+    /* biseau : arête haute lumineuse, arête basse presque éteinte */
+    inset 0 1px 0 0 var(--glass-rim),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.07),
+    /* épaisseur du matériau */
+    inset 0 20px 34px -30px rgba(255, 255, 255, 0.28),
+    inset 0 -20px 34px -32px rgba(0, 0, 0, 0.55);
+}
+
+/* Grain — le flou sur des dégradés sombres produit un banding 8 bits très
+   visible ; le bruit le casse pour trois lignes de CSS. */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.14;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Le liseré qui tourne. C'est lui qui « fait Apple » — davantage que la
+   réfraction, qui n'est de toute façon pas portable hors Chromium. */
+.glass-rim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.25px;
+  pointer-events: none;
+
+  background: conic-gradient(
+    from var(--rim-angle) at 50% 50%,
+    rgba(255, 255, 255, 0.72) 0deg,
+    color-mix(in srgb, var(--accent-pink) 62%, white) 52deg,
+    rgba(255, 255, 255, 0.1) 128deg,
+    rgba(255, 255, 255, 0.48) 196deg,
+    color-mix(in srgb, var(--accent-pink) 55%, white) 268deg,
+    rgba(255, 255, 255, 0.72) 360deg
+  );
+
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+
+  animation: rim 12s linear infinite;
+}
+
+@keyframes rim {
+  to {
+    --rim-angle: 360deg;
+  }
+}
+
+/* ─── Fallbacks d'accessibilité ───────────────────────────────────────────
+   `prefers-reduced-transparency` ne couvre ni Safari ni Firefox en 2026 :
+   il est nécessaire mais très insuffisant. D'où le sélecteur manuel. */
+
+@media (prefers-reduced-motion: reduce) {
+  .glass-rim::after {
+    animation: none;
+    --rim-angle: 214deg;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: #14141c;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  .glass::before,
+  .glass-rim::after {
+    display: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .glass {
+    --glass-tint: rgba(8, 8, 14, 0.92);
+    --glass-blur: 6px;
+  }
+}
+
+@media (forced-colors: active) {
+  .glass {
+    background: Canvas;
+    color: CanvasText;
+    border: 1px solid CanvasText;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+:root[data-transparency='off'] .glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: #14141c;
+}
