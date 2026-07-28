@@ -84,6 +84,66 @@ pas seulement écrit dans un test, c'est constatable sur la chaîne.
 
 ---
 
+## 3. L'escrow piloté par KeeperHub — et la limite qu'on y a trouvée
+
+Question posée : les appels `open` / `honor` / `slash` peuvent-ils passer par
+KeeperHub, et donc être sponsorisés ? Cela déciderait du financement de tout le
+runner de volume.
+
+**Réponse : oui pour un rôle, et un seul.**
+
+| Étape | Résultat |
+|---|---|
+| `setOpener(walletKeeperHub)` | [`0x…`](https://sepolia.etherscan.io/address/0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12) — l'opener devient le wallet de l'organisation |
+| **`open` via KeeperHub** | [`0x12ad7c02…6374`](https://sepolia.etherscan.io/tx/0x12ad7c029e386fb20e01336d93967ecca431f9917a9204301de3b0b74d2d6374) — **`sponsored: true`**, 275 904 gas, mandat `Open` onchain |
+| `honor` par le settler local | [`0x42966aee…d897`](https://sepolia.etherscan.io/tx/0x42966aee484a7655c0d9e673609ebbf9cb0e6e3ca5cdc0855d66747ae8abd897) |
+
+L'ouverture d'un mandat est donc **gratuite en gas**. C'est ce qui rend le volume
+atteignable sans budget.
+
+### La contrainte : une organisation KeeperHub n'a qu'un wallet
+
+`GET /api/user/wallet` le dit explicitement — le wallet est *organization-scoped,
+not per-user*. Or l'invariant **I10** exige que l'`opener` et le `settler` soient
+deux adresses distinctes : compromettre le composant qui ouvre ne doit pas donner
+le pouvoir de saisir.
+
+**KeeperHub ne peut donc porter qu'un seul des deux rôles.** L'autre a besoin
+d'une clé propre, avec du gas.
+
+Le choix retenu — KeeperHub comme `opener`, clé dédiée pour le `settler` — est le
+bon dans les deux sens :
+
+- l'ouverture est l'opération de **volume** (une par mandat), c'est là que le
+  sponsoring rapporte ;
+- le règlement est l'opération **sensible** : c'est le seul privilège qui déplace
+  des fonds vers un tiers. La garder sur une clé qu'on maîtrise, hors de
+  l'infrastructure d'exécution, réduit la surface plutôt que de l'élargir.
+
+### Vérifié plutôt qu'affirmé
+
+L'argument « le composant qui ouvre ne peut pas saisir » n'est pas resté une
+assertion. KeeperHub, une fois devenu `opener`, a réellement tenté un `slash` :
+
+```
+wouldRevert: true, data: 0x05b94333
+0x05b94333 = NotSettler()
+```
+
+La séparation des rôles a donc été éprouvée contre un appelant réel, pas contre
+un mock — et le contrat a refusé.
+
+### Une friction de plus au passage
+
+L'ABI ne peut pas être auto-récupérée pour un contrat non vérifié, ce qui est
+attendu. Mais le champ `abi` doit être passé en **chaîne JSON**, exactement comme
+`functionArgs` — un tableau JSON est rejeté avec le même message que si le champ
+était absent : *« ABI is required. Could not auto-fetch ABI… »*. Le message ne
+mentionne jamais que le champ a bien été reçu mais dans le mauvais format.
+Reporté dans le teardown d'onboarding.
+
+---
+
 ## Rejouer un verdict soi-même
 
 Chaque verdict publie `evaluatedAtBlock`, `rpcUrl` et le détail `checks[]`, avec

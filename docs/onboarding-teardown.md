@@ -234,6 +234,49 @@ l'USDC. C'est la seule base fiable.
 `execute`. Une équipe qui bâtit une preuve d'exécution sur `tx.to` ne le
 découvrira qu'en production — ou, pour un hackathon, pendant la démo.
 
+### 15:20 — `abi` doit être une chaîne JSON, et le message d'erreur le cache
+
+Pour exécuter un appel sur un contrat **non vérifié**, il faut fournir l'ABI. Le
+champ existe et s'appelle `abi`. Mais comme `functionArgs`, il attend une
+**chaîne JSON**, pas un tableau.
+
+Le piège est dans le message : passer un tableau JSON produit exactement la même
+erreur que ne rien passer du tout.
+
+```
+{"error":"ABI is required. Could not auto-fetch ABI: Unable to fetch ABI for
+ 0xadDC… on chain 11155111. Contract may not be verified.","field":"abi"}
+```
+
+On conclut donc que le champ n'est pas supporté, et on cherche ailleurs — j'ai
+sondé `contractAbi` et `abiJson` avant de repenser à la convention de
+`functionArgs`.
+
+**Correctif proposé** : distinguer les deux cas. « ABI is required » quand le
+champ est absent ; « `abi` must be a JSON string when provided » quand il est
+présent mais mal typé — c'est le message que l'API produit déjà pour
+`functionArgs`, il suffit de l'appliquer ici aussi.
+
+### 15:25 — Une organisation n'a qu'un wallet, et ça contraint l'architecture
+
+`GET /api/user/wallet` : *« The wallet is organization-scoped, not per-user. »*
+
+Ce n'est pas un défaut, mais c'est une contrainte d'architecture qui mérite
+d'être annoncée en tête de la documentation wallet plutôt que découverte à
+l'usage. Tout projet ayant **deux rôles onchain distincts** — ce qui est le cas
+dès qu'on sépare un privilège d'écriture d'un privilège de règlement — ne peut en
+confier qu'un seul à KeeperHub. L'autre demande une clé propre et du gas, donc un
+budget, donc une décision de conception.
+
+Nous l'avons découvert en basculant l'`opener` vers le wallet KeeperHub et en
+constatant qu'il faudrait y basculer aussi le `settler`, ce qui aurait détruit
+l'invariant qui garantit qu'un composant compromis ne peut pas saisir de fonds.
+
+**Correctif proposé** : une phrase dans `wallet-management` — « une organisation
+dispose d'un wallet d'exécution unique ; si votre contrat distingue plusieurs
+rôles onchain, un seul peut être tenu par KeeperHub » — et, à terme, la
+possibilité de provisionner plusieurs wallets par organisation.
+
 ---
 
 ## Contradictions relevées dans la documentation
