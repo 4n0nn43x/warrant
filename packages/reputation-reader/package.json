@@ -1,0 +1,30 @@
+{
+  "name": "@warrant/reputation-reader",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Score de réputation ERC-8004 pondéré par le capital réellement immobilisé, calculé depuis les events onchain",
+  "keywords": ["erc-8004", "erc8004", "reputation", "agents", "onchain", "viem"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
