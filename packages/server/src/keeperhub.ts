@@ -156,11 +156,30 @@ export interface SpendCap {
   percentUsed: number
 }
 
+/**
+ * Un appel de contrat tel que l'API KeeperHub l'accepte réellement.
+ *
+ * ⚠ **Il n'existe aucun moyen de passer un calldata pré-encodé.** Les champs
+ * `data`, `callData` et `calldata` sont ignorés, et l'erreur renvoyée parle
+ * seulement de `functionName` sans jamais le dire. L'API résout l'ABI du
+ * contrat elle-même à partir du nom de fonction.
+ *
+ * Conséquence pour Warrant : le Gateway encode le calldata de son côté pour
+ * l'engager dans `actionHash`, puis transmet ici la forme nommée. Le
+ * vérificateur `calldata_matches_commitment` referme la boucle en comparant ce
+ * qui est réellement parti sur la chaîne à ce qui avait été engagé.
+ */
 export interface ContractCallRequest {
   chainId: number
   contractAddress: Address
-  /** Calldata complet. */
-  data: Hex
+  functionName: string
+  /**
+   * Arguments de la fonction, dans l'ordre de l'ABI.
+   *
+   * Sérialisés en **chaîne JSON** au moment de l'envoi : l'API rejette un
+   * tableau avec « functionArgs must be a JSON string when provided ».
+   */
+  functionArgs: readonly unknown[]
   value?: string
   gasLimitMultiplier?: string
 }
@@ -412,7 +431,11 @@ function contractCallBody(req: ContractCallRequest): Record<string, unknown> {
   return {
     chainId: req.chainId,
     contractAddress: req.contractAddress,
-    data: req.data,
+    functionName: req.functionName,
+    // Chaîne JSON, pas tableau : contrainte de l'API, vérifiée en direct.
+    functionArgs: JSON.stringify(
+      req.functionArgs.map((a) => (typeof a === 'bigint' ? a.toString() : a)),
+    ),
     value: req.value ?? '0',
     ...(req.gasLimitMultiplier ? { gasLimitMultiplier: req.gasLimitMultiplier } : {}),
   }

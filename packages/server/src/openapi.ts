@@ -1,0 +1,495 @@
+/**
+ * Document OpenAPI 3.1 du Gateway, avec l'extension `x-payment-info`.
+ *
+ * ## Sur le format de `x-payment-info`
+ *
+ * Deux formes circulent. Celle de `docs/09-integration-frameworks.md` a été
+ * **inventée** au moment de la conception ; celle utilisée ici est celle qu'on
+ * observe réellement dans l'OpenAPI live de KeeperHub
+ * (`app.keeperhub.com/api/openapi`), c'est-à-dire :
+ *
+ * ```json
+ * "x-payment-info": {
+ *   "price": { "mode": "fixed", "amount": "0.01", "currency": "USD" },
+ *   "protocols": [
+ *     { "x402": { "network": "eip155:8453" } },
+ *     { "mpp": { "method": "tempo", "intent": "charge", "currency": "USDC" } }
+ *   ]
+ * }
+ * ```
+ *
+ * Un agent qui sait lire le catalogue KeeperHub sait donc lire le nôtre sans
+ * une ligne de code supplémentaire. C'est la seule raison qui vaille de copier
+ * un format plutôt que d'en inventer un meilleur.
+ *
+ * ## Le prix de `/v1/warrants` n'est pas fixe — `mode: "dynamic"`
+ *
+ * La caution est `clamp(minBond, riskBps × notionalUSD, maxBond)`, et
+ * `notionalUSD` est **dérivé du calldata**, jamais déclaré. Aucune valeur ne
+ * peut donc figurer dans le document : annoncer un `amount` fixe serait faux
+ * pour toute action sauf une, et un agent qui pré-approuverait ce montant
+ * échouerait au premier appel réel.
+ *
+ * `mode: "dynamic"` est donc accompagné de ce qui rend le prix *prévisible*
+ * sans être *fixe* :
+ *
+ * - `min` / `max` : les bornes réelles de la politique, en USD. Un agent peut
+ *   décider de son budget maximal avant d'appeler.
+ * - `quote` : la route gratuite qui rend le prix exact pour une action donnée.
+ *   C'est la porte d'entrée sans friction — connaître le prix ne coûte rien.
+ * - `basis` : ce dont le prix dépend. Le dire explicitement évite qu'un
+ *   intégrateur suppose qu'il dépend d'un champ de sa requête.
+ *
+ * `mode` reste la même clé que dans la forme observée, avec une valeur
+ * supplémentaire : un lecteur qui ne connaît que `fixed` voit un mode qu'il ne
+ * comprend pas et va chercher le devis, plutôt que de lire un montant erroné.
+ */
+
+export interface OpenApiOptions {
+  baseUrl: string
+  /** CAIP-2 du réseau de règlement de la caution. */
+  network: string
+  /** Contrat du token de caution. */
+  asset: string
+  /** Bornes de la politique, en unités atomiques (6 décimales). */
+  minBond: string
+  maxBond: string
+  /** Méthode MPP annoncée. */
+  mppMethod?: string
+  /** Devise annoncée côté MPP, en symbole lisible. */
+  mppCurrency?: string
+  title?: string
+  version?: string
+}
+
+/** Unités atomiques 1e6 → montant lisible en USD, sans flottant. */
+function toUsd(atomic: string): string {
+  let n: bigint
+  try {
+    n = BigInt(atomic)
+  } catch {
+    return atomic
+  }
+  const whole = n / 1_000_000n
+  const frac = (n % 1_000_000n).toString(10).padStart(6, '0').replace(/0+$/, '')
+  return frac === '' ? `${whole}` : `${whole}.${frac}`
+}
+
+export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
+  const method = opts.mppMethod ?? 'tempo'
+  const currency = opts.mppCurrency ?? 'USDC'
+
+  const protocols = [
+    { x402: { network: opts.network } },
+    { mpp: { method, intent: 'charge', currency } },
+  ]
+
+  return {
+    openapi: '3.1.0',
+    info: {
+      title: opts.title ?? 'Warrant — Gateway 402',
+      version: opts.version ?? '0.1.0',
+      summary: 'Exécution cautionnée pour agents onchain',
+      description:
+        "Un mandat engage une post-condition vérifiable et une caution. La catégorie d'action " +
+        "et le notionnel sont **dérivés du calldata**, jamais déclarés par l'appelant : un champ " +
+        '`category` dans une requête est lu, ignoré et signalé. Les deux rails de paiement — ' +
+        'x402 v2 et MPP — sont servis simultanément sur `POST /v1/warrants` et produisent un ' +
+        'mandat identique.',
+      license: { name: 'MIT', identifier: 'MIT' },
+    },
+    servers: [{ url: opts.baseUrl }],
+    paths: {
+      '/v1/quote': {
+        post: {
+          operationId: 'quote',
+          summary: "Tarifer une action et rendre l'engagement, gratuitement",
+          description:
+            "Gratuit et sans authentification : la porte d'entrée sans friction. Rend la " +
+            'catégorie dérivée, la caution, la `conditionSpec` engagée et son `conditionHash`. ' +
+            'Le devis est reproductible : deux requêtes identiques rendent le même hash.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/QuoteRequest' },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Devis',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/QuoteResponse' },
+                },
+              },
+            },
+            '422': problemResponse("Action non classifiable ou politique incomplète"),
+          },
+        },
+      },
+
+      '/v1/warrants': {
+        post: {
+          operationId: 'openWarrant',
+          summary: 'Ouvrir un mandat cautionné et exécuter son action',
+          description:
+            'Payant. Sans paiement, répond 402 en émettant **simultanément** ' +
+            '`WWW-Authenticate: Payment` (MPP) et `PAYMENT-REQUIRED` (x402 v2), avec un corps ' +
+            '`{}`. Accepte indifféremment `Authorization: Payment` ou `PAYMENT-SIGNATURE`, et ' +
+            "rend l'en-tête de reçu correspondant au rail emprunté. La simulation KeeperHub " +
+            "précède le règlement : un mandat dont la simulation échoue n'est jamais ouvert et " +
+            "la caution n'est pas prélevée.",
+          'x-payment-info': {
+            price: {
+              // Prix calculé par le Risk Pricer — voir l'en-tête de ce fichier.
+              mode: 'dynamic',
+              currency: 'USD',
+              min: toUsd(opts.minBond),
+              max: toUsd(opts.maxBond),
+              basis:
+                'clamp(minBond, riskBps × notionalUSD, maxBond) — la catégorie et le notionnel ' +
+                'sont dérivés du calldata de `actionSpec`, jamais déclarés',
+              quote: { method: 'POST', path: '/v1/quote', cost: 'free' },
+            },
+            protocols,
+          },
+          parameters: [
+            {
+              name: 'PAYMENT-SIGNATURE',
+              in: 'header',
+              required: false,
+              description: 'Rail x402 v2 — `PaymentPayload` encodé base64.',
+              schema: { type: 'string' },
+            },
+            {
+              name: 'Authorization',
+              in: 'header',
+              required: false,
+              description: 'Rail MPP — `Payment <Credential base64url>`.',
+              schema: { type: 'string' },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/WarrantRequest' },
+              },
+            },
+          },
+          responses: {
+            '200': {
+              description: 'Mandat ouvert et action exécutée',
+              headers: {
+                'PAYMENT-RESPONSE': {
+                  description: 'Rail x402 — `SettlementResponse` encodé base64.',
+                  schema: { type: 'string' },
+                },
+                'Payment-Receipt': {
+                  description: 'Rail MPP — Receipt encodé base64url.',
+                  schema: { type: 'string' },
+                },
+              },
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/WarrantResponse' },
+                },
+              },
+            },
+            '402': {
+              description:
+                'Paiement requis. Les deux challenges sont émis simultanément ; le corps est ' +
+                '`{}` sauf refus sur le rail MPP, où il est un Problem Details RFC 9457.',
+              headers: {
+                'WWW-Authenticate': {
+                  description: 'Challenge MPP : `id`, `realm`, `method`, `intent="charge"`, `request`, `expires`.',
+                  schema: { type: 'string' },
+                },
+                'PAYMENT-REQUIRED': {
+                  description: 'Challenge x402 v2 — `PaymentRequired` encodé base64.',
+                  schema: { type: 'string' },
+                },
+              },
+              content: {
+                'application/json': { schema: { type: 'object' } },
+                'application/problem+json': {
+                  schema: { $ref: '#/components/schemas/Problem' },
+                },
+              },
+            },
+            '409': problemResponse(
+              'Credential rejoué. Un Credential vaut pour exactement une requête.',
+            ),
+            '422': problemResponse(
+              "Action non classifiable, non encodable pour KeeperHub, ou simulation en échec — " +
+                'aucun mandat ouvert, aucune caution prélevée.',
+            ),
+            '502': problemResponse('Facilitateur, exécuteur ou escrow indisponible'),
+          },
+        },
+      },
+
+      '/v1/warrants/{id}': {
+        get: {
+          operationId: 'getWarrant',
+          summary: 'Mandat, exécution et verdict',
+          description:
+            'Rend le mandat, la `conditionSpec` engagée et, une fois le mandat réglé, le ' +
+            'verdict avec le détail `checks[]`. Publier `checks[]` et `evaluatedAtBlock` est ce ' +
+            "qui transforme le verdict d'une assertion en une preuve rejouable.",
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              schema: { $ref: '#/components/schemas/Bytes32' },
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'Mandat',
+              content: {
+                'application/json': {
+                  schema: { $ref: '#/components/schemas/WarrantView' },
+                },
+              },
+            },
+            '404': problemResponse('Mandat inconnu'),
+          },
+        },
+      },
+
+      '/openapi.json': {
+        get: {
+          operationId: 'openapi',
+          summary: 'Ce document',
+          responses: { '200': { description: 'OpenAPI 3.1' } },
+        },
+      },
+    },
+
+    components: {
+      schemas: {
+        Address: { type: 'string', pattern: '^0x[0-9a-fA-F]{40}$' },
+        Bytes32: { type: 'string', pattern: '^0x[0-9a-fA-F]{64}$' },
+        HexData: { type: 'string', pattern: '^0x([0-9a-fA-F]{2})*$' },
+
+        ActionSpec: {
+          type: 'object',
+          description:
+            "La transaction que KeeperHub exécutera, engagée sous `actionHash`. C'est le " +
+            'seul intrant de la classification.',
+          required: ['version', 'chainId', 'target', 'value', 'calldata', 'registryRef'],
+          additionalProperties: false,
+          properties: {
+            version: { const: 1 },
+            chainId: { type: 'integer', minimum: 1 },
+            target: { $ref: '#/components/schemas/Address' },
+            value: {
+              type: 'string',
+              pattern: '^[0-9]+$',
+              description: 'Valeur native en wei, en chaîne décimale.',
+            },
+            calldata: { $ref: '#/components/schemas/HexData' },
+            registryRef: {
+              $ref: '#/components/schemas/Bytes32',
+              description: 'Hash de la version du registre de classification utilisée.',
+            },
+          },
+        },
+
+        QuoteRequest: {
+          type: 'object',
+          required: ['actionSpec'],
+          properties: {
+            actionSpec: { $ref: '#/components/schemas/ActionSpec' },
+            category: {
+              type: 'string',
+              deprecated: true,
+              description:
+                '**Ignoré.** La catégorie est dérivée du calldata. Le champ est accepté pour ' +
+                'ne pas casser les clients qui le posent, et signalé dans la réponse sous ' +
+                '`ignoredFields`.',
+            },
+          },
+        },
+
+        QuoteResponse: {
+          type: 'object',
+          required: [
+            'category',
+            'bond',
+            'riskBps',
+            'notionalUSD',
+            'conditionSpec',
+            'conditionHash',
+            'actionHash',
+          ],
+          properties: {
+            category: { type: 'string', description: 'Catégorie **dérivée** du calldata.' },
+            bond: { type: 'string', description: 'Caution en unités atomiques USDC.' },
+            riskBps: { type: 'integer' },
+            notionalUSD: { type: 'string', description: 'Virgule fixe 1e6.' },
+            rationale: { type: 'string' },
+            registryRef: { $ref: '#/components/schemas/Bytes32' },
+            conditionSpec: { type: 'object' },
+            conditionHash: { $ref: '#/components/schemas/Bytes32' },
+            actionHash: { $ref: '#/components/schemas/Bytes32' },
+            params: { type: 'object', additionalProperties: { type: 'string' } },
+            ignoredFields: { type: 'object' },
+            payment: { type: 'object' },
+          },
+        },
+
+        WarrantRequest: {
+          type: 'object',
+          required: ['actionSpec'],
+          properties: {
+            actionSpec: { $ref: '#/components/schemas/ActionSpec' },
+            nonce: {
+              type: 'string',
+              description:
+                "Nonce du mandat. À défaut, celui de l'autorisation EIP-3009 du paiement — " +
+                '32 octets aléatoires jamais réutilisés.',
+            },
+            signature: {
+              type: 'string',
+              description:
+                "Signature ABI (`transfer(address,uint256)`) utilisée pour dériver " +
+                '`functionName`/`functionArgs` quand le couple `(chainId, target, selector)` ' +
+                "est absent du registre. Ce n'est pas une déclaration de confiance : son " +
+                'sélecteur doit valoir celui du calldata et le ré-encodage doit reproduire ' +
+                'le calldata octet pour octet.',
+            },
+            category: {
+              type: 'string',
+              deprecated: true,
+              description: '**Ignoré.** Voir `QuoteRequest.category`.',
+            },
+          },
+        },
+
+        WarrantResponse: {
+          type: 'object',
+          required: ['warrantId', 'executionId', 'conditionHash', 'actionHash', 'expiry'],
+          properties: {
+            warrantId: {
+              $ref: '#/components/schemas/Bytes32',
+              description: '`keccak256(abi.encode(agent, nonce, actionHash))`.',
+            },
+            executionId: { type: 'string', description: 'Identifiant KeeperHub.' },
+            conditionHash: { $ref: '#/components/schemas/Bytes32' },
+            actionHash: { $ref: '#/components/schemas/Bytes32' },
+            expiry: { type: 'integer', description: 'Timestamp epoch en secondes.' },
+            bond: { type: 'string' },
+            category: { type: 'string' },
+            fundingRef: {
+              $ref: '#/components/schemas/Bytes32',
+              description: 'Hash de la transaction de règlement rapportée par le facilitateur.',
+            },
+            agent: { $ref: '#/components/schemas/Address' },
+            beneficiary: { $ref: '#/components/schemas/Address' },
+          },
+        },
+
+        WarrantView: {
+          type: 'object',
+          properties: {
+            warrant: { type: 'object' },
+            rail: { type: 'string', enum: ['x402', 'mpp'] },
+            execution: { type: 'object' },
+            quote: { type: 'object' },
+            actionSpec: { $ref: '#/components/schemas/ActionSpec' },
+            conditionSpec: { type: 'object' },
+            verdict: {
+              oneOf: [{ type: 'null' }, { $ref: '#/components/schemas/Verdict' }],
+            },
+            checks: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/CheckResult' },
+            },
+          },
+        },
+
+        Verdict: {
+          type: 'object',
+          required: ['verdict', 'evaluatedAtBlock', 'checks'],
+          properties: {
+            verdict: { type: 'string', enum: ['honored', 'slashed'] },
+            evaluatedAtBlock: {
+              type: 'string',
+              description: 'Bloc exact de la lecture — rend le verdict reproductible.',
+            },
+            checks: {
+              type: 'array',
+              items: { $ref: '#/components/schemas/CheckResult' },
+            },
+            rpcUrl: { type: 'string' },
+            settlementTx: { $ref: '#/components/schemas/Bytes32' },
+          },
+        },
+
+        CheckResult: {
+          type: 'object',
+          required: ['kind', 'expected', 'observed', 'pass'],
+          properties: {
+            kind: { type: 'string' },
+            expected: { type: 'string' },
+            observed: { type: 'string' },
+            pass: { type: 'boolean' },
+          },
+        },
+
+        Problem: {
+          type: 'object',
+          description: 'RFC 9457 Problem Details.',
+          required: ['type', 'title', 'status'],
+          properties: {
+            type: { type: 'string', format: 'uri' },
+            title: { type: 'string' },
+            status: { type: 'integer' },
+            detail: { type: 'string' },
+            instance: { type: 'string' },
+          },
+        },
+      },
+
+      securitySchemes: {
+        x402: {
+          type: 'http',
+          scheme: 'PAYMENT-SIGNATURE',
+          description:
+            'x402 v2. Le premier appel non payé rend 402 avec `PAYMENT-REQUIRED` ; le client ' +
+            "signe l'autorisation EIP-3009 et rejoue la requête avec `PAYMENT-SIGNATURE`.",
+        },
+        mpp: {
+          type: 'http',
+          scheme: 'Payment',
+          description:
+            'MPP. Challenge dans `WWW-Authenticate: Payment`, Credential dans ' +
+            '`Authorization: Payment`, Receipt dans `Payment-Receipt`. Erreurs en RFC 9457.',
+        },
+      },
+    },
+
+    // Au niveau du document : les deux rails sont acceptés partout où un
+    // paiement est requis, et l'un OU l'autre suffit.
+    'x-payment-info': {
+      price: { mode: 'dynamic', currency: 'USD' },
+      protocols,
+    },
+  }
+}
+
+function problemResponse(description: string): Record<string, unknown> {
+  return {
+    description,
+    content: {
+      'application/problem+json': {
+        schema: { $ref: '#/components/schemas/Problem' },
+      },
+    },
+  }
+}
