@@ -13,3 +13,4 @@ coverage/
 broadcast/*/*/run-[0-9]*.json
 .next/
 *.log
+apps/*/dist/
