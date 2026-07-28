@@ -1,0 +1,25 @@
+{
+  "name": "@warrant/server",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "gateway": "node --experimental-strip-types src/bin/gateway.ts",
+    "settler": "node --experimental-strip-types src/bin/settler.ts"
+  },
+  "dependencies": {
+    "@warrant/core": "workspace:*",
+    "hono": "^4.6.14",
+    "@hono/node-server": "^1.13.7",
+    "viem": "^2.21.55"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
