@@ -968,6 +968,107 @@ export function createGateway(cfg: GatewayConfig) {
     })
   })
 
+  // ── GET /v1/warrants ──────────────────────────────────────────────────────
+  //
+  // Historique et statistiques. Les compteurs servent directement le dashboard
+  // public : le critère de notation le plus lourd du hackathon demande des
+  // transactions réelles, en donner le décompte vivant coûte peu.
+  app.get('/v1/warrants', async (c) => {
+    if (!store.list) {
+      return sendProblem(
+        c,
+        problem(
+          'not_supported',
+          501,
+          'Ce store ne sait pas énumérer les mandats',
+          'store.list absent',
+        ),
+      )
+    }
+
+    const q = c.req.query()
+    const agent = q['agent']?.toLowerCase()
+    if (agent && !/^0x[0-9a-fA-F]{40}$/.test(agent)) {
+      return sendProblem(
+        c,
+        problem('bad_agent', 400, 'Adresse d’agent invalide', q['agent'] ?? ''),
+      )
+    }
+
+    const limit = Math.min(Math.max(Number(q['limit'] ?? 100) || 100, 1), 500)
+    const since = q['since'] ? Number(q['since']) : undefined
+    const until = q['until'] ? Number(q['until']) : undefined
+
+    let records = store.list()
+    if (agent) records = records.filter((r) => r.agent.toLowerCase() === agent)
+    if (q['status']) {
+      const wanted = String(q['status']).toLowerCase()
+      records = records.filter(
+        (r) => WarrantStatus[r.status].toLowerCase() === wanted,
+      )
+    }
+    if (q['category']) {
+      records = records.filter((r) => r.quote.category === q['category'])
+    }
+    if (since !== undefined) records = records.filter((r) => r.openedAt >= since)
+    if (until !== undefined) records = records.filter((r) => r.openedAt <= until)
+
+    // Plus récents d'abord : c'est ce qu'on veut voir sur un dashboard.
+    records.sort((a, b) => b.openedAt - a.openedAt)
+
+    const cursor = q['cursor']
+    const start = cursor
+      ? records.findIndex((r) => r.id.toLowerCase() === cursor.toLowerCase()) + 1
+      : 0
+    const page = records.slice(start, start + limit)
+    const next = records[start + limit]
+
+    // Les statistiques portent sur l'ensemble filtré, pas sur la page : un
+    // compteur qui change avec la pagination n'est pas un compteur.
+    const sumOf = (pred: (r: WarrantRecord) => boolean): string =>
+      records
+        .filter(pred)
+        .reduce((acc, r) => acc + BigInt(r.bond), 0n)
+        .toString()
+
+    const honored = records.filter((r) => r.status === WarrantStatus.Honored)
+    const slashed = records.filter((r) => r.status === WarrantStatus.Slashed)
+
+    return c.json({
+      warrants: page.map((r) => ({
+        id: r.id,
+        agent: r.agent,
+        beneficiary: r.beneficiary,
+        bond: r.bond,
+        category: r.quote.category,
+        conditionHash: r.conditionHash,
+        actionHash: r.actionHash,
+        fundingRef: r.fundingRef,
+        expiry: r.expiry,
+        openedAt: r.openedAt,
+        status: WarrantStatus[r.status],
+        rail: r.rail,
+        executionId: r.executionId,
+      })),
+      stats: {
+        total: records.length,
+        open: records.filter((r) => r.status === WarrantStatus.Open).length,
+        honored: honored.length,
+        slashed: slashed.length,
+        reclaimed: records.filter((r) => r.status === WarrantStatus.Reclaimed)
+          .length,
+        bondHonoredTotal: sumOf((r) => r.status === WarrantStatus.Honored),
+        bondSlashedTotal: sumOf((r) => r.status === WarrantStatus.Slashed),
+        totalAtRisk: sumOf(
+          (r) =>
+            r.status === WarrantStatus.Honored ||
+            r.status === WarrantStatus.Slashed,
+        ),
+      },
+      ...(next ? { nextCursor: page[page.length - 1]?.id } : {}),
+    })
+  })
+
   // ── GET /v1/warrants/:id ──────────────────────────────────────────────────
   app.get('/v1/warrants/:id', async (c) => {
     const raw = c.req.param('id')
