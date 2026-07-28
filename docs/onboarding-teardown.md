@@ -171,6 +171,69 @@ n'apparaît que sur `tools/list`.
 `ai-tools/mcp-server` — « pour vérifier vos identifiants, appelez `tools/list`,
 pas `initialize` ».
 
+### 14:12 — Première transaction réelle, et deux surprises
+
+`POST /api/execute/contract-call` sur Base Sepolia, `approve(0xdEaD, 0)` sur
+l'USDC testnet. **Passée** :
+`0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315`,
+bloc 44736245, `sponsored: true` — alors que le wallet de l'organisation est
+**vide sur les 20 chaînes**. Le gas sponsorship fonctionne, au moins en testnet.
+
+**Surprise n°1 — l'API n'accepte pas de calldata brut.**
+
+Le body attend `functionName` et `functionArgs`, et récupère l'ABI du contrat
+automatiquement. Il n'existe aucun champ pour passer un calldata pré-encodé :
+`data`, `callData` et `calldata` sont tous ignorés, et l'erreur renvoyée parle
+de `functionName` sans jamais dire que le calldata brut n'est pas une option.
+
+Pire, `functionArgs` doit être **une chaîne JSON**, pas un tableau :
+
+```jsonc
+// rejeté en 400, sans indice sur la vraie forme
+{ "functionName": "approve", "args": ["0x…", "0"] }
+// rejeté : "functionArgs must be a JSON string when provided"
+{ "functionName": "approve", "functionArgs": ["0x…", "0"] }
+// accepté
+{ "functionName": "approve", "functionArgs": "[\"0x…\",\"0\"]" }
+```
+
+Il a fallu sonder six noms de champs pour trouver `functionArgs`, puis
+comprendre l'encodage en chaîne. **Correctif proposé** : accepter un tableau JSON
+directement (ou au minimum le mentionner dans le message d'erreur), et documenter
+qu'un calldata pré-encodé n'est pas supporté — c'est une hypothèse que fait
+n'importe qui ayant déjà utilisé `eth_sendTransaction`.
+
+**Surprise n°2 — une transaction sponsorisée n'a ni le `from` ni le `to`
+attendus.**
+
+C'est la découverte structurante de la journée. Le record d'exécution le laisse
+voir dans `result.executedCall.topLevelTo`, mais rien ne l'explique :
+
+| | Attendu | Réel |
+|---|---|---|
+| `tx.from` | wallet de l'org `0x1f8547…` | **relayer `0x6331eb45…`** |
+| `tx.to` | contrat cible `0x036cbd…` | **forwarder `0x5aF5194B…`** |
+| `tx.input` | `approve(0xdEaD,0)` | `execute(address,address,uint256,bytes)` |
+
+Le calldata réel est encapsulé : `execute(wallet, target, value, data)` où `data`
+contient une signature de 65 octets, des métadonnées, puis le calldata cible.
+
+**Ce que ça casse, pour n'importe quel projet qui vérifie ses exécutions :**
+
+- toute vérification de la forme `tx.to == contrat_cible` échoue ;
+- toute vérification `tx.input == calldata_attendu` échoue ;
+- **le nonce du wallet de l'organisation n'avance pas** — c'est le relayer qui
+  émet la transaction.
+
+Les vérifications par **effet** (logs `Transfer`/`Approval`, deltas de solde,
+lecture d'état au bloc) restent valides : le log `Approval` est bien émis par
+l'USDC. C'est la seule base fiable.
+
+**Correctif proposé** : documenter la forme d'une transaction sponsorisée dans
+`wallet-management/gas`, avec l'adresse du forwarder par chaîne et l'ABI de
+`execute`. Une équipe qui bâtit une preuve d'exécution sur `tx.to` ne le
+découvrira qu'en production — ou, pour un hackathon, pendant la démo.
+
 ---
 
 ## Contradictions relevées dans la documentation
