@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+out/
+cache/
+cache_forge/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+broadcast/*/*/run-[0-9]*.json
+.next/
+*.log
