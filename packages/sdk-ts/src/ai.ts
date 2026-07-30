@@ -1,10 +1,10 @@
 /**
- * Adaptateur Vercel AI SDK.
+ * Vercel AI SDK adapter.
  *
- * Contrainte de conception explicite (docs/09 § 5) : **moins de 100 lignes**.
- * Tout ce qui pourrait grossir ici appartient à `tools.ts`, qui est la source
- * unique. Un adaptateur qui contient de la logique métier est un adaptateur qui
- * divergera de ses quatre frères.
+ * Explicit design constraint (docs/09 § 5): **under 100 lines**. Anything that
+ * might grow here belongs in `tools.ts`, which is the single source. An adapter
+ * that contains business logic is an adapter that will drift away from its four
+ * siblings.
  *
  * ```ts
  * import { warrantTools } from '@warrant/sdk/ai'
@@ -16,10 +16,10 @@
  * })
  * ```
  *
- * Aucun import depuis `ai` : un outil du Vercel AI SDK est un objet nu
- * `{ description, inputSchema, execute }`, et `tool()` n'est qu'une fonction
- * d'identité pour l'inférence de types. Ne pas dépendre du paquet évite d'en
- * suivre les versions majeures pour rien.
+ * No import from `ai`: a Vercel AI SDK tool is a bare object
+ * `{ description, inputSchema, execute }`, and `tool()` is nothing but an
+ * identity function for type inference. Not depending on the package spares us
+ * from tracking its major versions for nothing.
  */
 
 import type { z } from 'zod'
@@ -31,7 +31,7 @@ import type { AnyWarrantTool } from './tools.js'
 import { WARRANT_TOOLS, runTool } from './tools.js'
 import type { PaymentSigner } from './x402.js'
 
-/** Forme structurelle d'un outil Vercel AI SDK. */
+/** Structural shape of a Vercel AI SDK tool. */
 export interface AiTool {
   description: string
   inputSchema: z.ZodTypeAny
@@ -39,13 +39,13 @@ export interface AiTool {
 }
 
 export interface WarrantToolsOptions {
-  /** Signataire de la caution. Sans lui, `request_warrant` s'arrête au 402. */
+  /** Signer of the bond. Without it, `request_warrant` stops at the 402. */
   wallet?: PaymentSigner
-  /** Client déjà construit — n'importe quelle implémentation de `GatewayClient`. */
+  /** An already-built client — any implementation of `GatewayClient`. */
   client?: GatewayClient
   baseUrl?: string
   fetch?: WarrantClientOptions['fetch']
-  /** Restreint le jeu exposé au modèle, ex. `['quote_risk']` en lecture seule. */
+  /** Restricts the set exposed to the model, e.g. `['quote_risk']` for read-only. */
   only?: readonly string[]
 }
 
@@ -77,11 +77,12 @@ export function warrantTools(options: WarrantToolsOptions = {}): Record<string, 
               ? { ...(outcome.data as object), settlement: outcome.settlement }
               : outcome.data
           }
-          // Rendu, pas levé : le modèle doit pouvoir lire l'exigence de paiement
-          // et décider. C'est le pendant du choix de rendre quote_risk gratuit.
+          // Returned, not thrown: the model must be able to read the payment
+          // requirement and decide. This is the counterpart of the choice to
+          // make quote_risk free.
           return {
             paymentRequired: outcome.paymentRequired,
-            hint: "La caution doit être financée. Passe un wallet à warrantTools({ wallet }), puis rappelle request_warrant.",
+            hint: 'The bond must be funded. Pass a wallet to warrantTools({ wallet }), then call request_warrant again.',
           }
         },
       } satisfies AiTool,

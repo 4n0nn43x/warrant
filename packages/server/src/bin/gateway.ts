@@ -1,30 +1,30 @@
 /**
- * Point d'entrée du Gateway 402.
+ * Entry point of the 402 Gateway.
  *
- * Toute la configuration vient de l'environnement, et rien n'a de valeur par
- * défaut permissive : une variable manquante fait échouer le démarrage avec le
- * nom de la variable. Un serveur qui démarre à moitié configuré ouvrirait des
- * mandats qu'il ne saurait pas régler.
+ * All configuration comes from the environment, and nothing has a permissive
+ * default value: a missing variable fails startup with the name of the variable.
+ * A server that starts half-configured would open warrants it would not know how
+ * to settle.
  *
- * **Convention de nommage des variables** (identique dans `.env`,
- * `.env.example` et ici — aucun alias n'est accepté, un nom et un seul) :
+ * **Variable naming convention** (identical in `.env`, `.env.example` and here —
+ * no alias is accepted, one name and one only):
  *
- * - le **préfixe** est le nom que le sous-système se donne lui-même : `KH_`
- *   pour KeeperHub (sa CLI est `kh`, ses clés commencent par `kh_`), `X402_`,
- *   `MPP_`, `ERC8004_`, et `WARRANT_` pour ce qui appartient à ce dépôt ;
- * - le **suffixe** nomme le type de la valeur quand il est ambigu : `_RPC` pour
- *   un point de terminaison JSON-RPC, `_URL` pour une URL de service HTTP,
- *   `_KEY` pour un secret, `_FILE` pour un chemin, `_CHAIN_ID`, `_BPS` ;
- * - une variable qui désigne une **adresse EVM** porte le nom du *rôle* et non
- *   celui du type (`WARRANT_BENEFICIARY`, `WARRANT_TREASURY`, `WARRANT_ASSET`,
- *   `WARRANT_PAY_TO`) : le rôle est ce qui se vérifie, l'adresse ne fait que
- *   l'incarner.
+ * - the **prefix** is the name the subsystem gives itself: `KH_` for KeeperHub
+ *   (its CLI is `kh`, its keys start with `kh_`), `X402_`, `MPP_`, `ERC8004_`,
+ *   and `WARRANT_` for what belongs to this repository;
+ * - the **suffix** names the type of the value when it is ambiguous: `_RPC` for a
+ *   JSON-RPC endpoint, `_URL` for an HTTP service URL, `_KEY` for a secret,
+ *   `_FILE` for a path, `_CHAIN_ID`, `_BPS`;
+ * - a variable that designates an **EVM address** carries the name of the *role*
+ *   and not that of the type (`WARRANT_BENEFICIARY`, `WARRANT_TREASURY`,
+ *   `WARRANT_ASSET`, `WARRANT_PAY_TO`): the role is what gets verified, the
+ *   address merely embodies it.
  *
- * `MPP_SECRET_KEY`, `OPENER_PRIVATE_KEY` et `KH_API_KEY` ne sont jamais
- * journalisées, jamais incluses dans une réponse, et n'apparaissent pas dans le
- * résumé de démarrage — seule une empreinte tronquée du secret MPP y figure.
+ * `MPP_SECRET_KEY`, `OPENER_PRIVATE_KEY` and `KH_API_KEY` are never logged, never
+ * included in a response, and do not appear in the startup summary — only a
+ * truncated fingerprint of the MPP secret figures there.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/server gateway
  */
 
@@ -51,8 +51,8 @@ function required(name: string): string {
   const value = process.env[name]
   if (!value || value.trim() === '') {
     throw new Error(
-      `variable d'environnement manquante: ${name} — ` +
-        'voir packages/server/src/bin/gateway.ts pour la liste complète',
+      `missing environment variable: ${name} — ` +
+        'see packages/server/src/bin/gateway.ts for the full list',
     )
   }
   return value.trim()
@@ -65,29 +65,28 @@ function optional(name: string, fallback: string): string {
 
 function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${name} : adresse EVM attendue, reçu "${value}"`)
+    throw new Error(`${name}: EVM address expected, got "${value}"`)
   }
   return value.toLowerCase() as Address
 }
 
 /**
- * Politique du propriétaire du capital.
+ * The capital owner's policy.
  *
- * Fichier JSON de préférence (`WARRANT_POLICY_FILE`) : une politique est un
- * document qu'on relit et qu'on versionne, pas une poignée de variables
- * d'environnement. Le repli par variables existe pour la démo.
+ * A JSON file for preference (`WARRANT_POLICY_FILE`): a policy is a document you
+ * re-read and version, not a handful of environment variables. The fallback via
+ * variables exists for the demo.
  */
 /**
- * Une liste d'adresses séparées par des virgules.
+ * A comma-separated list of addresses.
  *
- * Elle est déclarée `required` et non `optional`, et c'est le point : une
- * catégorie sortante sans destination autorisée produisait, jusqu'ici, une
- * post-condition d'où les deux checks de destination avaient disparu **en
- * silence**. Un transfert vers une adresse quelconque passait alors les checks
- * restants et la caution était rendue. `buildConditionSpec` refuse désormais ce
- * cas, mais un refus au moment d'ouvrir un mandat est une mauvaise nouvelle
- * tardive : mieux vaut que le serveur ne démarre pas du tout, en nommant la
- * variable qui manque.
+ * It is declared `required` and not `optional`, and that is the point: an
+ * outbound category with no allowed destination used to produce a post-condition
+ * from which both destination checks had disappeared **silently**. A transfer to
+ * any address whatsoever then passed the remaining checks and the bond was given
+ * back. `buildConditionSpec` now refuses that case, but a refusal at the moment
+ * of opening a warrant is bad news that arrives late: better that the server not
+ * start at all, naming the variable that is missing.
  */
 function addressList(name: string, raw: string): Address[] {
   const items = raw
@@ -96,7 +95,7 @@ function addressList(name: string, raw: string): Address[] {
     .filter(Boolean)
 
   if (items.length === 0) {
-    throw new Error(`${name} : au moins une adresse est requise, la liste est vide`)
+    throw new Error(`${name}: at least one address is required, the list is empty`)
   }
   return items.map((value) => address(name, value))
 }
@@ -134,13 +133,13 @@ function loadPolicy(): Policy {
 }
 
 /**
- * Chaînes où un escrow peut être déployé.
+ * Chains where an escrow can be deployed.
  *
- * Sepolia y figure parce que c'est là que `WarrantEscrow` tourne réellement
- * aujourd'hui (deployments/ethereum-sepolia.json) ; les mainnets y figurent
- * parce qu'ils sont la cible de la soumission. Une chaîne absente de cette
- * table fait échouer le démarrage plutôt que de laisser viem deviner un RPC —
- * ouvrir un mandat sur la mauvaise chaîne est irréversible.
+ * Sepolia figures here because that is where `WarrantEscrow` actually runs today
+ * (deployments/ethereum-sepolia.json); the mainnets figure here because they are
+ * the target of the submission. A chain absent from this table fails startup
+ * rather than letting viem guess an RPC — opening a warrant on the wrong chain is
+ * irreversible.
  */
 const CHAINS = {
   1: mainnet,
@@ -150,17 +149,17 @@ const CHAINS = {
 } as const
 
 /**
- * Le facilitateur x402 configure sert-il bien notre schema et notre chaine ?
+ * Does the configured x402 facilitator actually serve our scheme and our chain?
  *
- * On ne lui delegue pas la verification de signature — l'escrow consomme
- * `receiveWithAuthorization`, hors du schema `exact`, et le token fait autorite
- * dans `open()`. Mais on annonce ce facilitateur dans chaque challenge 402 :
- * s'il ne couvre pas notre reseau, on emet des challenges que personne ne peut
- * honorer, et l'echec n'apparait qu'au premier paiement.
+ * We do not delegate signature verification to it — the escrow consumes
+ * `receiveWithAuthorization`, outside the `exact` scheme, and the token is
+ * authoritative inside `open()`. But we announce this facilitator in every 402
+ * challenge: if it does not cover our network, we are issuing challenges nobody
+ * can honor, and the failure only shows up at the first payment.
  *
- * Non fatal a dessein. Un facilitateur momentanement injoignable n'invalide
- * aucun mandat deja ouvert, et refuser de demarrer pour cela immobiliserait le
- * reglement — or c'est le reglement qui protege les cautions.
+ * Non-fatal by design. A momentarily unreachable facilitator invalidates no
+ * warrant already open, and refusing to start over it would immobilize
+ * settlement — and settlement is what protects the bonds.
  */
 async function facilitatorPreflight(
   facilitator: FacilitatorClient,
@@ -171,26 +170,26 @@ async function facilitatorPreflight(
     const served = kinds.some((k) => k.scheme === 'exact' && k.network === network)
     console.log(
       JSON.stringify({
-        msg: 'preflight facilitateur',
+        msg: 'facilitator preflight',
         network,
-        sertExactSurNotreReseau: served,
+        servesExactOnOurNetwork: served,
         schemes: [...new Set(kinds.map((k) => k.scheme))],
         note: served
           ? undefined
-          : `le facilitateur ne declare pas servir exact sur ${network} : les challenges 402 seront inhonorables`,
+          : `the facilitator does not declare serving exact on ${network}: the 402 challenges will be unhonorable`,
       }),
     )
   } catch (err) {
     console.warn(
       JSON.stringify({
-        msg: 'preflight facilitateur injoignable — demarrage poursuivi',
+        msg: 'facilitator preflight unreachable — startup continued',
         detail: err instanceof Error ? err.message : String(err),
       }),
     )
   }
 }
 
-/** Fabrique le port d'ouverture, et rend l'adresse qui signera réellement. */
+/** Builds the opening port, and returns the address that will actually sign. */
 async function buildEscrow(opts: {
   mode: string
   escrowAddress: Address
@@ -201,10 +200,10 @@ async function buildEscrow(opts: {
   keeperHubBaseUrl: string
 }): Promise<{ escrow: EscrowPort; opener: Address; via: string }> {
   if (opts.mode === 'viem') {
-    // Chemin conservé pour un déploiement où l'`opener` est une clé locale.
-    // Il n'est plus le chemin par défaut : l'`opener` onchain est aujourd'hui
-    // le wallet de l'organisation KeeperHub, et cette clé se ferait répondre
-    // `NotOpener()`. Le contrôle de cohérence plus bas le dira sans ambiguïté.
+    // Path kept for a deployment where the `opener` is a local key. It is no
+    // longer the default path: the onchain `opener` is today the KeeperHub
+    // organization's wallet, and this key would be answered `NotOpener()`. The
+    // consistency check further down says so unambiguously.
     const account = privateKeyToAccount(required('OPENER_PRIVATE_KEY') as `0x${string}`)
     const walletClient = createWalletClient({
       account,
@@ -224,13 +223,13 @@ async function buildEscrow(opts: {
         warrantEscrowAbi,
       ),
       opener: account.address.toLowerCase() as Address,
-      via: `clé locale ${account.address}`,
+      via: `local key ${account.address}`,
     }
   }
 
   if (opts.mode !== 'keeperhub') {
     throw new Error(
-      `WARRANT_ESCROW_PORT inconnu: "${opts.mode}" — valeurs acceptées : keeperhub, viem`,
+      `unknown WARRANT_ESCROW_PORT: "${opts.mode}" — accepted values: keeperhub, viem`,
     )
   }
 
@@ -238,15 +237,15 @@ async function buildEscrow(opts: {
     apiKey: opts.keeperHubApiKey,
     baseUrl: opts.keeperHubBaseUrl,
   })
-  // Le wallet est *organization-scoped* : une organisation n'en a qu'un, et
-  // c'est lui qui signera. On le lit plutôt que de le configurer — une adresse
-  // recopiée à la main dans un `.env` est une occasion de plus de diverger de
-  // la réalité onchain.
+  // The wallet is *organization-scoped*: an organization has exactly one, and it
+  // is the one that will sign. We read it rather than configure it — an address
+  // copied by hand into a `.env` is one more opportunity to diverge from onchain
+  // reality.
   const wallet = await client.getWallet()
   if (!wallet.hasWallet || !wallet.walletAddress) {
     throw new Error(
-      "KeeperHub ne rapporte aucun wallet d'exécution pour cette organisation : " +
-        "impossible d'ouvrir un mandat (GET /api/user/wallet)",
+      'KeeperHub reports no execution wallet for this organization: ' +
+        'impossible to open a warrant (GET /api/user/wallet)',
     )
   }
   return {
@@ -257,28 +256,28 @@ async function buildEscrow(opts: {
       abi: warrantEscrowAbi,
     }),
     opener: wallet.walletAddress.toLowerCase() as Address,
-    via: `wallet KeeperHub ${wallet.walletAddress}`,
+    via: `KeeperHub wallet ${wallet.walletAddress}`,
   }
 }
 
 /**
- * Contrôle de cohérence au démarrage : l'adresse qui ouvrira est-elle bien
- * l'`opener` du contrat ?
+ * Consistency check at startup: is the address that will open really the
+ * contract's `opener`?
  *
- * Ce n'est pas du zèle. La divergence est arrivée — le rôle `opener` a été
- * transféré au wallet KeeperHub sans que la configuration locale le sache — et
- * elle ne se voit qu'au premier mandat **payant** : la caution est réglée, puis
- * `open()` révèrte en `NotOpener()`. Le coût d'un démarrage refusé est nul, le
- * coût d'une découverte en production est une caution prélevée pour rien.
+ * This is not zeal. The divergence has happened — the `opener` role was
+ * transferred to the KeeperHub wallet without the local configuration knowing it
+ * — and it only shows up at the first **paying** warrant: the bond is settled,
+ * then `open()` reverts with `NotOpener()`. The cost of a refused startup is
+ * zero, the cost of a discovery in production is a bond taken for nothing.
  *
- * On lit aussi le `settler`, uniquement pour vérifier l'invariant I10 : si le
- * contrat avait fini avec `opener == settler`, le composant qui ouvre pourrait
- * saisir, et toute l'argumentation de sécurité serait fausse.
+ * We also read the `settler`, solely to verify invariant I10: if the contract had
+ * ended up with `opener == settler`, the component that opens could slash, and
+ * the whole security argument would be false.
  *
- * Un échec **réseau** ne bloque pas le démarrage : on ne peut pas distinguer un
- * RPC indisponible d'une vraie divergence, et refuser de démarrer pour un RPC
- * qui hoquette serait un déni de service qu'on s'infligerait. Une divergence
- * *constatée*, elle, est fatale.
+ * A **network** failure does not block startup: we cannot tell an unavailable RPC
+ * from a real divergence, and refusing to start over a hiccuping RPC would be a
+ * denial of service we inflicted on ourselves. An *observed* divergence, on the
+ * other hand, is fatal.
  */
 async function preflight(opts: {
   escrowAddress: Address
@@ -319,9 +318,9 @@ async function preflight(opts: {
         abi: warrantEscrowAbi,
         functionName: 'feeBps',
       }),
-      // `treasury` et `token` sont `immutable` : ces deux lectures valent pour
-      // la durée de vie du contrat, et permettent de refuser au démarrage deux
-      // configurations qui ne révèrteraient qu'au premier mandat payant.
+      // `treasury` and `token` are `immutable`: these two reads hold for the
+      // lifetime of the contract, and let us refuse at startup two configurations
+      // that would only revert at the first paying warrant.
       publicClient.readContract({
         address: opts.escrowAddress,
         abi: warrantEscrowAbi,
@@ -343,7 +342,7 @@ async function preflight(opts: {
   } catch (err) {
     console.warn(
       JSON.stringify({
-        msg: 'préflight escrow injoignable — démarrage poursuivi',
+        msg: 'escrow preflight unreachable — startup continued',
         detail: err instanceof Error ? err.message : String(err),
         rpc: opts.rpcUrl,
       }),
@@ -353,40 +352,40 @@ async function preflight(opts: {
 
   if (onchain.opener !== opts.opener) {
     throw new Error(
-      `opener incohérent : le contrat ${opts.escrowAddress} a pour opener ` +
-        `${onchain.opener}, mais le Gateway ouvrirait avec ${opts.opener}. ` +
-        'Tout `open()` reverterait en NotOpener() *après* que la caution ait été ' +
-        'réglée. Corriger WARRANT_ESCROW_PORT, ou transférer le rôle onchain.',
+      `inconsistent opener: contract ${opts.escrowAddress} has opener ` +
+        `${onchain.opener}, but the Gateway would open with ${opts.opener}. ` +
+        'Every `open()` would revert with NotOpener() *after* the bond had been ' +
+        'settled. Fix WARRANT_ESCROW_PORT, or transfer the role onchain.',
     )
   }
   if (onchain.opener === onchain.settler) {
     throw new Error(
-      `invariant I10 violé onchain : opener == settler == ${onchain.opener}. ` +
-        'Le composant qui ouvre pourrait saisir.',
+      `invariant I10 violated onchain: opener == settler == ${onchain.opener}. ` +
+        'The component that opens could slash.',
     )
   }
 
-  // Le bénéficiaire de la politique est refusé par `open()` s'il est la
-  // trésorerie du contrat (`BeneficiaryIsTreasury`, invariant I6 : une saisie ne
-  // doit pas enrichir le protocole). La trésorerie étant `immutable`, la
-  // divergence est permanente — et se découvrirait au premier mandat payant,
-  // après que l'agent a signé son autorisation.
+  // The policy's beneficiary is refused by `open()` if it is the contract's
+  // treasury (`BeneficiaryIsTreasury`, invariant I6: a slash must not enrich the
+  // protocol). The treasury being `immutable`, the divergence is permanent — and
+  // would be discovered at the first paying warrant, after the agent has signed
+  // its authorization.
   if (onchain.treasury === opts.beneficiary) {
     throw new Error(
-      `WARRANT_BENEFICIARY (${opts.beneficiary}) est la trésorerie du contrat ` +
-        `${opts.escrowAddress} : tout open() reverterait en BeneficiaryIsTreasury(). ` +
-        'Une saisie ne peut pas alimenter le protocole (invariant I6).',
+      `WARRANT_BENEFICIARY (${opts.beneficiary}) is the treasury of contract ` +
+        `${opts.escrowAddress}: every open() would revert with BeneficiaryIsTreasury(). ` +
+        'A slash cannot feed the protocol (invariant I6).',
     )
   }
 
-  // L'actif annoncé dans le 402 doit être le token que l'escrow tirera. Un
-  // écart signifie que l'agent signerait une autorisation EIP-3009 sur un
-  // domaine EIP-712 — donc un token — que le contrat n'appellera jamais.
+  // The asset announced in the 402 must be the token the escrow will pull. A
+  // discrepancy means the agent would sign an EIP-3009 authorization on an
+  // EIP-712 domain — hence a token — that the contract will never call.
   if (onchain.token !== opts.asset) {
     throw new Error(
-      `WARRANT_ASSET (${opts.asset}) n'est pas le token de l'escrow ` +
-        `(${onchain.token}). L'autorisation EIP-3009 serait signée pour le mauvais ` +
-        'token et open() reverterait.',
+      `WARRANT_ASSET (${opts.asset}) is not the escrow's token ` +
+        `(${onchain.token}). The EIP-3009 authorization would be signed for the wrong ` +
+        'token and open() would revert.',
     )
   }
   return onchain
@@ -399,8 +398,8 @@ async function main(): Promise<void> {
   const chain = CHAINS[escrowChainId as keyof typeof CHAINS]
   if (!chain) {
     throw new Error(
-      `WARRANT_ESCROW_CHAIN_ID non supportée: ${escrowChainId} — ` +
-        `chaînes connues : ${Object.keys(CHAINS).join(', ')}`,
+      `unsupported WARRANT_ESCROW_CHAIN_ID: ${escrowChainId} — ` +
+        `known chains: ${Object.keys(CHAINS).join(', ')}`,
     )
   }
   const rpcUrl = optional('WARRANT_ESCROW_RPC', chain.rpcUrls.default.http[0])
@@ -417,20 +416,20 @@ async function main(): Promise<void> {
     required('WARRANT_ESCROW_ADDRESS'),
   )
 
-  // Clé d'organisation `kh_`. Une clé `wfb_` est une clé webhook utilisateur et
-  // sera rejetée en 401 sur les routes d'exécution.
+  // An organization key `kh_`. A `wfb_` key is a user webhook key and will be
+  // rejected with a 401 on the execution routes.
   const keeperHubApiKey = required('KH_API_KEY')
   const keeperHubBaseUrl = optional('KH_BASE_URL', 'https://app.keeperhub.com')
   if (keeperHubApiKey.startsWith('wfb_')) {
     console.warn(
-      'attention: KH_API_KEY commence par `wfb_`, une clé webhook utilisateur. ' +
-        "Les routes d'exécution exigent une clé d'organisation `kh_`.",
+      'warning: KH_API_KEY starts with `wfb_`, a user webhook key. ' +
+        'The execution routes require an organization key `kh_`.',
     )
   }
 
-  // KeeperHub par défaut, parce que c'est l'état réel du déploiement et non une
-  // préférence : `opener()` est le wallet de l'organisation (docs/transactions
-  // § 3). Le défaut doit être ce qui marche, pas ce qui a marché.
+  // KeeperHub by default, because that is the real state of the deployment and
+  // not a preference: `opener()` is the organization's wallet (docs/transactions
+  // § 3). The default must be what works, not what used to work.
   const escrowMode = optional('WARRANT_ESCROW_PORT', 'keeperhub')
   const { escrow, opener, via } = await buildEscrow({
     mode: escrowMode,
@@ -445,27 +444,27 @@ async function main(): Promise<void> {
   const asset = address('WARRANT_ASSET', required('WARRANT_ASSET'))
 
   /**
-   * `payTo` **est** l'escrow, et ce n'est plus un choix de configuration.
+   * `payTo` **is** the escrow, and that is no longer a configuration choice.
    *
-   * `open()` appelle `receiveWithAuthorization`, dont la variante `receive`
-   * exige `to == msg.sender` — donc `to == address(escrow)`. Or `to` est dans le
-   * digest EIP-712 que l'agent signe, et il vaut `payTo` par construction du
-   * schéma `exact`. Un `WARRANT_PAY_TO` distinct de l'escrow produirait donc une
-   * signature que le token refuse en `CallerMustBePayee()`, au moment du
-   * paiement, sans rien qui désigne la variable fautive.
+   * `open()` calls `receiveWithAuthorization`, whose `receive` variant requires
+   * `to == msg.sender` — hence `to == address(escrow)`. But `to` is in the EIP-712
+   * digest the agent signs, and it equals `payTo` by construction of the `exact`
+   * scheme. A `WARRANT_PAY_TO` distinct from the escrow would therefore produce a
+   * signature the token refuses with `CallerMustBePayee()`, at payment time, with
+   * nothing pointing at the offending variable.
    *
-   * C'était une adresse de coffre libre du temps où le facilitateur réglait le
-   * paiement puis virait les fonds ; l'ouverture encaissant elle-même, les deux
-   * rôles ont fusionné.
+   * It was a free vault address back when the facilitator settled the payment and
+   * then transferred the funds; now that the opening collects the payment itself,
+   * the two roles have merged.
    */
   const payTo = address('WARRANT_PAY_TO', required('WARRANT_PAY_TO'))
   if (payTo !== escrowAddress) {
     throw new Error(
-      `WARRANT_PAY_TO (${payTo}) doit être l'adresse de l'escrow ` +
-        `(WARRANT_ESCROW_ADDRESS = ${escrowAddress}) : open() appelle ` +
-        'receiveWithAuthorization, dont la variante `receive` exige to == msg.sender. ' +
-        'Toute autorisation signée pour une autre adresse serait refusée par le token ' +
-        'en CallerMustBePayee().',
+      `WARRANT_PAY_TO (${payTo}) must be the escrow's address ` +
+        `(WARRANT_ESCROW_ADDRESS = ${escrowAddress}): open() calls ` +
+        'receiveWithAuthorization, whose `receive` variant requires to == msg.sender. ' +
+        'Any authorization signed for another address would be refused by the token ' +
+        'with CallerMustBePayee().',
     )
   }
 
@@ -483,9 +482,9 @@ async function main(): Promise<void> {
 
   const mppSecret = required('MPP_SECRET_KEY')
 
-  // Sorti en variable pour etre sondable au demarrage : on annonce ce
-  // facilitateur dans chaque challenge 402, autant verifier qu'il sert notre
-  // reseau avant d'en emettre un.
+  // Pulled out into a variable so it can be probed at startup: we announce this
+  // facilitator in every 402 challenge, so we may as well check that it serves
+  // our network before issuing one.
   const facilitator = new FacilitatorClient({
     url: optional('X402_FACILITATOR', 'https://x402.org/facilitator'),
     ...(process.env['X402_FACILITATOR_API_KEY']
@@ -500,20 +499,21 @@ async function main(): Promise<void> {
     policy,
     baseUrl,
     /**
-     * Le journal, et non le store en mémoire.
+     * The ledger, and not the in-memory store.
      *
-     * Les events onchain ne portent que des *hashs* : `conditionHash` n'est pas
-     * inversible, donc la chaîne seule ne suffit pas à réévaluer un mandat. Le
-     * Settler a besoin des `ConditionSpec` et `ActionSpec` en clair, et c'est le
-     * Gateway — seul à les avoir vues — qui doit les écrire.
+     * The onchain events carry nothing but *hashes*: `conditionHash` is not
+     * invertible, so the chain alone does not suffice to re-evaluate a warrant.
+     * The Settler needs the `ConditionSpec` and `ActionSpec` in the clear, and it
+     * is the Gateway — the only party to have seen them — that must write them.
      *
-     * Avec `memoryWarrantStore()`, un redémarrage du Gateway rendait
-     * définitivement inévaluable tout mandat déjà ouvert : la caution restait
-     * bloquée jusqu'à `reclaim`. C'est arrivé pour de vrai, sur deux mandats.
+     * With `memoryWarrantStore()`, a Gateway restart made every already-open
+     * warrant permanently unevaluable: the bond stayed locked until `reclaim`.
+     * That happened for real, on two warrants.
      *
-     * Le journal reste sans autorité : le Settler recalcule `conditionHash` et
-     * `actionHash` depuis les specs lues ici et les compare à l'engagement
-     * onchain. Une ligne falsifiée fait donc abstention, jamais saisie.
+     * The ledger remains without authority: the Settler recomputes
+     * `conditionHash` and `actionHash` from the specs read here and compares them
+     * to the onchain commitment. A falsified line therefore leads to abstention,
+     * never to a slash.
      */
     store: fileWarrantStore(optional('WARRANT_JOURNAL_FILE', '.warrant/warrants.jsonl')),
     realm: optional('WARRANT_REALM', 'warrant.sh'),
@@ -522,8 +522,8 @@ async function main(): Promise<void> {
     payTo,
     assetExtra: {
       name: optional('WARRANT_ASSET_NAME', 'USDC'),
-      // ⚠ Le domaine EIP-712 réel du token. À lire onchain plutôt qu'à croire
-      // sur parole : une `version` erronée fait échouer toutes les signatures.
+      // ⚠ The token's real EIP-712 domain. To be read onchain rather than taken
+      // on trust: a wrong `version` makes every signature fail.
       version: optional('WARRANT_ASSET_VERSION', '2'),
     },
     facilitator,
@@ -549,16 +549,16 @@ async function main(): Promise<void> {
         escrowPort: escrowMode,
         opener,
         openerVia: via,
-        // Confirmation que ce qui a été lu onchain correspond à ce qu'on croit.
-        // Absent si le RPC n'a pas répondu — l'absence est alors l'information.
+        // Confirmation that what was read onchain matches what we believe.
+        // Absent if the RPC did not answer — the absence is then the information.
         ...(onchain
           ? { onchainSettler: onchain.settler, onchainFeeBps: onchain.feeBps }
-          : { preflight: 'ignoré' }),
+          : { preflight: 'skipped' }),
         beneficiary: policy.beneficiary,
         treasury: policy.treasury,
         bondRange: [policy.minBond, policy.maxBond],
-        // Empreinte du secret, jamais le secret. Permet de vérifier qu'on a
-        // bien déployé la même clé que le client sans jamais l'exposer.
+        // A fingerprint of the secret, never the secret. Lets us check that we
+        // deployed the same key as the client without ever exposing it.
         mppSecretFingerprint: createHash('sha256')
           .update(mppSecret)
           .digest('hex')
@@ -569,9 +569,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  // Un démarrage refusé doit dire *quoi* corriger, sur une seule ligne, et
-  // sortir en échec : un superviseur qui redémarre en boucle sur un message
-  // clair coûte moins cher qu'un serveur qui tourne mal configuré.
+  // A refused startup must say *what* to fix, on a single line, and exit in
+  // failure: a supervisor restarting in a loop on a clear message costs less than
+  // a server running misconfigured.
   console.error(err instanceof Error ? err.message : String(err))
   process.exit(1)
 })

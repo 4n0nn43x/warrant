@@ -1,4 +1,4 @@
-"""Fixtures partagées. Aucun test ne touche le réseau ni une chaîne."""
+"""Shared fixtures. No test touches the network or a chain."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from mock_gateway import BENEFICIARY, USDC, MockGateway, serve
 
 from warrant_sdk import WarrantClient
 
-#: Compte 1 d'Anvil. Publique, sans valeur.
+#: Anvil account 1. Public, worthless.
 DEMO_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 DEMO_ADDRESS = "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
 

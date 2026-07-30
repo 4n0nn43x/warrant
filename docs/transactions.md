@@ -1,186 +1,184 @@
-# Transactions réelles
+# Real transactions
 
-Toutes vérifiables. Aucune n'est simulée, aucune n'est un mockup.
+All verifiable. None is simulated, none is a mockup.
 
-> **Statut du déploiement.** Ce qui suit tourne sur **Ethereum Sepolia**, avec un
-> USDC de test. C'est un déploiement de **développement** : il prouve que le
-> cycle complet fonctionne onchain. La cible de la soumission est **Base (8453)**
-> avec l'USDC natif Circle, où le contrat sera redéployé — le hackathon valorise
-> explicitement le mainnet, et une soumission finale sur testnet serait une
-> faiblesse assumée pour rien.
+> **Deployment status.** What follows runs on **Ethereum Sepolia**, with a test
+> USDC. This is a **development** deployment: it proves the full cycle works
+> onchain. The submission's target is **Base (8453)** with Circle's native USDC,
+> where the contract will be redeployed — the hackathon explicitly values mainnet,
+> and a final submission on testnet would be a weakness accepted for nothing.
 
 ---
 
-## 1. Exécution via KeeperHub
+## 1. Execution through KeeperHub
 
-Le premier appel exécuté par ce projet à travers KeeperHub, sur **Base Sepolia**.
-C'est le scénario de révocation d'allowance de la démo : `approve(spender, 0)`.
+The first call this project executed through KeeperHub, on **Base Sepolia**. It is
+the demo's allowance-revocation scenario: `approve(spender, 0)`.
 
 | | |
 |---|---|
 | Transaction | [`0xaf65a4e6…4d315`](https://sepolia.basescan.org/tx/0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315) |
-| `executionId` KeeperHub | `w077usw3ru11uwafb2yd1` |
-| Bloc | 44736245 |
-| Gas | 97 164, **sponsorisé** |
-| Appel | `approve(0x…dEaD, 0)` sur l'USDC Base Sepolia |
+| KeeperHub `executionId` | `w077usw3ru11uwafb2yd1` |
+| Block | 44736245 |
+| Gas | 97,164, **sponsored** |
+| Call | `approve(0x…dEaD, 0)` on Base Sepolia USDC |
 
-**Ce que cette transaction a appris au projet.** Elle est passée alors que le
-wallet de l'organisation est vide sur les 20 chaînes — le sponsoring fonctionne.
-Mais elle a surtout révélé qu'une transaction sponsorisée **ne ressemble pas à
-ce qu'on a demandé** :
+**What this transaction taught the project.** It went through even though the
+organization's wallet is empty on all 20 chains — sponsorship works. But above all
+it revealed that a sponsored transaction **does not look like what was asked for**:
 
-| | Attendu | Réel onchain |
+| | Expected | Actual onchain |
 |---|---|---|
-| `tx.from` | wallet de l'org | relayer `0x6331eb45…` |
+| `tx.from` | org wallet | relayer `0x6331eb45…` |
 | `tx.to` | USDC `0x036cbd…` | forwarder `0x5aF5194B…` |
 | `tx.input` | `approve(…)` | `execute(address,address,uint256,bytes)` |
 
-Sans décapsuler cette enveloppe, `calldata_matches_commitment` échouerait sur
-**chaque** mandat sponsorisé, et le système saisirait des cautions à tort de
-façon systématique. Le correctif est dans
+Without unwrapping that envelope, `calldata_matches_commitment` would fail on
+**every** sponsored warrant, and the system would seize bonds wrongly and
+systematically. The fix is in
 [`packages/server/src/checks/forwarder.ts`](../packages/server/src/checks/forwarder.ts),
-et ses tests rejouent les octets exacts de cette transaction.
+and its tests replay the exact bytes of this transaction.
 
 ---
 
-## 2. Cycle de mandat complet — Ethereum Sepolia
+## 2. A full warrant cycle — Ethereum Sepolia
 
-Contrat : [`0xadDC715B…de12`](https://sepolia.etherscan.io/address/0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12)
-· `feeBps` = 250 (2,5 %) · `MIN_DURATION` = 900 s
+Contract: [`0xadDC715B…de12`](https://sepolia.etherscan.io/address/0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12)
+· `feeBps` = 250 (2.5%) · `MIN_DURATION` = 900 s
 
-### Mandat honoré
+### Honored warrant
 
-| Étape | Transaction |
+| Step | Transaction |
 |---|---|
-| Caution versée au coffre | [`0xa62c736c…896d`](https://sepolia.etherscan.io/tx/0xa62c736c2bdffe77575ff8807053d792f1ae39c31ba41fb28afeb2c65f31896d) |
-| `open` par l'**opener** | [`0x03a4cd54…4519`](https://sepolia.etherscan.io/tx/0x03a4cd54f97fa66f7f6464f0f4168d8623ad1cda47c1f695d6b9417a1b3d4519) |
-| `honor` par le **settler** | [`0x77066307…2721`](https://sepolia.etherscan.io/tx/0x77066307716e5626c57871cc78890713cd4035d6fc34663c6022466cbc682721) |
+| Bond paid into the escrow | [`0xa62c736c…896d`](https://sepolia.etherscan.io/tx/0xa62c736c2bdffe77575ff8807053d792f1ae39c31ba41fb28afeb2c65f31896d) |
+| `open` by the **opener** | [`0x03a4cd54…4519`](https://sepolia.etherscan.io/tx/0x03a4cd54f97fa66f7f6464f0f4168d8623ad1cda47c1f695d6b9417a1b3d4519) |
+| `honor` by the **settler** | [`0x77066307…2721`](https://sepolia.etherscan.io/tx/0x77066307716e5626c57871cc78890713cd4035d6fc34663c6022466cbc682721) |
 
-`warrantId` `0x07b03947…7dc3`. Event `WarrantHonored` décodé :
-**`refunded` = 24,375 USDC, `fee` = 0,625 USDC** — exactement `bond − bond·250/10000`.
-`totalLocked` revient à 0.
+`warrantId` `0x07b03947…7dc3`. Decoded `WarrantHonored` event:
+**`refunded` = 24.375 USDC, `fee` = 0.625 USDC** — exactly `bond − bond·250/10000`.
+`totalLocked` returns to 0.
 
-### Mandat saisi
+### Slashed warrant
 
-C'est celui qui compte. Un garde-fou qui bloque ne produit aucune transaction,
-donc aucune preuve ; ici l'échec devient un artefact onchain vérifiable.
+This is the one that counts. A guardrail that blocks produces no transaction, hence
+no proof; here the failure becomes a verifiable onchain artifact.
 
-| Étape | Transaction |
+| Step | Transaction |
 |---|---|
-| `open` | inclus dans le même lot |
-| **`slash`** par le settler | [`0x3cecf857…bb21`](https://sepolia.etherscan.io/tx/0x3cecf857ae09d6bcf85927057cc99bcc4d5b446bb1d4212d2f541686750abb21) |
+| `open` | included in the same batch |
+| **`slash`** by the settler | [`0x3cecf857…bb21`](https://sepolia.etherscan.io/tx/0x3cecf857ae09d6bcf85927057cc99bcc4d5b446bb1d4212d2f541686750abb21) |
 
-Raison inscrite onchain, telle qu'elle sera lue par n'importe qui :
+The reason recorded onchain, as anyone will read it:
 
 ```
 erc20_balance_delta: attendu >=-1000000000, observé -9000000000 |
 erc20_balance(allowed_dest): attendu >=1000000000, observé 0
 ```
 
-**Invariant I6 vérifié onchain** : le bénéficiaire reçoit **25 USDC intégraux**,
-la trésorerie du protocole reçoit **zéro**. Une saisie ne rapporte rien à
-Warrant — c'est ce qui élimine l'objection de l'incitation perverse, et ce n'est
-pas seulement écrit dans un test, c'est constatable sur la chaîne.
+**Invariant I6 verified onchain**: the beneficiary receives the **full 25 USDC**,
+the protocol treasury receives **zero**. A slash earns Warrant nothing — that is
+what eliminates the perverse-incentive objection, and it is not merely written in a
+test, it is observable on the chain.
 
 ---
 
-## 3. L'escrow piloté par KeeperHub — et la limite qu'on y a trouvée
+## 3. The escrow driven by KeeperHub — and the limit we found there
 
-Question posée : les appels `open` / `honor` / `slash` peuvent-ils passer par
-KeeperHub, et donc être sponsorisés ? Cela déciderait du financement de tout le
-runner de volume.
+The question asked: can the `open` / `honor` / `slash` calls go through KeeperHub,
+and therefore be sponsored? That would decide how the whole volume runner is
+funded.
 
-**Réponse : oui pour un rôle, et un seul.**
+**Answer: yes for one role, and one only.**
 
-| Étape | Résultat |
+| Step | Result |
 |---|---|
-| `setOpener(walletKeeperHub)` | [`0x…`](https://sepolia.etherscan.io/address/0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12) — l'opener devient le wallet de l'organisation |
-| **`open` via KeeperHub** | [`0x12ad7c02…6374`](https://sepolia.etherscan.io/tx/0x12ad7c029e386fb20e01336d93967ecca431f9917a9204301de3b0b74d2d6374) — **`sponsored: true`**, 275 904 gas, mandat `Open` onchain |
-| `honor` par le settler local | [`0x42966aee…d897`](https://sepolia.etherscan.io/tx/0x42966aee484a7655c0d9e673609ebbf9cb0e6e3ca5cdc0855d66747ae8abd897) |
+| `setOpener(walletKeeperHub)` | [`0x…`](https://sepolia.etherscan.io/address/0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12) — the opener becomes the organization's wallet |
+| **`open` through KeeperHub** | [`0x12ad7c02…6374`](https://sepolia.etherscan.io/tx/0x12ad7c029e386fb20e01336d93967ecca431f9917a9204301de3b0b74d2d6374) — **`sponsored: true`**, 275,904 gas, warrant `Open` onchain |
+| `honor` by the local settler | [`0x42966aee…d897`](https://sepolia.etherscan.io/tx/0x42966aee484a7655c0d9e673609ebbf9cb0e6e3ca5cdc0855d66747ae8abd897) |
 
-L'ouverture d'un mandat est donc **gratuite en gas**. C'est ce qui rend le volume
-atteignable sans budget.
+Opening a warrant is therefore **free in gas**. That is what makes the volume
+reachable without a budget.
 
-### La contrainte : une organisation KeeperHub n'a qu'un wallet
+### The constraint: a KeeperHub organization has only one wallet
 
-`GET /api/user/wallet` le dit explicitement — le wallet est *organization-scoped,
-not per-user*. Or l'invariant **I10** exige que l'`opener` et le `settler` soient
-deux adresses distinctes : compromettre le composant qui ouvre ne doit pas donner
-le pouvoir de saisir.
+`GET /api/user/wallet` says it explicitly — the wallet is *organization-scoped, not
+per-user*. Yet invariant **I10** requires the `opener` and the `settler` to be two
+distinct addresses: compromising the component that opens must not grant the power
+to seize.
 
-**KeeperHub ne peut donc porter qu'un seul des deux rôles.** L'autre a besoin
-d'une clé propre, avec du gas.
+**KeeperHub can therefore hold only one of the two roles.** The other needs its own
+key, with gas.
 
-Le choix retenu — KeeperHub comme `opener`, clé dédiée pour le `settler` — est le
-bon dans les deux sens :
+The choice made — KeeperHub as `opener`, a dedicated key for the `settler` — is the
+right one in both directions:
 
-- l'ouverture est l'opération de **volume** (une par mandat), c'est là que le
-  sponsoring rapporte ;
-- le règlement est l'opération **sensible** : c'est le seul privilège qui déplace
-  des fonds vers un tiers. La garder sur une clé qu'on maîtrise, hors de
-  l'infrastructure d'exécution, réduit la surface plutôt que de l'élargir.
+- opening is the **volume** operation (one per warrant), and that is where
+  sponsorship pays off;
+- settlement is the **sensitive** operation: it is the only privilege that moves
+  funds to a third party. Keeping it on a key we control, outside the execution
+  infrastructure, shrinks the surface rather than widening it.
 
-### Vérifié plutôt qu'affirmé
+### Verified rather than asserted
 
-L'argument « le composant qui ouvre ne peut pas saisir » n'est pas resté une
-assertion. KeeperHub, une fois devenu `opener`, a réellement tenté un `slash` :
+The argument "the component that opens cannot seize" did not remain an assertion.
+KeeperHub, once it had become `opener`, actually attempted a `slash`:
 
 ```
 wouldRevert: true, data: 0x05b94333
 0x05b94333 = NotSettler()
 ```
 
-La séparation des rôles a donc été éprouvée contre un appelant réel, pas contre
-un mock — et le contrat a refusé.
+So the separation of roles was tested against a real caller, not against a mock —
+and the contract refused.
 
-### Une friction de plus au passage
+### One more friction along the way
 
-L'ABI ne peut pas être auto-récupérée pour un contrat non vérifié, ce qui est
-attendu. Mais le champ `abi` doit être passé en **chaîne JSON**, exactement comme
-`functionArgs` — un tableau JSON est rejeté avec le même message que si le champ
-était absent : *« ABI is required. Could not auto-fetch ABI… »*. Le message ne
-mentionne jamais que le champ a bien été reçu mais dans le mauvais format.
-Reporté dans le teardown d'onboarding.
+The ABI cannot be auto-fetched for an unverified contract, which is expected. But
+the `abi` field must be passed as a **JSON string**, exactly like `functionArgs` —
+a JSON array is rejected with the same message as if the field were absent:
+*"ABI is required. Could not auto-fetch ABI…"*. The message never mentions that the
+field was in fact received, but in the wrong format. Reported in the onboarding
+teardown.
 
 ---
 
-## 4. Le Gateway ouvre un mandat par lui-même
+## 4. The Gateway opens a warrant on its own
 
-Les mandats de § 2 et § 3 ont été ouverts à la main, pour éprouver le contrat.
-Celui-ci l'a été par le **port d'ouverture du Gateway** (`keeperHubEscrow`),
-c'est-à-dire par le code qui tournera en production, sur la chaîne réelle.
+The warrants in § 2 and § 3 were opened by hand, to exercise the contract. This one
+was opened by the **Gateway's opening port** (`keeperHubEscrow`), that is, by the
+code that will run in production, on the real chain.
 
-| Étape | Transaction |
+| Step | Transaction |
 |---|---|
-| Financement de la caution (5 USDC au contrat) | [`0x85498ebe…b4f9`](https://sepolia.etherscan.io/tx/0x85498ebe47af72053374797e3b48cf687d0b10bfabc7dad99520a69b0637b4f9) |
-| **`open` par `keeperHubEscrow`** | [`0x269d4f4f…7fca`](https://sepolia.etherscan.io/tx/0x269d4f4f9d1803b301c523b573edb0c1188aebf46d04ff04268526c4b817fca7) |
+| Funding the bond (5 USDC to the contract) | [`0x85498ebe…b4f9`](https://sepolia.etherscan.io/tx/0x85498ebe47af72053374797e3b48cf687d0b10bfabc7dad99520a69b0637b4f9) |
+| **`open` by `keeperHubEscrow`** | [`0x269d4f4f…7fca`](https://sepolia.etherscan.io/tx/0x269d4f4f9d1803b301c523b573edb0c1188aebf46d04ff04268526c4b817fca7) |
 
-`warrantId` `0x16e86a94…1160`. Relu sur un RPC indépendant, `warrants(id)` rend
-`status = 1` (`Open`), `bond = 5 000 000`, et `totalLocked` progresse d'autant.
-Le financement va **au contrat lui-même** et non à un coffre intermédiaire :
-`open()` exige `token.balanceOf(this) >= totalLocked` (WarrantEscrow.sol:131), ce
-qui est aussi la raison pour laquelle `WARRANT_PAY_TO` est l'adresse de l'escrow.
+`warrantId` `0x16e86a94…1160`. Re-read on an independent RPC, `warrants(id)`
+returns `status = 1` (`Open`), `bond = 5,000,000`, and `totalLocked` advances by
+the same amount. The funding goes **to the contract itself** and not to an
+intermediate vault: `open()` requires `token.balanceOf(this) >= totalLocked`
+(WarrantEscrow.sol:131), which is also the reason `WARRANT_PAY_TO` is the escrow's
+address.
 
-**Ce que cette transaction a appris au projet.** La réponse de
-`POST /api/execute/contract-call` ne contient **pas** le hash de la transaction :
-un `202` avec `{ executionId, status: "completed" }`, et rien d'autre. Le hash
-n'existe que sur la route de statut. Un mandat ouvert sans hash est un mandat que
-le Settler ne peut pas juger — il n'a aucun point d'entrée pour lire la chaîne —
-alors même que la caution a été prélevée et que le mandat existe onchain. Le
-premier essai a d'ailleurs ouvert un mandat bien réel
+**What this transaction taught the project.** The response from
+`POST /api/execute/contract-call` does **not** contain the transaction hash: a
+`202` with `{ executionId, status: "completed" }`, and nothing else. The hash exists
+only on the status route. A warrant opened without a hash is a warrant the Settler
+cannot judge — it has no entry point from which to read the chain — even though the
+bond has been taken and the warrant exists onchain. The first attempt did in fact
+open a perfectly real warrant
 ([`0x1c46340c…6a3f`](https://sepolia.etherscan.io/tx/0x1c46340cb91696d59bff8266d0d58cd8a1ec0c8f680ddc3330003185b72f6a3f),
-`sponsored: true`, 236 304 gas) que le client a cru perdu. Le correctif est dans
-`KeeperHubClient.executeContractCall`, et il est décrit dans le teardown
-d'onboarding.
+`sponsored: true`, 236,304 gas) that the client believed lost. The fix is in
+`KeeperHubClient.executeContractCall`, and it is described in the onboarding
+teardown.
 
 ---
 
-## Rejouer un verdict soi-même
+## Replaying a verdict yourself
 
-Chaque verdict publie `evaluatedAtBlock`, `rpcUrl` et le détail `checks[]`, avec
-valeur attendue et valeur observée. L'évaluation est une lecture onchain à bloc
-figé : n'importe qui peut la refaire et obtenir le même résultat, ou constater
-une divergence.
+Every verdict publishes `evaluatedAtBlock`, `rpcUrl` and the `checks[]` detail,
+with expected value and observed value. Evaluation is an onchain read at a pinned
+block: anyone can redo it and get the same result, or observe a divergence.
 
-C'est la réponse à « pourquoi vous ferait-on confiance ? » — on ne demande pas de
-confiance, on rend le verdict reproductible.
+That is the answer to "why should we trust you?" — we do not ask for trust, we make
+the verdict reproducible.

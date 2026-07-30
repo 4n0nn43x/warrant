@@ -27,7 +27,7 @@ import { MAX_CHECKS } from './types.js'
 import type { Check, ConditionSpec } from './types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Fixtures locales
+// Local fixtures
 // ─────────────────────────────────────────────────────────────────────────────
 
 const USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
@@ -152,8 +152,8 @@ describe('validateConditionSpec — the catalogue is closed', () => {
     for (const kind of CHECK_KINDS) {
       const check = VALID_CHECKS[kind]
       expect(check, `no sample check for ${kind}`).toBeDefined()
-      // Le commitment est hors quota : seul, il ne constitue pas une
-      // conjonction declaree, on l'accompagne donc d'un check ordinaire.
+      // The commitment check is out of quota: on its own it does not amount to a
+      // declared conjunction, so we pair it with an ordinary check.
       const checks =
         kind === COMMITMENT_KIND ? [VALID_CHECKS['nonce_advanced'], check] : [check]
       expect(() =>
@@ -206,7 +206,7 @@ describe('validateConditionSpec — the catalogue is closed', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cardinalite de `checks`
+// Cardinality of `checks`
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('validateConditionSpec — checks cardinality', () => {
@@ -253,7 +253,7 @@ describe('validateConditionSpec — checks cardinality', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Enveloppe de la spec
+// The spec envelope
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('validateConditionSpec — envelope', () => {
@@ -353,7 +353,7 @@ describe('validateConditionSpec — envelope', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation par vérificateur
+// Per-check validation
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('validateConditionSpec — per-check shape', () => {
@@ -452,7 +452,7 @@ describe('validateConditionSpec — per-check shape', () => {
     reject({ ...base, decodeAs: 'address', op: 'eq', value: '0x00' }, '$.checks[0].value')
     reject({ ...base, decodeAs: 'bytes32', op: 'eq', value: TREASURY }, '$.checks[0].value')
     reject({ ...base, decodeAs: 'uint256', value: '-1' }, '$.checks[0].value')
-    // Un ordre total n'existe pas pour bool/address/bytes32.
+    // No total order exists for bool/address/bytes32.
     reject({ ...base, decodeAs: 'bool', op: 'gte', value: 'true' }, '$.checks[0].op')
   })
 
@@ -510,7 +510,7 @@ describe('validateConditionSpec — per-check shape', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// calldata_matches_commitment — implicite et non retirable
+// calldata_matches_commitment — implicit and not removable
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('injectCommitmentCheck', () => {
@@ -609,7 +609,7 @@ describe('injectCommitmentCheck', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Normalisation — docs/07 § 4
+// Normalization — docs/07 § 4
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('normalize — docs/07 § 4', () => {
@@ -637,13 +637,13 @@ describe('normalize — docs/07 § 4', () => {
   })
 
   it('rule 3: never loses precision on values beyond MAX_SAFE_INTEGER', () => {
-    const big = '9007199254740993' // 2^53 + 1, non representable en double
+    const big = '9007199254740993' // 2^53 + 1, not representable as a double
     const out = normalizeConditionSpec(spec([{ ...VALID_CHECKS['erc20_balance'], value: big }]))
     expect((out.checks[0] as { value: string }).value).toBe(big)
     expect(canonicalConditionSpec(spec([{ ...VALID_CHECKS['erc20_balance'], value: big }]))).toContain(
       `"value":"${big}"`,
     )
-    // La demonstration du danger : le meme trajet via un number ment.
+    // The danger, demonstrated: the same round trip through a number lies.
     expect(String(Number(big))).toBe('9007199254740992')
   })
 
@@ -841,7 +841,7 @@ describe('actionSpec', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// L'invariant qui compte : client et serveur doivent hacher pareil
+// The invariant that matters: client and server must hash the same
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('conditionHash — the cross-implementation invariant', () => {

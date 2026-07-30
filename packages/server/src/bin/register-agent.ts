@@ -1,50 +1,50 @@
 /**
- * Enregistrement de l'identité ERC-8004 d'un agent — outil d'exploitation.
+ * Registering an agent's ERC-8004 identity — an operations tool.
  *
- * Ce script est la pièce sans laquelle toute la surface ERC-8004 du dépôt reste
- * inerte. `reputation.ts` sait construire le document de feedback, calculer son
- * `feedbackHash` et appeler `giveFeedback` ; `daemon.ts` sait quand écrire. Mais
- * `giveFeedback` prend un `agentId`, et cet `agentId` n'existe que si quelqu'un
- * a appelé `IdentityRegistry.register`. Personne ne le faisait. Le Settler
- * réglait donc les mandats et sautait l'inscription avec, à chaque tour, la même
- * raison : « aucun agentId ERC-8004 connu pour cet agent ».
+ * This script is the piece without which the whole ERC-8004 surface of the
+ * repository stays inert. `reputation.ts` knows how to build the feedback
+ * document, compute its `feedbackHash` and call `giveFeedback`; `daemon.ts` knows
+ * when to write. But `giveFeedback` takes an `agentId`, and that `agentId` only
+ * exists if somebody called `IdentityRegistry.register`. Nobody was doing it. The
+ * Settler therefore settled warrants and skipped the record with, on every pass,
+ * the same reason: "no ERC-8004 agentId known for this agent".
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi c'est l'agent qui signe, et jamais Warrant
+ * Why it is the agent that signs, and never Warrant
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * `register` frappe le NFT au profit de `msg.sender` — il n'existe aucune
- * surcharge `registerFor(owner, …)`. Si Warrant enregistrait l'agent depuis une
- * de ses propres adresses, Warrant en deviendrait le owner, et
- * `ReputationRegistry.giveFeedback` refuserait ensuite **à jamais** tout verdict
- * émis par le Settler : le registre exige
+ * `register` mints the NFT to the benefit of `msg.sender` — there exists no
+ * `registerFor(owner, …)` overload. If Warrant registered the agent from one of
+ * its own addresses, Warrant would become its owner, and
+ * `ReputationRegistry.giveFeedback` would then refuse **forever** every verdict
+ * issued by the Settler: the registry requires
  * `!isAuthorizedOrOwner(msg.sender, agentId)` (ReputationRegistryUpgradeable.sol:110).
- * Une identité mal enregistrée est donc irréparable — on ne peut pas « rendre »
- * le jeton et recommencer sans en frapper un second et abandonner le premier.
+ * A badly registered identity is therefore irreparable — you cannot "hand back"
+ * the token and start again without minting a second one and abandoning the
+ * first.
  *
- * D'où la forme de ce script : il **prépare** la transaction avec
- * `buildAgentRegistration` — la même fonction que celle testée dans
- * `reputation.test.ts`, pas une réimplémentation — et la fait signer par la clé
- * de l'agent (`OPENER_PRIVATE_KEY`, la seule clé du dépôt qui appartienne à
- * l'agent). Puis il **vérifie**, une fois le jeton frappé, que le Settler n'en
- * est ni owner ni operator. Cette vérification n'est pas décorative : c'est la
- * seule qui distingue une identité utilisable d'une identité qui fera révèrter
- * chaque `giveFeedback` jusqu'à la fin des temps.
+ * Hence the shape of this script: it **prepares** the transaction with
+ * `buildAgentRegistration` — the same function as the one tested in
+ * `reputation.test.ts`, not a reimplementation — and has it signed by the agent's
+ * key (`OPENER_PRIVATE_KEY`, the only key in the repository that belongs to the
+ * agent). Then it **verifies**, once the token is minted, that the Settler is
+ * neither owner nor operator. That verification is not decorative: it is the only
+ * one that tells a usable identity from an identity that will make every
+ * `giveFeedback` revert until the end of time.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * La chaîne, et l'erreur qu'on ne refera pas
+ * The chain, and the mistake we will not make twice
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Un `agentId` n'a de sens que sur la chaîne où il a été frappé : c'est un
- * `tokenId` ERC-721. La table d'identités de ce dépôt contenait un `agentId`
- * enregistré sur Ethereum Sepolia alors que l'escrow, la caution et le Settler
- * vivent sur Base Sepolia — donc un identifiant qui ne désignait rien, et un
- * `ownerOf` qui révèrtait. Ce script refuse toute divergence de chaîne, et
- * revérifie le `chainId` que répond réellement le RPC avant d'envoyer quoi que
- * ce soit. Une identité frappée sur la mauvaise chaîne coûte du gas et ne se
- * corrige pas.
+ * An `agentId` only means something on the chain where it was minted: it is an
+ * ERC-721 `tokenId`. This repository's identity table contained an `agentId`
+ * registered on Ethereum Sepolia while the escrow, the bond and the Settler live
+ * on Base Sepolia — hence an identifier that designated nothing, and an `ownerOf`
+ * that reverted. This script refuses any chain divergence, and re-checks the
+ * `chainId` the RPC actually answers before sending anything at all. An identity
+ * minted on the wrong chain costs gas and does not get corrected.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/server register-agent
  *   pnpm --filter @warrant/server register-agent -- --dry-run
  *   pnpm --filter @warrant/server register-agent -- --agent-uri https://…/card.json
@@ -76,22 +76,22 @@ import {
 } from '../reputation.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Environnement et arguments
+// Environment and arguments
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Un nom canonique par variable, **aucun alias** — convention de `.env.example`,
- * reprise telle quelle de `bin/settler.ts` et `bin/open-warrant.ts`. Ces lecteurs
- * sont dupliqués dans chaque binaire parce qu'un binaire d'exploitation doit
- * rester lisible seul ; les factoriser dans un module partagé ferait dépendre
- * l'outil d'un fichier qu'on relirait de toute façon.
+ * One canonical name per variable, **no alias** — the `.env.example` convention,
+ * taken as-is from `bin/settler.ts` and `bin/open-warrant.ts`. These readers are
+ * duplicated in every binary because an operations binary must stay readable on
+ * its own; factoring them into a shared module would make the tool depend on a
+ * file one would re-read anyway.
  */
 function required(name: string): string {
   const value = process.env[name]
   if (!value || value.trim() === '') {
     throw new Error(
-      `variable d'environnement manquante: ${name} — ` +
-        'voir packages/server/src/bin/register-agent.ts',
+      `missing environment variable: ${name} — ` +
+        'see packages/server/src/bin/register-agent.ts',
     )
   }
   return value.trim()
@@ -103,18 +103,17 @@ function optional(name: string, fallback: string): string {
 }
 
 /**
- * Toute adresse est ramenée en minuscules.
+ * Every address is brought down to lowercase.
  *
- * Ce n'est pas cosmétique : viem valide le checksum EIP-55 et **rejette** une
- * adresse dont la casse ne correspond pas — les adresses ERC-8004 à préfixe
- * vanity telles qu'elles circulent (`0x8004A818BFb912233C491871b3d84C89A494Bd9e`)
- * n'ont pas un checksum valide et font échouer `readContract` avant même
- * d'atteindre le réseau. Les constantes de `@warrant/core` sont en minuscules
- * pour la même raison.
+ * This is not cosmetic: viem validates the EIP-55 checksum and **rejects** an
+ * address whose case does not match — the vanity-prefixed ERC-8004 addresses as
+ * they circulate (`0x8004A818BFb912233C491871b3d84C89A494Bd9e`) do not have a
+ * valid checksum and make `readContract` fail before even reaching the network.
+ * The constants in `@warrant/core` are lowercase for the same reason.
  */
 function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${name} : adresse EVM attendue, reçu "${value}"`)
+    throw new Error(`${name}: EVM address expected, got "${value}"`)
   }
   return value.toLowerCase() as Address
 }
@@ -129,53 +128,53 @@ function switchOn(name: string): boolean {
   return process.argv.includes(`--${name}`)
 }
 
-/** Journal structuré, une ligne JSON par événement. Jamais de secret. */
+/** Structured log, one JSON line per event. Never a secret. */
 function log(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event, (_k, v) => (typeof v === 'bigint' ? v.toString(10) : v)))
 }
 
 /**
- * Chaînes connues, table alignée sur `bin/settler.ts`.
+ * Known chains, table aligned with `bin/settler.ts`.
  *
- * ⚠ Elle est volontairement dupliquée, mais elle doit rester **au plus aussi
- * permissive** que celle du Settler : autoriser ici une chaîne que le Settler
- * refuse produirait une identité frappée pour rien.
+ * ⚠ It is deliberately duplicated, but it must remain **at most as permissive**
+ * as the Settler's: allowing a chain here that the Settler refuses would produce
+ * an identity minted for nothing.
  */
 const CHAINS = { 1: mainnet, 8453: base, 84532: baseSepolia, 11155111: sepolia } as const
 
-/** Même ensemble que `bin/settler.ts` : hors de lui, la chaîne est un mainnet. */
+/** Same set as `bin/settler.ts`: outside it, the chain is a mainnet. */
 const TESTNET_CHAIN_IDS = new Set([11155111, 84532, 421614, 11155420, 17000, 80002, 97])
 
 // ─────────────────────────────────────────────────────────────────────────────
-// La table `adresse d'agent → agentId`
+// The `agent address → agentId` table
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Nom de fichier de la table. Le Settler n'en connaît que le chemin complet. */
+/** File name of the table. The Settler knows only its full path. */
 export const AGENT_IDS_BASENAME = 'agent-ids.json'
 
 export interface AgentIdsFileLocation {
-  /** Chemin absolu, résolu. C'est lui qui doit figurer dans `.env`. */
+  /** Absolute path, resolved. This is what must figure in `.env`. */
   path: string
-  /** Ce qui a décidé de ce chemin — la seule information utile en diagnostic. */
+  /** What decided this path — the only useful diagnostic information. */
   source: 'ERC8004_AGENT_IDS_FILE' | 'WARRANT_JOURNAL_FILE' | 'default'
 }
 
 /**
- * Où vit la table.
+ * Where the table lives.
  *
- * `bin/settler.ts` ne lit la table **que** si `ERC8004_AGENT_IDS_FILE` est
- * définie : sans elle, `loadAgentIds()` rend `undefined`, aucun `agentId` n'est
- * résolu, et l'inscription est sautée à chaque mandat. La variable n'est donc pas
- * un réglage, c'est l'interrupteur de toute la surface ERC-8004.
+ * `bin/settler.ts` reads the table **only** if `ERC8004_AGENT_IDS_FILE` is set:
+ * without it, `loadAgentIds()` returns `undefined`, no `agentId` is resolved, and
+ * the record is skipped on every warrant. The variable is therefore not a
+ * setting, it is the switch for the entire ERC-8004 surface.
  *
- * En son absence, ce script écrit **à côté du journal des mandats**, et c'est un
- * choix argumenté : la table et le journal sont lus par le même processus, et
- * `WARRANT_JOURNAL_FILE` est déjà un chemin absolu précisément parce qu'un chemin
- * relatif se résolvait au répertoire courant de chaque process — le Gateway
- * écrivait un journal, le Settler en lisait un autre. La table hériterait du même
- * piège, en pire : son absence ne casse rien de visible, elle rend seulement la
- * réputation silencieusement vide. Le défaut retenu fait donc que la ligne `.env`
- * à ajouter désigne exactement le fichier que ce script vient d'écrire.
+ * In its absence, this script writes **next to the warrant ledger**, and that is
+ * an argued choice: the table and the ledger are read by the same process, and
+ * `WARRANT_JOURNAL_FILE` is already an absolute path precisely because a relative
+ * path resolved against each process's current directory — the Gateway wrote one
+ * ledger, the Settler read another. The table would inherit the same trap, and
+ * worse: its absence breaks nothing visible, it merely leaves reputation silently
+ * empty. The default chosen therefore ensures that the `.env` line to add points
+ * at exactly the file this script has just written.
  */
 export function agentIdsFilePath(
   env: Record<string, string | undefined>,
@@ -195,12 +194,12 @@ export function agentIdsFilePath(
   return { path: resolve(cwd, '.warrant', AGENT_IDS_BASENAME), source: 'default' }
 }
 
-/** La ligne exacte à coller dans `.env`. Ce script ne modifie jamais `.env`. */
+/** The exact line to paste into `.env`. This script never modifies `.env`. */
 export function envLineFor(path: string): string {
   return `ERC8004_AGENT_IDS_FILE=${path}`
 }
 
-/** Table lue sur disque. Un fichier absent est une table vide, pas une erreur. */
+/** Table read from disk. A missing file is an empty table, not an error. */
 export function readAgentIds(path: string): Record<string, string> {
   let raw: string
   try {
@@ -211,21 +210,21 @@ export function readAgentIds(path: string): Record<string, string> {
   const parsed = JSON.parse(raw) as Record<string, string | number>
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(parsed)) {
-    // `BigInt(value)` valide au passage : une valeur non entière ferait lever
-    // `loadAgentIds()` au démarrage du Settler, c'est-à-dire trop tard.
+    // `BigInt(value)` validates along the way: a non-integer value would make
+    // `loadAgentIds()` throw at the Settler's startup, that is to say too late.
     out[key.toLowerCase()] = BigInt(value).toString(10)
   }
   return out
 }
 
 /**
- * Insère ou remplace l'entrée d'un agent, sans toucher aux autres.
+ * Inserts or replaces an agent's entry, without touching the others.
  *
- * Le remplacement est délibéré : une entrée périmée — un `agentId` frappé sur
- * une autre chaîne, par exemple — est précisément ce qu'on vient corriger. La
- * conserver ne servirait qu'à ce que le Settler continue de lire une valeur
- * fausse. `main()` ne remplace toutefois jamais une entrée sans l'avoir d'abord
- * confrontée à la chaîne (`inspectAgentIdentity`).
+ * The replacement is deliberate: a stale entry — an `agentId` minted on another
+ * chain, for instance — is precisely what we have come to fix. Keeping it would
+ * serve only to have the Settler go on reading a false value. `main()` never
+ * replaces an entry, however, without first having confronted it with the chain
+ * (`inspectAgentIdentity`).
  */
 export function upsertAgentId(
   table: Readonly<Record<string, string>>,
@@ -236,12 +235,12 @@ export function upsertAgentId(
 }
 
 /**
- * Écriture atomique : fichier temporaire puis `rename`. Le Settler peut lire ce
- * fichier au même instant — il le relit à chaque démarrage — et un JSON tronqué
- * le ferait échouer au démarrage plutôt que de simplement sauter l'inscription.
+ * Atomic write: temporary file then `rename`. The Settler may be reading this
+ * file at the same instant — it re-reads it at every startup — and a truncated
+ * JSON would make it fail at startup rather than simply skip the record.
  *
- * Deux espaces d'indentation et un retour final : ce fichier est aussi édité à
- * la main, et une seule ligne de 400 caractères ne se relit pas.
+ * Two spaces of indentation and a trailing newline: this file is also edited by
+ * hand, and a single 400-character line does not read.
  */
 export function writeAgentIds(path: string, table: Readonly<Record<string, string>>): void {
   mkdirSync(dirname(path), { recursive: true })
@@ -252,7 +251,7 @@ export function writeAgentIds(path: string, table: Readonly<Record<string, strin
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lecture de l'`agentId` frappé
+// Reading the minted `agentId`
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RegisteredLog {
@@ -262,17 +261,17 @@ export interface RegisteredLog {
 }
 
 /**
- * Extrait l'`agentId` de l'event `Registered` du reçu.
+ * Extracts the `agentId` from the receipt's `Registered` event.
  *
- * On ne se contente pas de la valeur de retour de `register` : une transaction
- * envoyée en `sendTransaction` ne rend aucune donnée de retour, et une
- * simulation faite **avant** l'envoi peut être invalidée par une autre
- * inscription arrivée entre-temps — l'`agentId` est un compteur. Le reçu est la
- * seule source qui dise ce qui a réellement été frappé.
+ * We do not settle for `register`'s return value: a transaction sent with
+ * `sendTransaction` returns no return data, and a simulation done **before**
+ * sending can be invalidated by another registration arriving in the meantime —
+ * the `agentId` is a counter. The receipt is the only source that says what was
+ * actually minted.
  *
- * Le filtre par adresse compte : le registre est un ERC-721, il émet aussi
- * `Transfer` et éventuellement `MetadataSet` dans la même transaction, et une
- * transaction pourrait toucher plusieurs contrats.
+ * Filtering by address matters: the registry is an ERC-721, it also emits
+ * `Transfer` and possibly `MetadataSet` in the same transaction, and one
+ * transaction could touch several contracts.
  */
 export function agentIdFromLogs(
   logs: readonly RegisteredLog[],
@@ -287,39 +286,39 @@ export function agentIdFromLogs(
   const first = events[0]
   if (!first) {
     throw new Error(
-      `aucun event Registered émis par ${registry} dans ce reçu : le jeton n'a pas ` +
-        "été frappé, ou l'ABI de l'implémentation courante a divergé de celle figée " +
-        'dans reputation.ts (les registres sont upgradeable)',
+      `no Registered event emitted by ${registry} in this receipt: the token was not ` +
+        'minted, or the ABI of the current implementation has diverged from the one ' +
+        'frozen in reputation.ts (the registries are upgradeable)',
     )
   }
   return (first.args as { agentId: bigint }).agentId
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chaîne
+// Chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ChainDecision {
   escrowChainId: number
   erc8004ChainId: number
-  /** `undefined` quand rien n'interdit d'écrire sur cette chaîne. */
+  /** `undefined` when nothing forbids writing on this chain. */
   refusal?: string
 }
 
 /**
- * Sur quelle chaîne enregistrer, et faut-il refuser ?
+ * Which chain to register on, and must we refuse?
  *
- * Deux refus, tous deux repris de `bin/settler.ts` pour que l'outil ne puisse pas
- * produire une identité que le Settler ignorera :
+ * Two refusals, both taken from `bin/settler.ts` so that the tool cannot produce
+ * an identity the Settler will ignore:
  *
- *   • **divergence de chaîne** — le Settler « ne signe que sur une chaîne à la
- *     fois » et refuse d'écrire si `ERC8004_CHAIN_ID` diffère de la chaîne de
- *     l'escrow. Frapper un jeton ailleurs revient à payer du gas pour un
- *     identifiant que rien ne lira ; c'est exactement ce qui est arrivé avec
- *     l'`agentId` 8986 d'Ethereum Sepolia ;
- *   • **mainnet par défaut refusé** — la liste des mainnets est ouverte, celle
- *     des testnets qu'on utilise ne l'est pas. Une identité mainnet est une trace
- *     publique définitive et ne doit pas partir par héritage d'une variable.
+ *   • **chain divergence** — the Settler "signs on one chain at a time only" and
+ *     refuses to write if `ERC8004_CHAIN_ID` differs from the escrow's chain.
+ *     Minting a token elsewhere amounts to paying gas for an identifier nothing
+ *     will read; that is exactly what happened with Ethereum Sepolia's `agentId`
+ *     8986;
+ *   • **mainnet refused by default** — the list of mainnets is open-ended, the
+ *     list of testnets we use is not. A mainnet identity is a permanent public
+ *     trace and must not go out by inheritance of a variable.
  */
 export function decideChain(
   env: Record<string, string | undefined>,
@@ -337,7 +336,7 @@ export function decideChain(
     return {
       escrowChainId,
       erc8004ChainId,
-      refusal: `chaîne ${erc8004ChainId} inconnue de la table CHAINS : valeurs acceptées ${Object.keys(CHAINS).join(', ')}`,
+      refusal: `chain ${erc8004ChainId} unknown to the CHAINS table: accepted values ${Object.keys(CHAINS).join(', ')}`,
     }
   }
   if (erc8004ChainId !== escrowChainId) {
@@ -345,10 +344,10 @@ export function decideChain(
       escrowChainId,
       erc8004ChainId,
       refusal:
-        `ERC8004_CHAIN_ID=${erc8004ChainId} ≠ chaîne de l'escrow ${escrowChainId} : ` +
-        "le Settler ne signe que sur une chaîne à la fois et n'écrirait aucun " +
-        `feedback pour un agentId frappé sur ${erc8004ChainId}. Un agentId est un ` +
-        "tokenId ERC-721 : il ne désigne rien hors de sa chaîne d'origine.",
+        `ERC8004_CHAIN_ID=${erc8004ChainId} ≠ escrow chain ${escrowChainId}: ` +
+        'the Settler signs on one chain at a time only and would write no ' +
+        `feedback for an agentId minted on ${erc8004ChainId}. An agentId is an ` +
+        'ERC-721 tokenId: it designates nothing outside its chain of origin.',
     }
   }
   if (!TESTNET_CHAIN_IDS.has(erc8004ChainId) && !allowMainnet) {
@@ -356,28 +355,28 @@ export function decideChain(
       escrowChainId,
       erc8004ChainId,
       refusal:
-        `chaîne ${erc8004ChainId} traitée comme un mainnet : enregistrement refusé ` +
-        "sans ERC8004_ALLOW_MAINNET=1 (ou --allow-mainnet). Une identité mainnet est " +
-        'une trace publique définitive.',
+        `chain ${erc8004ChainId} treated as a mainnet: registration refused ` +
+        'without ERC8004_ALLOW_MAINNET=1 (or --allow-mainnet). A mainnet identity is ' +
+        'a permanent public trace.',
     }
   }
   return { escrowChainId, erc8004ChainId }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// L'URI de la carte d'agent
+// The agent card's URI
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `agentURI` par défaut.
+ * Default `agentURI`.
  *
- * La spec veut une URI qui serve la carte de l'agent. Rien dans ce dépôt ne sert
- * une telle carte aujourd'hui — et on préfère l'écrire ici plutôt que de laisser
- * croire l'inverse : l'URI est donc dérivée de `VERDICT_BASE_URI`, l'unique base
- * publique que le projet annonce déjà, et reste surchargeable par
- * `--agent-uri` / `ERC8004_AGENT_URI`. Elle n'entre dans aucun hash et rien
- * n'échoue si elle ne résout pas encore ; ce qui échouerait, en revanche, c'est
- * de la changer après coup en croyant que `register` peut être rejoué.
+ * The spec wants a URI that serves the agent's card. Nothing in this repository
+ * serves such a card today — and we would rather write that here than let anyone
+ * believe otherwise: the URI is therefore derived from `VERDICT_BASE_URI`, the
+ * only public base the project already announces, and stays overridable through
+ * `--agent-uri` / `ERC8004_AGENT_URI`. It enters no hash and nothing fails if it
+ * does not resolve yet; what *would* fail, on the other hand, is changing it
+ * after the fact in the belief that `register` can be replayed.
  */
 export function defaultAgentUri(agent: Address, verdictBaseUri: string): string {
   const base = verdictBaseUri.replace(/\/v\/?$/, '/').replace(/\/?$/, '/')
@@ -385,26 +384,27 @@ export function defaultAgentUri(agent: Address, verdictBaseUri: string): string 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Déroulé
+// The sequence
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  // Même repli que `bin/settler.ts` : le script npm charge `../../.env` via
-  // `node --env-file-if-exists`, cette boucle couvre le lancement direct.
+  // Same fallback as `bin/settler.ts`: the npm script loads `../../.env` via
+  // `node --env-file-if-exists`, this loop covers the direct launch.
   for (const candidate of [optional('WARRANT_ENV_FILE', ''), '.env', '../../.env']) {
     if (!candidate) continue
     try {
       process.loadEnvFile(candidate)
       break
     } catch {
-      // Absent ou illisible : au suivant, puis l'environnement du process fait foi.
+      // Absent or unreadable: on to the next, then the process environment is
+      // authoritative.
     }
   }
 
   const dryRun = switchOn('dry-run')
   const force = switchOn('force')
 
-  // ── 1. La chaîne, avant tout le reste ──────────────────────────────────────
+  // ── 1. The chain, before everything else ───────────────────────────────────
   const decision = decideChain(process.env, process.argv)
   if (decision.refusal) throw new Error(decision.refusal)
   const chainId = decision.erc8004ChainId
@@ -416,13 +416,13 @@ async function main(): Promise<void> {
   const observedChainId = await publicClient.getChainId()
   if (observedChainId !== chainId) {
     throw new Error(
-      `le RPC ${rpc} répond chainId ${observedChainId}, alors que la configuration ` +
-        `annonce ${chainId} : le jeton serait frappé sur la mauvaise chaîne, et un ` +
-        'agentId frappé ailleurs ne se corrige pas',
+      `RPC ${rpc} answers chainId ${observedChainId}, while the configuration ` +
+        `announces ${chainId}: the token would be minted on the wrong chain, and an ` +
+        'agentId minted elsewhere does not get corrected',
     )
   }
 
-  // ── 2. Registres ───────────────────────────────────────────────────────────
+  // ── 2. Registries ──────────────────────────────────────────────────────────
   const registries = TESTNET_CHAIN_IDS.has(chainId) ? ERC8004.testnet : ERC8004.mainnet
   const identityRegistry = address(
     'ERC8004_IDENTITY',
@@ -436,17 +436,17 @@ async function main(): Promise<void> {
   const code = await publicClient.getCode({ address: identityRegistry })
   if (!code || code === '0x') {
     throw new Error(
-      `aucun code à ${identityRegistry} sur la chaîne ${chainId} : il n'y a pas ` +
-        "d'IdentityRegistry ERC-8004 à cette adresse",
+      `no code at ${identityRegistry} on chain ${chainId}: there is no ERC-8004 ` +
+        'IdentityRegistry at this address',
     )
   }
 
   /**
-   * Le `ReputationRegistry` porte l'adresse du registre d'identités qu'il
-   * consulte, et c'est **lui** qui décidera si le Settler peut noter. Enregistrer
-   * dans un autre registre que celui-là donnerait un `agentId` que
-   * `giveFeedback` lirait ailleurs : `ownerOf` révèrterait, et la transaction
-   * échouerait sans que rien, dans notre table, n'ait l'air faux.
+   * The `ReputationRegistry` carries the address of the identity registry it
+   * consults, and it is **that one** that will decide whether the Settler can
+   * rate. Registering in a registry other than that one would give an `agentId`
+   * that `giveFeedback` would look up elsewhere: `ownerOf` would revert, and the
+   * transaction would fail without anything in our table looking wrong.
    */
   const boundIdentity = (
     (await publicClient.readContract({
@@ -457,35 +457,36 @@ async function main(): Promise<void> {
   ).toLowerCase()
   if (boundIdentity !== identityRegistry) {
     throw new Error(
-      `le ReputationRegistry ${reputationRegistry} consulte l'IdentityRegistry ` +
-        `${boundIdentity}, pas ${identityRegistry} : un agentId frappé ici ne serait ` +
-        'pas celui que giveFeedback vérifierait',
+      `ReputationRegistry ${reputationRegistry} consults IdentityRegistry ` +
+        `${boundIdentity}, not ${identityRegistry}: an agentId minted here would not ` +
+        'be the one giveFeedback would check',
     )
   }
 
-  // ── 3. L'agent et le Settler ───────────────────────────────────────────────
+  // ── 3. The agent and the Settler ───────────────────────────────────────────
   /**
-   * `OPENER_PRIVATE_KEY` est la clé de l'agent.
+   * `OPENER_PRIVATE_KEY` is the agent's key.
    *
-   * Le nom vient d'une topologie antérieure où elle signait `open()` ; depuis que
-   * le rôle `opener` est le wallet KeeperHub, son seul emploi est de signer ce
-   * qui appartient à l'agent — l'autorisation EIP-3009 dans `open-warrant.ts`,
-   * et ici son propre enregistrement. Aucune autre clé du dépôt ne peut le faire
-   * à sa place : le owner du NFT sera `msg.sender`.
+   * The name comes from an earlier topology where it signed `open()`; ever since
+   * the `opener` role became the KeeperHub wallet, its only use is to sign what
+   * belongs to the agent — the EIP-3009 authorization in `open-warrant.ts`, and
+   * here its own registration. No other key in the repository can do it in its
+   * place: the NFT's owner will be `msg.sender`.
    */
   const agentAccount = privateKeyToAccount(required('OPENER_PRIVATE_KEY') as Hex)
   const agent = agentAccount.address.toLowerCase() as Address
   const escrow = address('WARRANT_ESCROW_ADDRESS', required('WARRANT_ESCROW_ADDRESS'))
 
   /**
-   * Le Settler est lu **sur l'escrow**, pas dérivé de `SETTLER_PRIVATE_KEY`.
+   * The Settler is read **from the escrow**, not derived from
+   * `SETTLER_PRIVATE_KEY`.
    *
-   * Deux raisons. La première est de principe : un outil qui n'a aucune raison de
-   * signer au nom du Settler n'a aucune raison de connaître son secret. La
-   * seconde est que `settler()` onchain est la seule adresse qui compte — c'est
-   * celle qui pourra appeler `honor`/`slash`, donc celle qui écrira les
-   * feedbacks, et `bin/settler.ts` refuse de démarrer si la clé configurée en
-   * diverge.
+   * Two reasons. The first is a matter of principle: a tool that has no reason to
+   * sign on the Settler's behalf has no reason to know its secret. The second is
+   * that the onchain `settler()` is the only address that counts — it is the one
+   * that will be able to call `honor`/`slash`, hence the one that will write the
+   * feedbacks, and `bin/settler.ts` refuses to start if the configured key
+   * diverges from it.
    */
   const settler = (
     (await publicClient.readContract({
@@ -497,13 +498,13 @@ async function main(): Promise<void> {
 
   if (settler === agent) {
     throw new Error(
-      `le Settler et l'agent sont la même adresse (${agent}) : giveFeedback ` +
-        'reverterait en « Self-feedback not allowed » pour tout verdict, et aucune ' +
-        "identité n'y changerait quoi que ce soit (invariant I10)",
+      `the Settler and the agent are the same address (${agent}): giveFeedback ` +
+        'would revert with "Self-feedback not allowed" for every verdict, and no ' +
+        'identity would change anything about it (invariant I10)',
     )
   }
 
-  // ── 4. La table ────────────────────────────────────────────────────────────
+  // ── 4. The table ───────────────────────────────────────────────────────────
   const location = agentIdsFilePath(process.env)
   const table = readAgentIds(location.path)
   const known = table[agent]
@@ -525,42 +526,42 @@ async function main(): Promise<void> {
   })
 
   /**
-   * Une entrée déjà présente est confrontée à la chaîne avant toute décision.
+   * An entry already present is confronted with the chain before any decision.
    *
-   * `inspectAgentIdentity` ne lève jamais et distingue les quatre situations qui
-   * comptent — et elles appellent trois conduites différentes :
+   * `inspectAgentIdentity` never throws and distinguishes the four situations
+   * that count — and they call for three different courses of action:
    *
-   *   • `usable`      → il n'y a rien à faire, et frapper un second jeton serait
-   *                     du gas dépensé pour rendre le premier orphelin ;
-   *   • `absent`      → l'entrée ne désigne rien sur cette chaîne (le cas de
-   *                     l'`agentId` 8986 frappé sur Ethereum Sepolia). On
-   *                     enregistre et on remplace ;
-   *   • `unnotable`   → le jeton existe mais le Settler en est owner ou operator.
-   *                     Irréparable sur ce jeton : on en frappe un neuf, dont
-   *                     l'agent sera owner ;
-   *   • `unavailable` → le RPC n'a pas répondu. On ne conclut rien et on
-   *                     n'écrase rien : c'est la même règle que celle du Settler,
-   *                     « dans le doute on n'écrit pas ».
+   *   • `usable`      → there is nothing to do, and minting a second token would
+   *                     be gas spent to leave the first one orphaned;
+   *   • `absent`      → the entry designates nothing on this chain (the case of
+   *                     the `agentId` 8986 minted on Ethereum Sepolia). We
+   *                     register and replace;
+   *   • `unnotable`   → the token exists but the Settler is owner or operator of
+   *                     it. Irreparable on that token: we mint a fresh one, of
+   *                     which the agent will be owner;
+   *   • `unavailable` → the RPC did not answer. We conclude nothing and overwrite
+   *                     nothing: it is the same rule as the Settler's, "when in
+   *                     doubt, do not write".
    */
   if (known !== undefined) {
     const status = await inspectAgentIdentity(BigInt(known), settler, {
       publicClient: publicClient as never,
       identityRegistry,
     })
-    log({ msg: 'identité connue: état onchain', agentId: known, status })
+    log({ msg: 'known identity: onchain state', agentId: known, status })
 
     if (status.status === 'usable' && !force) {
       log({
-        msg: 'rien à enregistrer',
+        msg: 'nothing to register',
         agentId: known,
         detail:
-          `l'agentId ${known} existe sur la chaîne ${chainId} et le Settler ${settler} ` +
-          'peut le noter. --force frapperait un second jeton, ce qui rendrait le ' +
-          'premier orphelin sans rien améliorer.',
+          `agentId ${known} exists on chain ${chainId} and the Settler ${settler} ` +
+          'can rate it. --force would mint a second token, which would leave the ' +
+          'first one orphaned without improving anything.',
       })
-      // On revérifie quand même, intégralement : relancer l'outil est le geste
-      // naturel pour savoir si l'inscription est en état de marche, et une
-      // réponse « rien à faire » sans preuve ne vaut rien.
+      // We re-verify all the same, in full: relaunching the tool is the natural
+      // gesture for finding out whether the registration is in working order, and
+      // a "nothing to do" answer without proof is worth nothing.
       await assertNotable(publicClient, {
         agentId: BigInt(known),
         agent,
@@ -573,21 +574,21 @@ async function main(): Promise<void> {
     }
     if (status.status === 'unavailable' && !force) {
       throw new Error(
-        `l'état de l'agentId ${known} n'a pas pu être établi (${status.reason}) : on ` +
-          "n'écrase pas une entrée existante sur une lecture non concluante. " +
-          'Réessayer quand le RPC répond, ou forcer avec --force.',
+        `the state of agentId ${known} could not be established (${status.reason}): we ` +
+          'do not overwrite an existing entry on an inconclusive read. ' +
+          'Retry when the RPC answers, or force it with --force.',
       )
     }
   }
 
-  // ── 5. La transaction, préparée par `reputation.ts` ────────────────────────
+  // ── 5. The transaction, prepared by `reputation.ts` ────────────────────────
   const verdictBaseUri = optional('VERDICT_BASE_URI', 'https://warrant.sh/v/')
   const agentUri = arg('agent-uri', optional('ERC8004_AGENT_URI', defaultAgentUri(agent, verdictBaseUri)))
   /**
-   * `since` vient du timestamp du dernier bloc, pas de l'horloge locale : la
-   * métadonnée doit être comparable à ce que lit un tiers depuis la chaîne, et
-   * une horloge de machine décalée produirait une date antérieure à
-   * l'enregistrement lui-même.
+   * `since` comes from the last block's timestamp, not from the local clock: the
+   * metadata must be comparable to what a third party reads from the chain, and a
+   * skewed machine clock would produce a date earlier than the registration
+   * itself.
    */
   const since = Number((await publicClient.getBlock({ blockTag: 'latest' })).timestamp)
 
@@ -598,7 +599,7 @@ async function main(): Promise<void> {
     since,
   })
   log({
-    msg: 'transaction préparée',
+    msg: 'transaction prepared',
     to: registration.to,
     value: registration.value,
     agentURI: agentUri,
@@ -609,14 +610,13 @@ async function main(): Promise<void> {
   })
 
   /**
-   * Simulation avant envoi, sur **les octets exacts** qui partiront.
+   * Simulation before sending, on **the exact bytes** that will go out.
    *
-   * `eth_call` sur le calldata construit, et non `simulateContract` sur des
-   * arguments reconstruits : ce qui est éprouvé doit être ce qui est signé. La
-   * valeur de retour donne l'`agentId` prévu — utile à afficher, mais jamais
-   * retenue comme vérité : le compteur peut avancer entre la simulation et
-   * l'inclusion. Ce que la simulation garantit, c'est qu'on ne paie pas du gas
-   * pour un revert.
+   * `eth_call` on the constructed calldata, and not `simulateContract` on
+   * reconstructed arguments: what is tested must be what is signed. The return
+   * value gives the expected `agentId` — useful to display, but never taken as
+   * truth: the counter can advance between the simulation and inclusion. What the
+   * simulation guarantees is that we do not pay gas for a revert.
    */
   const simulated = await publicClient.call({
     account: agent,
@@ -650,15 +650,15 @@ async function main(): Promise<void> {
   })
   if (balance < gas * gasPrice) {
     throw new Error(
-      `l'agent ${agent} a ${balance} wei et l'enregistrement coûte ${gas * gasPrice} wei : ` +
-        'la transaction ne partirait pas. `pnpm faucet` approvisionne Base Sepolia ' +
-        '(plafonné à 24 h).',
+      `agent ${agent} has ${balance} wei and the registration costs ${gas * gasPrice} wei: ` +
+        'the transaction would not go out. `pnpm faucet` funds Base Sepolia ' +
+        '(capped per 24 h).',
     )
   }
 
   if (dryRun) {
     log({
-      msg: '--dry-run : rien envoyé',
+      msg: '--dry-run: nothing sent',
       to: registration.to,
       data: registration.data,
       value: registration.value,
@@ -667,26 +667,26 @@ async function main(): Promise<void> {
     return
   }
 
-  // ── 6. L'envoi, signé par l'agent ─────────────────────────────────────────
+  // ── 6. The send, signed by the agent ──────────────────────────────────────
   const wallet = createWalletClient({ account: agentAccount, chain, transport: http(rpc) })
   const txHash = await wallet.sendTransaction({
     to: registration.to,
     data: registration.data,
     value: registration.value,
   })
-  log({ msg: 'enregistrement envoyé', txHash })
+  log({ msg: 'registration sent', txHash })
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash, confirmations: 1 })
   if (receipt.status !== 'success') {
     throw new Error(
-      `la transaction d'enregistrement ${txHash} a échoué (status=${receipt.status}) : ` +
-        'aucun agentId frappé, la table est laissée intacte',
+      `registration transaction ${txHash} failed (status=${receipt.status}): ` +
+        'no agentId minted, the table is left intact',
     )
   }
 
   const agentId = agentIdFromLogs(receipt.logs as never, identityRegistry)
   log({
-    msg: 'agentId frappé',
+    msg: 'agentId minted',
     agentId,
     txHash,
     blockNumber: receipt.blockNumber,
@@ -694,26 +694,26 @@ async function main(): Promise<void> {
     ...(predicted !== undefined && predicted !== agentId
       ? {
           warning:
-            `la simulation prévoyait ${predicted} : une autre inscription a été ` +
-            "incluse entre-temps. C'est le reçu qui fait foi.",
+            `the simulation predicted ${predicted}: another registration was ` +
+            'included in the meantime. The receipt is authoritative.',
         }
       : {}),
   })
 
-  // ── 7. La table, écrite avant la vérification ────────────────────────────
-  //    L'ordre est délibéré : le jeton est frappé, il ne se dé-frappe pas. Perdre
-  //    l'`agentId` parce qu'une vérification de lecture a échoué juste après
-  //    obligerait à balayer les logs pour le retrouver.
+  // ── 7. The table, written before the verification ────────────────────────
+  //    The order is deliberate: the token is minted, it does not get un-minted.
+  //    Losing the `agentId` because a read verification failed just afterwards
+  //    would force a sweep of the logs to find it again.
   const updated = upsertAgentId(table, agent, agentId)
   writeAgentIds(location.path, updated)
   log({
-    msg: 'table écrite',
+    msg: 'table written',
     path: location.path,
     entries: Object.keys(updated).length,
     ...(known !== undefined && known !== agentId.toString(10) ? { replaced: known } : {}),
   })
 
-  // ── 8. La vérification qui décide de tout ─────────────────────────────────
+  // ── 8. The verification that decides everything ───────────────────────────
   await assertNotable(publicClient, {
     agentId,
     agent,
@@ -722,34 +722,34 @@ async function main(): Promise<void> {
     chainId,
     location,
     /**
-     * Le nœud doit d'abord voir le bloc du reçu.
+     * The node must first see the receipt's block.
      *
-     * `waitForTransactionReceipt` a rendu, donc **un** nœud avait la
-     * transaction ; rien ne garantit que le suivant l'ait, un RPC public étant
-     * un répartiteur devant des nœuds inégalement à jour. Sans cette attente,
-     * `ownerOf` révèrte en `ERC721NonexistentToken` sur un jeton qui existe
-     * pourtant — c'est exactement ce qui s'est produit au premier
-     * enregistrement réel, quelques secondes après l'inclusion au bloc
-     * 44805365.
+     * `waitForTransactionReceipt` returned, so **one** node had the transaction;
+     * nothing guarantees the next one has it, a public RPC being a load balancer
+     * in front of unevenly up-to-date nodes. Without this wait, `ownerOf` reverts
+     * with `ERC721NonexistentToken` on a token that nonetheless exists — which is
+     * exactly what happened at the first real registration, a few seconds after
+     * inclusion at block 44805365.
      */
     minBlock: receipt.blockNumber,
   })
 }
 
 /**
- * Vérifie qu'un `agentId` est **notable** par le Settler, et lève sinon.
+ * Verifies that an `agentId` is **rateable** by the Settler, and throws
+ * otherwise.
  *
- * C'est la seule chose qui distingue une identité utilisable d'une identité qui
- * fera révèrter chaque `giveFeedback` : `ReputationRegistry` exige
- * `!isAuthorizedOrOwner(msg.sender, agentId)`. On lit donc ce prédicat **tel
- * quel**, sur la chaîne, plutôt que de se contenter d'un raisonnement — « le
- * owner est l'agent, donc le Settler ne l'est pas » serait vrai pour `ownerOf` et
- * muet sur `approve` et `setApprovalForAll`. `inspectAgentIdentity` couvre
- * ensuite les trois branches d'un coup et rend un état lisible, y compris quand
- * la lecture directe n'est pas concluante.
+ * It is the only thing that tells a usable identity from an identity that will
+ * make every `giveFeedback` revert: `ReputationRegistry` requires
+ * `!isAuthorizedOrOwner(msg.sender, agentId)`. So we read that predicate **as
+ * it stands**, on the chain, rather than settle for a piece of reasoning — "the
+ * owner is the agent, therefore the Settler is not" would be true of `ownerOf`
+ * and silent on `approve` and `setApprovalForAll`. `inspectAgentIdentity` then
+ * covers the three branches at once and returns a readable state, including when
+ * the direct read is inconclusive.
  *
- * Appelée aux deux endroits qui en ont besoin : après un enregistrement, et
- * quand l'outil est relancé sur une identité déjà connue.
+ * Called at the two places that need it: after a registration, and when the tool
+ * is relaunched on an already-known identity.
  */
 async function assertNotable(
   publicClient: {
@@ -771,12 +771,12 @@ async function assertNotable(
   if (opts.minBlock !== undefined) await awaitBlock(publicClient, opts.minBlock)
 
   /**
-   * Les deux lectures qui décident sont réessayées.
+   * The two reads that decide are retried.
    *
-   * Elles révèrtent toutes deux en `ERC721NonexistentToken` sur un nœud en
-   * retard, et un revert est indistinguable d'un vrai « ce jeton n'existe pas ».
-   * Un échec de lecture ne doit pas se conclure en « identité inutilisable »
-   * alors que le jeton vient d'être frappé.
+   * Both of them revert with `ERC721NonexistentToken` on a lagging node, and a
+   * revert is indistinguishable from a genuine "this token does not exist". A read
+   * failure must not conclude in "unusable identity" when the token has just been
+   * minted.
    */
   const owner = (
     (await retry('ownerOf', () =>
@@ -804,7 +804,7 @@ async function assertNotable(
   })
 
   log({
-    msg: 'vérification onchain',
+    msg: 'onchain verification',
     agentId,
     ownerOf: owner,
     ownerIsAgent: owner === agent,
@@ -829,49 +829,49 @@ async function assertNotable(
   const failures: string[] = []
   if (owner !== agent) {
     failures.push(
-      `ownerOf(${agentId}) = ${owner}, attendu l'agent ${agent} : le NFT a été frappé ` +
-        "au profit de quelqu'un d'autre",
+      `ownerOf(${agentId}) = ${owner}, expected the agent ${agent}: the NFT was minted ` +
+        'to the benefit of somebody else',
     )
   }
   if (authorized) {
     failures.push(
-      `isAuthorizedOrOwner(${settler}, ${agentId}) = true : giveFeedback reverterait ` +
-        'en « Self-feedback not allowed » à chaque verdict. Le Settler doit être une ' +
-        'adresse tierce, ni owner, ni operator, ni approuvée sur le jeton.',
+      `isAuthorizedOrOwner(${settler}, ${agentId}) = true: giveFeedback would revert ` +
+        'with "Self-feedback not allowed" at every verdict. The Settler must be a ' +
+        'third-party address, neither owner, nor operator, nor approved on the token.',
     )
   }
   if (status.status !== 'usable') {
     failures.push(
-      `inspectAgentIdentity rend '${status.status}' : ${'reason' in status ? status.reason : ''}`,
+      `inspectAgentIdentity returns '${status.status}': ${'reason' in status ? status.reason : ''}`,
     )
   }
 
   if (failures.length > 0) {
     throw new Error(
-      `l'agentId ${agentId} est frappé et inscrit dans la table, mais il n'est PAS ` +
-        `notable :\n  - ${failures.join('\n  - ')}`,
+      `agentId ${agentId} is minted and recorded in the table, but it is NOT ` +
+        `rateable:\n  - ${failures.join('\n  - ')}`,
     )
   }
 
   log({
-    msg: 'identité utilisable',
+    msg: 'identity usable',
     agentId,
     detail:
-      `le Settler ${settler} peut inscrire des verdicts pour l'agentId ${agentId} sur ` +
-      `la chaîne ${opts.chainId}`,
+      `the Settler ${settler} can record verdicts for agentId ${agentId} on ` +
+      `chain ${opts.chainId}`,
     ...(opts.location.source === 'ERC8004_AGENT_IDS_FILE'
       ? {}
       : {
           envLine: envLineFor(opts.location.path),
           envHint:
-            'bin/settler.ts ne lit la table QUE si ERC8004_AGENT_IDS_FILE est ' +
-            'définie : sans cette ligne, aucun agentId ne sera résolu et ' +
-            "l'inscription restera sautée à chaque mandat.",
+            'bin/settler.ts reads the table ONLY if ERC8004_AGENT_IDS_FILE is ' +
+            'set: without this line, no agentId will be resolved and the record ' +
+            'will stay skipped on every warrant.',
         }),
   })
 }
 
-/** Attend que le nœud interrogé annonce au moins ce bloc. Jamais bloquant à l'infini. */
+/** Waits for the queried node to announce at least this block. Never blocks forever. */
 async function awaitBlock(
   client: { getBlockNumber(): Promise<bigint> },
   target: bigint,
@@ -882,22 +882,22 @@ async function awaitBlock(
     try {
       if ((await client.getBlockNumber()) >= target) return
     } catch {
-      // Un nœud muet est traité comme un nœud en retard : on réessaie.
+      // A silent node is treated as a lagging node: we retry.
     }
     await sleep(delayMs)
   }
-  // On n'échoue pas ici : les lectures qui suivent ont leur propre retry, et
-  // c'est leur résultat — pas la hauteur annoncée — qui compte.
+  // We do not fail here: the reads that follow have their own retry, and it is
+  // their result — not the announced height — that counts.
   log({
-    msg: 'avertissement: le RPC annonce toujours un bloc antérieur',
+    msg: 'warning: the RPC still announces an earlier block',
     target: target.toString(10),
     detail:
-      "les vérifications qui suivent peuvent échouer alors que l'enregistrement " +
-      'est correct ; relancer la commande les rejouera sans rien frapper',
+      'the verifications that follow may fail even though the registration is ' +
+      'correct; relaunching the command will replay them without minting anything',
   })
 }
 
-/** Réessaie une lecture. Le dernier échec est propagé tel quel. */
+/** Retries a read. The last failure is propagated as-is. */
 async function retry<T>(
   label: string,
   fn: () => Promise<T>,
@@ -911,7 +911,7 @@ async function retry<T>(
     } catch (e) {
       last = e
       if (i + 1 < attempts) {
-        log({ msg: `lecture ${label} en échec, nouvel essai`, attempt: i + 1, of: attempts })
+        log({ msg: `read ${label} failed, retrying`, attempt: i + 1, of: attempts })
         await sleep(delayMs)
       }
     }
@@ -923,7 +923,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/** Métadonnée UTF-8, ou `null`. Une clé absente rend `0x`, ce n'est pas une erreur. */
+/** UTF-8 metadata, or `null`. A missing key returns `0x`, which is not an error. */
 async function readMetadata(
   client: { readContract(args: never): Promise<unknown> },
   identityRegistry: Address,
@@ -944,9 +944,8 @@ async function readMetadata(
 }
 
 /**
- * `main()` ne part que si ce fichier est le point d'entrée : les helpers
- * ci-dessus sont testés, et un `import` depuis un test ne doit pas signer une
- * transaction.
+ * `main()` only runs if this file is the entry point: the helpers above are
+ * tested, and an `import` from a test must not sign a transaction.
  */
 function isEntryPoint(): boolean {
   const entry = process.argv[1]
@@ -962,7 +961,7 @@ if (isEntryPoint()) {
   main().catch((e: unknown) => {
     console.error(
       JSON.stringify({
-        msg: 'enregistrement impossible',
+        msg: 'registration failed',
         error: e instanceof Error ? e.message : String(e),
       }),
     )

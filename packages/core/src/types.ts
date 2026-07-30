@@ -1,26 +1,26 @@
 /**
- * Types partagés de Warrant.
+ * Warrant's shared types.
  *
- * Ce fichier est le contrat d'interface entre tous les modules. Il est
- * délibérément sans dépendance runtime : rien d'autre que des types et
- * quelques constantes littérales.
+ * This file is the interface contract between every module. It is deliberately
+ * free of any runtime dependency: nothing but types and a few literal
+ * constants.
  *
- * Références : docs/07-postconditions.md, docs/13-risques.md § 5.
+ * References: docs/07-postconditions.md, docs/13-risques.md § 5.
  */
 
 export type Hex = `0x${string}`
 export type Address = Hex
 
-/** Comparateurs admis par les vérificateurs numériques. */
+/** Comparators admitted by the numeric checks. */
 export type Op = 'eq' | 'lte' | 'gte'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Post-conditions — le DSL
+// Post-conditions — the DSL
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Catalogue fermé des vérificateurs. Un `kind` hors de cette liste est rejeté
- * à l'ouverture du mandat, jamais au règlement (docs/07 § 3).
+ * Closed catalogue of checks. A `kind` outside this list is rejected when the
+ * warrant is opened, never at settlement (docs/07 § 3).
  */
 export type CheckKind =
   | 'erc20_allowance'
@@ -52,19 +52,19 @@ export interface Erc20BalanceCheck {
 }
 
 /**
- * Delta de solde ERC-20 attribuable à la transaction d'action.
+ * ERC-20 balance delta attributable to the action transaction.
  *
- * Le delta est dérivé des logs `Transfer` de la transaction elle-même, et non
- * d'une différence de soldes entre deux blocs : sur un compte actif, une autre
- * transaction incluse dans le même bloc serait imputée à l'agent et produirait
- * une saisie injuste.
+ * The delta is derived from the `Transfer` logs of the transaction itself, not
+ * from a balance difference between two blocks: on an active account, another
+ * transaction included in the same block would be charged to the agent and
+ * would produce an unfair slash.
  */
 export interface Erc20BalanceDeltaCheck {
   kind: 'erc20_balance_delta'
   token: Address
   account: Address
   op: Op
-  /** Delta signé, en unités atomiques. Négatif = sortie tolérée. */
+  /** Signed delta, in atomic units. Negative = tolerated outflow. */
   value: string
 }
 
@@ -80,7 +80,7 @@ export interface AaveHealthFactorCheck {
   pool: Address
   user: Address
   op: Op
-  /** Health factor en 1e18 — "1500000000000000000" = 1,5. */
+  /** Health factor in 1e18 — "1500000000000000000" = 1.5. */
   value: string
 }
 
@@ -101,17 +101,17 @@ export interface EventEmittedCheck {
 }
 
 /**
- * Progression du nonce du compte exécutant, mesurée comme un **delta** entre le
- * bloc précédant la transaction et le bloc d'évaluation.
+ * Nonce progression of the executing account, measured as a **delta** between
+ * the block preceding the transaction and the evaluation block.
  *
- * Ce n'est pas un nonce absolu : le wallet d'exécution KeeperHub est réutilisé
- * et son nonce est arbitrairement grand.
+ * This is not an absolute nonce: the KeeperHub execution wallet is reused and
+ * its nonce is arbitrarily large.
  */
 export interface NonceAdvancedCheck {
   kind: 'nonce_advanced'
   account: Address
   op: Op
-  /** Nombre de transactions attribuées au compte sur la fenêtre évaluée. */
+  /** Number of transactions attributed to the account over the evaluated window. */
   value: string
 }
 
@@ -122,9 +122,9 @@ export interface NoNewApprovalsCheck {
 }
 
 /**
- * Vérifie que la transaction exécutée onchain est bien celle engagée sous
- * `actionHash`. Injecté d'office par le Gateway, non retirable, hors quota
- * de `MAX_CHECKS` (docs/07 § 2.10, docs/13 § 5).
+ * Verifies that the transaction executed onchain is the one committed under
+ * `actionHash`. Injected unconditionally by the Gateway, not removable, out of
+ * the `MAX_CHECKS` quota (docs/07 § 2.10, docs/13 § 5).
  */
 export interface CalldataMatchesCommitmentCheck {
   kind: 'calldata_matches_commitment'
@@ -143,7 +143,7 @@ export type Check =
   | NoNewApprovalsCheck
   | CalldataMatchesCommitmentCheck
 
-/** Bloc auquel la post-condition est lue. Jamais `latest`. */
+/** Block at which the post-condition is read. Never `latest`. */
 export type EvaluateAt = 'tx' | 'tx+1' | { block: number }
 
 export interface ConditionSpec {
@@ -151,38 +151,38 @@ export interface ConditionSpec {
   chainId: number
   evaluateAt: EvaluateAt
   confirmations: number
-  /** Conjonction pure : toutes doivent passer. Pas de OR, pas de branchement. */
+  /** Pure conjunction: every one must pass. No OR, no branching. */
   checks: Check[]
 }
 
-/** Nombre maximal de checks *déclarés*. `calldata_matches_commitment` est hors quota. */
+/** Maximum number of *declared* checks. `calldata_matches_commitment` is out of quota. */
 export const MAX_CHECKS = 8
 
-/** Confirmations par défaut, par famille de chaîne (docs/07 § 1). */
+/** Default confirmations, per chain family (docs/07 § 1). */
 export const DEFAULT_CONFIRMATIONS = { l1: 12, l2: 3 } as const
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Actions — ce qui est engagé et exécuté
+// Actions — what is committed to and executed
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * La transaction que KeeperHub exécutera, engagée sous `actionHash`.
+ * The transaction KeeperHub will execute, committed under `actionHash`.
  *
- * C'est le **seul** intrant de la classification : aucun champ déclaratif de la
- * requête de l'agent n'entre dans le choix de la politique (docs/13 § 5).
+ * It is the **only** input to classification: no declarative field of the
+ * agent's request has any bearing on which policy applies (docs/13 § 5).
  */
 export interface ActionSpec {
   version: 1
   chainId: number
   target: Address
-  /** Valeur native envoyée, en wei, en chaîne décimale. */
+  /** Native value sent, in wei, as a decimal string. */
   value: string
   calldata: Hex
-  /** Hash de la version du registre de classification utilisée. */
+  /** Hash of the classification registry version used. */
   registryRef: Hex
 }
 
-/** Catégories connues du registre. `unknown` déclenche le repli le plus strict. */
+/** Categories known to the registry. `unknown` triggers the strictest fallback. */
 export type ActionCategory =
   | 'erc20.transfer'
   | 'erc20.approve'
@@ -194,32 +194,32 @@ export type ActionCategory =
 
 export interface Classification {
   category: ActionCategory
-  /** Arguments décodés du calldata, en chaînes. */
+  /** Arguments decoded from the calldata, as strings. */
   params: Record<string, string>
-  /** Notionnel dérivé des arguments décodés — jamais déclaré par l'agent. */
+  /** Notional derived from the decoded arguments — never declared by the agent. */
   notionalUSD: string
   registryRef: Hex
 }
 
 /**
- * Une entrée du registre de classification, indexée par `(target, selector)`.
+ * An entry of the classification registry, indexed by `(target, selector)`.
  *
- * La clé est le couple, pas le seul sélecteur : `transfer(address,uint256)` sur
- * l'USDC du trésor et le même sélecteur sur un token sans valeur ne sont pas la
- * même action.
+ * The key is the pair, not the selector alone: `transfer(address,uint256)` on
+ * the treasury's USDC and the same selector on a worthless token are not the
+ * same action.
  */
 export interface RegistryEntry {
   chainId: number
   target: Address
   selector: Hex
   category: Exclude<ActionCategory, 'unknown'>
-  /** Signature ABI humaine, ex. "transfer(address,uint256)". */
+  /** Human-readable ABI signature, e.g. "transfer(address,uint256)". */
   signature: string
-  /** Noms des arguments, dans l'ordre du décodage. */
+  /** Argument names, in decoding order. */
   argNames: string[]
-  /** Décimales de l'actif porté par cette action, pour dériver le notionnel. */
+  /** Decimals of the asset carried by this action, used to derive the notional. */
   assetDecimals?: number
-  /** Prix de référence en USD, figé dans le registre. Pas d'oracle en v1. */
+  /** Reference price in USD, frozen in the registry. No oracle in v1. */
   assetPriceUSD?: string
 }
 
@@ -229,25 +229,25 @@ export interface ClassificationRegistry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tarification du risque
+// Risk pricing
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CategoryPolicy {
   riskBps: number
-  /** Destinations autorisées pour les catégories sortantes. */
+  /** Allowed destinations for outbound categories. */
   allowedDest?: Address[]
-  /** Sortie maximale tolérée, en unités atomiques de l'actif. */
+  /** Maximum tolerated outflow, in atomic units of the asset. */
   maxOutflow?: string
 }
 
 export interface Policy {
-  /** Bénéficiaire des saisies : le propriétaire du capital. */
+  /** Recipient of slashed bonds: the capital owner. */
   beneficiary: Address
-  /** Compte protégé (trésor) sur lequel portent les post-conditions. */
+  /** Protected account (treasury) the post-conditions bear on. */
   treasury: Address
   minBond: string
   maxBond: string
-  /** Durée du mandat en secondes. Doit couvrir exécution + confirmations. */
+  /** Warrant duration in seconds. Must cover execution + confirmations. */
   duration: number
   categories: Record<string, CategoryPolicy>
 }
@@ -262,10 +262,10 @@ export interface Quote {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mandats et verdicts
+// Warrants and verdicts
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Miroir de l'enum Solidity. Voir contracts/src/WarrantEscrow.sol. */
+/** Mirror of the Solidity enum. See contracts/src/WarrantEscrow.sol. */
 export enum WarrantStatus {
   None = 0,
   Open = 1,
@@ -298,13 +298,13 @@ export interface EvaluationResult {
   verdict: 'honored' | 'slashed'
   evaluatedAtBlock: string
   checks: CheckResult[]
-  /** Publié : rend le verdict rejouable par un tiers. */
+  /** Published: makes the verdict replayable by a third party. */
   rpcUrl: string
 }
 
 /**
- * Document de verdict servi à une URI stable. Son `keccak256` canonicalisé est
- * ce qui est engagé dans l'event `NewFeedback` d'ERC-8004.
+ * Verdict document served at a stable URI. Its canonicalized `keccak256` is
+ * what gets committed in ERC-8004's `NewFeedback` event.
  */
 export interface VerdictDocument {
   warrantId: Hex

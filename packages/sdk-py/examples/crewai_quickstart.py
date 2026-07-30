@@ -29,8 +29,8 @@ from mock_gateway import BENEFICIARY, USDC, serve  # noqa: E402
 
 from warrant_sdk.crewai import warrant_tools  # noqa: E402
 
-#: Compte 1 d'Anvil. Publique, sans valeur : le mock vérifie la signature, il ne
-#: déplace rien. Ne jamais réutiliser une clé de démo là où elle détient quelque chose.
+#: Anvil account 1. Public, worthless: the mock verifies the signature, it moves
+#: nothing. Never reuse a demo key anywhere it holds something.
 DEMO_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 
 ACTION_SPEC = {
@@ -38,7 +38,7 @@ ACTION_SPEC = {
     "chainId": 84532,
     "target": USDC.lower(),
     "value": "0",
-    # transfer(0x…dEaD, 1_000_000) — 1 USDC. Catégorie et notionnel en sortiront.
+    # transfer(0x…dEaD, 1_000_000) — 1 USDC. Category and notional come out of this.
     "calldata": (
         "0xa9059cbb"
         "000000000000000000000000000000000000000000000000000000000000dead"

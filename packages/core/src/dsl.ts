@@ -1,12 +1,12 @@
 /**
- * Validation du DSL de post-conditions (docs/07).
+ * Validation of the post-condition DSL (docs/07).
  *
- * Le domaine est fini et enumere : tout `kind` hors catalogue est refuse **a
- * l'ouverture du mandat**, jamais au reglement. Refuser tard serait un moyen de
- * gagner a tous les coups.
+ * The domain is finite and enumerated: any `kind` outside the catalogue is
+ * refused **when the warrant is opened**, never at settlement. Refusing late
+ * would be a way of winning either way.
  *
- * Toutes les erreurs portent le chemin du champ fautif (`$.checks[2].token`) :
- * un agent qui recoit un refus doit pouvoir corriger sa requete sans deviner.
+ * Every error carries the path of the offending field (`$.checks[2].token`): an
+ * agent that gets a refusal must be able to fix its request without guessing.
  */
 
 import { MAX_CHECKS } from './types.js'
@@ -20,19 +20,19 @@ import type {
 } from './types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Erreurs
+// Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface DslIssue {
-  /** Chemin JSONPath-like du champ fautif. */
+  /** JSONPath-like path of the offending field. */
   path: string
   message: string
 }
 
-/** Erreur de validation du DSL. Agrege toutes les anomalies detectees. */
+/** DSL validation error. Aggregates every anomaly detected. */
 export class DslError extends Error {
   readonly issues: readonly DslIssue[]
-  /** Chemin du premier champ fautif — raccourci de confort. */
+  /** Path of the first offending field — a convenience shortcut. */
   readonly path: string
 
   constructor(subject: string, issues: DslIssue[]) {
@@ -45,10 +45,10 @@ export class DslError extends Error {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Primitives partagees (reutilisees par hash.ts pour la normalisation)
+// Shared primitives (reused by hash.ts for normalization)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Catalogue ferme des vérificateurs, dans l'ordre de docs/07 § 2. */
+/** Closed catalogue of checks, in the order of docs/07 § 2. */
 export const CHECK_KINDS = [
   'erc20_allowance',
   'erc20_balance',
@@ -72,10 +72,10 @@ export const DECODE_AS = [
   'bytes32',
 ] as const
 
-/** `calldata_matches_commitment` est hors quota de `MAX_CHECKS` (docs/07 § 2.10). */
+/** `calldata_matches_commitment` is out of the `MAX_CHECKS` quota (docs/07 § 2.10). */
 export const COMMITMENT_KIND = 'calldata_matches_commitment'
 
-/** Nombre maximal d'adresses surveillees par un `no_new_approvals`. */
+/** Maximum number of addresses watched by a single `no_new_approvals`. */
 export const MAX_WATCHED_TOKENS = 16
 
 export const UINT256_MAX = (1n << 256n) - 1n
@@ -90,7 +90,7 @@ export function isAddress(value: unknown): value is Address {
   return typeof value === 'string' && ADDRESS_RE.test(value)
 }
 
-/** Chaine hexadecimale de `bytes` octets exactement. */
+/** Hex string of exactly `bytes` bytes. */
 export function isHexBytes(value: unknown, bytes: number): value is Hex {
   return (
     typeof value === 'string' &&
@@ -99,14 +99,14 @@ export function isHexBytes(value: unknown, bytes: number): value is Hex {
   )
 }
 
-/** Chaine hexadecimale de longueur libre, mais entiere en octets. */
+/** Hex string of free length, but a whole number of bytes. */
 export function isHexData(value: unknown): value is Hex {
   return typeof value === 'string' && HEX_BYTES_RE.test(value)
 }
 
 /**
- * Chaine decimale **canonique** : pas de `+`, pas de zero de tete, pas de
- * `-0`, pas d'espace, pas de notation exponentielle.
+ * **Canonical** decimal string: no `+`, no leading zero, no `-0`, no
+ * whitespace, no exponent notation.
  */
 export function isCanonicalDecimal(value: unknown): value is string {
   return (
@@ -127,7 +127,7 @@ function isInteger(value: unknown): value is number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collecteur d'anomalies
+// Anomaly collector
 // ─────────────────────────────────────────────────────────────────────────────
 
 class Issues {
@@ -154,7 +154,7 @@ function quote(value: unknown): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Champs admis par vérificateur — tout champ surnumeraire est refuse
+// Fields admitted per check — any surplus field is refused
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CHECK_FIELDS: Readonly<Record<CheckKind, readonly string[]>> = {
@@ -171,7 +171,7 @@ const CHECK_FIELDS: Readonly<Record<CheckKind, readonly string[]>> = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation des primitives, avec chemin
+// Primitive validation, with path
 // ─────────────────────────────────────────────────────────────────────────────
 
 function checkAddress(
@@ -302,7 +302,7 @@ function checkStaticcallValue(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation d'un check
+// Validation of a single check
 // ─────────────────────────────────────────────────────────────────────────────
 
 function validateCheck(issues: Issues, raw: unknown, path: string): void {
@@ -474,7 +474,7 @@ function validateCheck(issues: Issues, raw: unknown, path: string): void {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation de la ConditionSpec
+// Validation of the ConditionSpec
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SPEC_FIELDS = [
@@ -487,11 +487,11 @@ const SPEC_FIELDS = [
 
 export interface ValidateOptions {
   /**
-   * Autorise la presence de `calldata_matches_commitment`.
+   * Allows `calldata_matches_commitment` to be present.
    *
-   * Faux par defaut : une `conditionSpec` venant d'un agent ne doit jamais le
-   * porter, c'est le Gateway qui l'injecte (docs/07 § 2.10). Le Gateway
-   * revalide sa propre sortie avec `true`.
+   * False by default: a `conditionSpec` coming from an agent must never carry
+   * it — the Gateway is what injects it (docs/07 § 2.10). The Gateway
+   * revalidates its own output with `true`.
    */
   allowCommitmentCheck?: boolean
 }
@@ -612,7 +612,7 @@ export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; issues: DslIssue[] }
 
-/** Variante sans exception : utile pour rendre toutes les anomalies d'un coup. */
+/** Non-throwing variant: useful to report every anomaly in one go. */
 export function safeValidateConditionSpec(
   spec: unknown,
   options: ValidateOptions = {},
@@ -623,9 +623,10 @@ export function safeValidateConditionSpec(
 }
 
 /**
- * Valide une `ConditionSpec`. Refus a l'ouverture, jamais au reglement.
+ * Validates a `ConditionSpec`. Refusal at opening, never at settlement.
  *
- * @throws {DslError} portant `issues[]`, chacune avec le chemin du champ fautif.
+ * @throws {DslError} carrying `issues[]`, each with the path of the offending
+ * field.
  */
 export function validateConditionSpec(
   spec: unknown,
@@ -637,8 +638,8 @@ export function validateConditionSpec(
 }
 
 /**
- * Valide une `ConditionSpec` telle que produite par le Gateway : le
- * `calldata_matches_commitment` doit y etre, exactement une fois.
+ * Validates a `ConditionSpec` as produced by the Gateway: the
+ * `calldata_matches_commitment` must be there, exactly once.
  */
 export function validateGatewayConditionSpec(spec: unknown): ConditionSpec {
   const validated = validateConditionSpec(spec, { allowCommitmentCheck: true })
@@ -654,19 +655,19 @@ export function validateGatewayConditionSpec(spec: unknown): ConditionSpec {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Injection du vérificateur d'engagement
+// Injection of the commitment check
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Ajoute d'office `calldata_matches_commitment` a une `conditionSpec` fournie
- * par un agent (docs/07 § 2.10).
+ * Unconditionally adds `calldata_matches_commitment` to a `conditionSpec`
+ * supplied by an agent (docs/07 § 2.10).
  *
- * Le check est **hors quota** : une spec avec 8 checks declares en ressort avec
- * 9 entrees, ce qui est legal. Toute tentative de le fournir soi-meme — pour le
- * neutraliser avec un faux `actionHash` par exemple — est refusee.
+ * The check is **out of quota**: a spec with 8 declared checks comes out with 9
+ * entries, which is legal. Any attempt to supply it oneself — to neutralize it
+ * with a bogus `actionHash`, for instance — is refused.
  *
- * @throws {DslError} si la spec est invalide, si elle porte deja le check, ou
- *   si `actionHash` n'est pas un hash de 32 octets.
+ * @throws {DslError} if the spec is invalid, if it already carries the check, or
+ *   if `actionHash` is not a 32-byte hash.
  */
 export function injectCommitmentCheck(
   spec: unknown,

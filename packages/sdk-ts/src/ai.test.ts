@@ -1,10 +1,10 @@
 /**
- * Tests de l'adaptateur Vercel AI SDK.
+ * Tests of the Vercel AI SDK adapter.
  *
- * Le dernier test mesure la taille du fichier. Ce n'est pas de la coquetterie :
- * la contrainte « adaptateurs de moins de 100 lignes » (docs/09 § 5) est ce qui
- * empêche la logique de migrer depuis la source unique vers les adaptateurs, et
- * une contrainte non mesurée n'est pas tenue.
+ * The last test measures the size of the file. This is not vanity: the
+ * "adapters under 100 lines" constraint (docs/09 § 5) is what stops logic from
+ * migrating out of the single source and into the adapters, and a constraint
+ * that is not measured is a constraint that is not upheld.
  */
 
 import { readFileSync } from 'node:fs'
@@ -84,7 +84,7 @@ function stubGateway(): GatewayClient {
 }
 
 describe('warrantTools', () => {
-  it('expose les quatre outils dans la forme attendue par le Vercel AI SDK', () => {
+  it('exposes the four tools in the shape the Vercel AI SDK expects', () => {
     const tools = warrantTools({ client: stubGateway() })
     expect(Object.keys(tools).sort()).toEqual([
       'get_warrant',
@@ -99,7 +99,7 @@ describe('warrantTools', () => {
     }
   })
 
-  it('exécute quote_risk sans paiement', async () => {
+  it('runs quote_risk without payment', async () => {
     const tools = warrantTools({ client: stubGateway() })
     const result = (await tools['quote_risk']?.execute({ actionSpec: ACTION_SPEC })) as {
       category: string
@@ -107,7 +107,7 @@ describe('warrantTools', () => {
     expect(result.category).toBe('erc20.transfer')
   })
 
-  it('règle la caution quand un wallet est fourni', async () => {
+  it('settles the bond when a wallet is supplied', async () => {
     const tools = warrantTools({
       client: stubGateway(),
       wallet: {
@@ -130,7 +130,7 @@ describe('warrantTools', () => {
     expect(result.settlement.success).toBe(true)
   })
 
-  it('rend le PaymentRequired au modèle plutôt que de lever, sans wallet', async () => {
+  it('returns the PaymentRequired to the model rather than throwing, with no wallet', async () => {
     const tools = warrantTools({ client: stubGateway() })
     const result = (await tools['request_warrant']?.execute({
       actionSpec: ACTION_SPEC,
@@ -141,12 +141,12 @@ describe('warrantTools', () => {
     expect(result.hint).toContain('wallet')
   })
 
-  it('sait n\'exposer qu\'un sous-ensemble en lecture seule', () => {
+  it('can expose a read-only subset only', () => {
     const tools = warrantTools({ client: stubGateway(), only: ['quote_risk', 'get_warrant'] })
     expect(Object.keys(tools).sort()).toEqual(['get_warrant', 'quote_risk'])
   })
 
-  it('tient sous 100 lignes', () => {
+  it('stays under 100 lines', () => {
     const source = readFileSync(fileURLToPath(new URL('./ai.ts', import.meta.url)), 'utf8')
     const code = source
       .split('\n')

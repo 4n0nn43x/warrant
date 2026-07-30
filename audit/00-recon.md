@@ -1,105 +1,104 @@
 # Recon — WarrantEscrow
 
-**Commit audité** : `6194b68529d8c73b64a47ee98247bc2640887621`
-**Date** : 2026-07-29
+**Audited commit**: `6194b68529d8c73b64a47ee98247bc2640887621`
+**Date**: 2026-07-29
 
-## Plateforme
+## Platform
 
-**Aucune.** Ce n'est pas un contest : c'est le contrat du projet lui-même, jamais
-audité par un tiers. Conséquence méthodologique : on pondère par
-`historic-exploits.md` (perte réelle) et non par la fréquence en contest. Le
-contrôle d'accès et la réentrance, qui arrivent en bas des classements de
-contest parce que tout le monde les grep en premier, remontent en tête ici :
-personne ne les a encore cherchés sur ce code.
+**None.** This is not a contest: it is the project's own contract, never audited
+by a third party. Methodological consequence: we weight by
+`historic-exploits.md` (actual losses) rather than by contest frequency. Access
+control and reentrancy, which sit at the bottom of contest rankings because
+everyone greps for them first, rise to the top here: nobody has looked for them
+in this code yet.
 
-## Périmètre
+## Scope
 
-`contracts/src/WarrantEscrow.sol` — 226 lignes. Un seul contrat, pas de proxy,
-pas de bibliothèque propre, pas d'héritage hors OpenZeppelin (`IERC20`,
-`SafeERC20`).
+`contracts/src/WarrantEscrow.sol` — 226 lines. A single contract, no proxy, no
+in-house library, no inheritance outside OpenZeppelin (`IERC20`, `SafeERC20`).
 
-## Outils déterministes
+## Deterministic tooling
 
-- **Slither** : 17 résultats, tous du bruit `pragma` sur les dépendances
-  OpenZeppelin, sauf un — `owner should be immutable`. C'est exact, et cela dit
-  quelque chose : **il n'existe aucun transfert de propriété**.
-- **Couverture** : **100 %** lignes, instructions, branches et fonctions. Aucun
-  chemin non testé à exploiter comme piste. Ce qui reste est de la logique de
-  protocole, que la couverture ne voit pas.
-- 65 tests Foundry, dont 11 invariants en fuzzing stateful.
+- **Slither**: 17 results, all of them `pragma` noise on the OpenZeppelin
+  dependencies, save one — `owner should be immutable`. That is correct, and it
+  says something: **there is no ownership transfer at all**.
+- **Coverage**: **100%** of lines, statements, branches and functions. No
+  untested path to exploit as a lead. What remains is protocol logic, which
+  coverage cannot see.
+- 65 Foundry tests, 11 of them stateful fuzzing invariants.
 
-## Invariants déclarés — les assertions à attaquer
+## Declared invariants — the assertions to attack
 
-Source : `docs/06-contrat-escrow.md` § 3.
+Source: `docs/06-contrat-escrow.md` § 3.
 
-| # | Énoncé |
+| # | Statement |
 |---|---|
-| I1 | `token.balanceOf(this) >= totalLocked` à tout instant |
-| I2 | Un mandat quitte `Open` exactement une fois |
-| I3 | Depuis `Open`, seuls `Honored`, `Slashed`, `Reclaimed` sont atteignables |
-| I4 | `conditionHash` et `actionHash` immuables après `open` |
-| I5 | Après `expiry`, `reclaim` réussit **toujours** pour un mandat `Open` |
-| I6 | `slash` ne prélève **aucun** frais |
-| I7 | `feeBps <= MAX_FEE_BPS` en permanence |
-| I8 | `honor(id)` transfère exactement `bond − bond·feeBps/10000` à `agent` |
-| I9 | `honor` et `slash` révertent dès que `block.timestamp > expiry` |
-| I10 | Seul l'`opener` peut `open`, seul le `settler` peut `honor`/`slash`, et **les deux rôles sont distincts** |
+| I1 | `token.balanceOf(this) >= totalLocked` at all times |
+| I2 | A warrant leaves `Open` exactly once |
+| I3 | From `Open`, only `Honored`, `Slashed`, `Reclaimed` are reachable |
+| I4 | `conditionHash` and `actionHash` immutable after `open` |
+| I5 | After `expiry`, `reclaim` **always** succeeds for an `Open` warrant |
+| I6 | `slash` takes **no** fee |
+| I7 | `feeBps <= MAX_FEE_BPS` permanently |
+| I8 | `honor(id)` transfers exactly `bond − bond·feeBps/10000` to `agent` |
+| I9 | `honor` and `slash` revert as soon as `block.timestamp > expiry` |
+| I10 | Only the `opener` can `open`, only the `settler` can `honor`/`slash`, and **the two roles are distinct** |
 
-I6 et I9 sont mis en avant devant le jury : les casser coûte double.
+I6 and I9 are put forward to the jury: breaking them costs double.
 
-## Acteurs et confiance
+## Actors and trust
 
-| Rôle | Peut appeler | Confiance accordée |
+| Role | May call | Trust granted |
 |---|---|---|
-| `owner` | `setOpener`, `setSettler`, `setFeeBps` | ne pas se réattribuer les rôles. Aucun transfert de propriété, aucune renonciation |
-| `opener` | `open` | fournir des paramètres fidèles au mandat payé. En production : le wallet de l'organisation **KeeperHub**, donc un tiers |
-| `settler` | `honor`, `slash` | juger honnêtement — seul privilège qui envoie des fonds à un tiers |
-| `agent` | rien | destinataire de `honor` et `reclaim` |
-| `beneficiary` | rien | destinataire de `slash` |
-| `treasury` | rien | destinataire des frais, immuable |
-| n'importe qui | `reclaim` | sans permission, par conception |
+| `owner` | `setOpener`, `setSettler`, `setFeeBps` | not to reassign the roles to itself. No ownership transfer, no renunciation |
+| `opener` | `open` | to supply parameters faithful to the warrant that was paid for. In production: the **KeeperHub** organization wallet, hence a third party |
+| `settler` | `honor`, `slash` | to judge honestly — the only privilege that sends funds to a third party |
+| `agent` | nothing | recipient of `honor` and `reclaim` |
+| `beneficiary` | nothing | recipient of `slash` |
+| `treasury` | nothing | recipient of fees, immutable |
+| anyone | `reclaim` | permissionless, by design |
 
-## Flux de valeur — la surface principale
+## Value flow — the main surface
 
-**Les fonds entrent par un transfert ERC20 nu.** Aucune fonction de dépôt : le
-règlement x402 transfère l'USDC directement au contrat, puis l'`opener` appelle
-`open`. Le contrat ne vérifie jamais *qui a financé quoi*, seulement un agrégat :
+**Funds arrive through a bare ERC20 transfer.** There is no deposit function:
+x402 settlement transfers the USDC straight to the contract, then the `opener`
+calls `open`. The contract never checks *who funded what*, only an aggregate:
 
 ```solidity
 totalLocked += bond;
 if (token.balanceOf(address(this)) < totalLocked) revert Underfunded();
 ```
 
-Aucune comptabilité par mandat — choix assumé (« l'USDC est fongible »). C'est là
-qu'il faut chercher.
+No per-warrant accounting — a deliberate choice ("USDC is fungible"). That is
+where to look.
 
-| Sortie | Vers | Montant | Frais |
+| Outflow | To | Amount | Fee |
 |---|---|---|---|
-| `honor` | `treasury` puis `agent` | `fee`, puis `bond - fee` | oui |
-| `slash` | `beneficiary` | `bond` intégral | **non** (I6) |
-| `reclaim` | `agent` | `bond` intégral | non |
+| `honor` | `treasury` then `agent` | `fee`, then `bond - fee` | yes |
+| `slash` | `beneficiary` | full `bond` | **no** (I6) |
+| `reclaim` | `agent` | full `bond` | no |
 
-**Aucune fonction de balayage.** Tout USDC au-delà de `totalLocked` est
-irrécupérable par construction.
+**No sweep function.** Any USDC beyond `totalLocked` is unrecoverable by
+construction.
 
-## Points d'entrée modifiant l'état
+## State-changing entry points
 
-| Fonction | Accès | Note |
+| Function | Access | Note |
 |---|---|---|
-| `open` | `opener` | 8 paramètres, **aucun contrôle d'adresse nulle** |
-| `honor` | `settler` | fenêtre fermée après `expiry` |
-| `slash` | `settler` | idem, plus une `string reason` non bornée |
-| `reclaim` | **aucun** | seulement après `expiry` |
+| `open` | `opener` | 8 parameters, **no zero-address check** |
+| `honor` | `settler` | window closed after `expiry` |
+| `slash` | `settler` | same, plus an unbounded `string reason` |
+| `reclaim` | **none** | only after `expiry` |
 | `setOpener` / `setSettler` | `onlyOwner` | |
-| `setFeeBps` | `onlyOwner` | plafonné à `MAX_FEE_BPS` |
+| `setFeeBps` | `onlyOwner` | capped at `MAX_FEE_BPS` |
 
-## Classes retenues
+## Classes retained
 
-`protocol-invariants` (dix invariants écrits — c'est le cœur), `access-control`
-(trois rôles, I10), `token-integration` (financement nu, pas de balayage),
-`dos-griefing` (I5 et I9 sont des propriétés de disponibilité),
-`withdrawals-redemptions` (`reclaim` sans permission), `fees` (I6/I7/I8 et le
-*moment* où `feeBps` est lu), `reentrancy`, `math-casting`.
+`protocol-invariants` (ten written invariants — that is the heart),
+`access-control` (three roles, I10), `token-integration` (bare funding, no
+sweep), `dos-griefing` (I5 and I9 are availability properties),
+`withdrawals-redemptions` (permissionless `reclaim`), `fees` (I6/I7/I8 and *when*
+`feeBps` is read), `reentrancy`, `math-casting`.
 
-Écartées : AMM, parts, oracle, prêt, gouvernance, récompenses, NFT, cross-chain,
-upgradeabilité (pas de proxy), signatures (aucune dans ce contrat), Solana.
+Ruled out: AMM, shares, oracle, lending, governance, rewards, NFT, cross-chain,
+upgradeability (no proxy), signatures (none in this contract), Solana.

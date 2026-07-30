@@ -1,20 +1,20 @@
 /**
- * Tarification du risque.
+ * Risk pricing.
  *
  * ```
  * bond = clamp(minBond, riskBps × notionalUSD, maxBond)
  * ```
  *
- * Trois règles, et elles vont toutes dans le même sens (docs/03 « Tarification
- * du risque », docs/13 § 5) :
+ * Three rules, and they all pull in the same direction (docs/03 "Risk pricing",
+ * docs/13 § 5):
  *
- * - `notionalUSD` est **dérivé des arguments décodés du calldata**, jamais
- *   déclaré par l'agent ;
- * - une catégorie `unknown` coûte `maxBond`, jamais `minBond` — un doute de
- *   classification coûte le maximum à l'agent. Un système où l'incertitude fait
- *   baisser le prix est un système qu'on attaque en créant de l'incertitude ;
- * - toute l'arithmétique est en `bigint` sur les unités atomiques USDC
- *   (6 décimales). Une caution est un montant exact, pas un arrondi flottant.
+ * - `notionalUSD` is **derived from the calldata's decoded arguments**, never
+ *   declared by the agent;
+ * - an `unknown` category costs `maxBond`, never `minBond` — a classification
+ *   doubt costs the agent the maximum. A system where uncertainty drives the
+ *   price down is a system you attack by manufacturing uncertainty;
+ * - all the arithmetic is in `bigint` over USDC atomic units (6 decimals). A bond
+ *   is an exact amount, not a floating-point rounding.
  */
 
 import { buildConditionSpec, type BuildConditionOptions } from './policy.js'
@@ -30,10 +30,10 @@ export class RiskError extends Error {
 }
 
 /**
- * Produit le devis complet : caution, notionnel et post-condition engagée.
+ * Produces the complete quote: bond, notional and committed post-condition.
  *
- * @throws {RiskError} si les bornes de la politique sont incohérentes.
- * @throws {PolicyError} si la politique ne couvre pas la catégorie dérivée.
+ * @throws {RiskError} if the policy's bounds are inconsistent.
+ * @throws {PolicyError} if the policy does not cover the derived category.
  */
 export function priceRisk(
   classification: Classification,
@@ -44,7 +44,7 @@ export function priceRisk(
   const maxBond = parseAtomic(policy.maxBond, 'policy.maxBond')
   if (minBond > maxBond) {
     throw new RiskError(
-      `bornes incohérentes : minBond=${minBond} > maxBond=${maxBond}`,
+      `inconsistent bounds: minBond=${minBond} > maxBond=${maxBond}`,
     )
   }
 
@@ -60,32 +60,32 @@ export function priceRisk(
   let rationale: string
 
   if (category === 'unknown') {
-    // Couple (chainId, target, selector) absent du registre : on ne sait pas ce
-    // que fait cette action, donc elle est facturée au maximum.
+    // The (chainId, target, selector) tuple is absent from the registry: we do
+    // not know what this action does, so it is charged at the maximum.
     bond = maxBond
     rationale =
-      "couple (chainId, target, selector) absent du registre : catégorie " +
-      '`unknown`, caution plafonnée à maxBond. Le repli n\'est jamais permissif.'
+      '(chainId, target, selector) tuple absent from the registry: category ' +
+      '`unknown`, bond capped at maxBond. The fallback is never permissive.'
   } else if (!cat) {
-    // Catégorie connue du registre mais absente de la politique : le
-    // propriétaire du capital ne s'est pas prononcé. Même traitement — un trou
-    // de politique ne doit pas produire la caution la moins chère.
+    // Category known to the registry but absent from the policy: the capital
+    // owner has not ruled on it. Same treatment — a hole in the policy must not
+    // produce the cheapest bond.
     bond = maxBond
     rationale =
-      `catégorie ${category} dérivée du calldata mais absente de la politique : ` +
-      'caution plafonnée à maxBond.'
+      `category ${category} derived from the calldata but absent from the policy: ` +
+      'bond capped at maxBond.'
   } else {
     const raw = (notionalUSD * BigInt(riskBps)) / BPS_DENOMINATOR
     bond = clamp(minBond, raw, maxBond)
     const clampNote =
       raw < minBond
-        ? ` (plancher minBond=${format(minBond)} appliqué)`
+        ? ` (minBond floor ${format(minBond)} applied)`
         : raw > maxBond
-          ? ` (plafond maxBond=${format(maxBond)} appliqué)`
+          ? ` (maxBond ceiling ${format(maxBond)} applied)`
           : ''
     rationale =
-      `${category} : ${riskBps} bps × ${format(notionalUSD)} $ de notionnel ` +
-      `dérivé du calldata = ${format(raw)} $${clampNote}.`
+      `${category}: ${riskBps} bps × ${format(notionalUSD)} USD of notional ` +
+      `derived from the calldata = ${format(raw)} USD${clampNote}.`
   }
 
   return {
@@ -106,15 +106,15 @@ export function clamp(lo: bigint, x: bigint, hi: bigint): bigint {
 }
 
 /**
- * Caution seule, sans post-condition. Utile aux tests et aux simulations de
- * tarif ; `priceRisk` reste le point d'entrée du Gateway.
+ * The bond alone, with no post-condition. Useful for tests and pricing
+ * simulations; `priceRisk` remains the Gateway's entry point.
  */
 export function bondFor(classification: Classification, policy: Policy): bigint {
   const minBond = parseAtomic(policy.minBond, 'policy.minBond')
   const maxBond = parseAtomic(policy.maxBond, 'policy.maxBond')
   if (minBond > maxBond) {
     throw new RiskError(
-      `bornes incohérentes : minBond=${minBond} > maxBond=${maxBond}`,
+      `inconsistent bounds: minBond=${minBond} > maxBond=${maxBond}`,
     )
   }
   const cat = policy.categories[classification.category]
@@ -131,26 +131,26 @@ export function bondFor(classification: Classification, policy: Policy): bigint 
 
 function parseAtomic(value: string, what: string): bigint {
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new RiskError(`${what} : montant absent`)
+    throw new RiskError(`${what}: amount missing`)
   }
   let parsed: bigint
   try {
     parsed = BigInt(value)
   } catch {
-    throw new RiskError(`${what} : entier attendu, reçu "${value}"`)
+    throw new RiskError(`${what}: integer expected, got "${value}"`)
   }
-  if (parsed < 0n) throw new RiskError(`${what} : montant négatif`)
+  if (parsed < 0n) throw new RiskError(`${what}: negative amount`)
   return parsed
 }
 
 function requireBps(riskBps: number): number {
   if (!Number.isInteger(riskBps) || riskBps < 0) {
-    throw new RiskError(`riskBps invalide: ${riskBps}`)
+    throw new RiskError(`invalid riskBps: ${riskBps}`)
   }
   return riskBps
 }
 
-/** Affichage en dollars pour le `rationale`. Jamais utilisé pour calculer. */
+/** Dollar rendering for the `rationale`. Never used to compute anything. */
 function format(atomic: bigint): string {
   const whole = atomic / 1_000_000n
   const frac = atomic % 1_000_000n

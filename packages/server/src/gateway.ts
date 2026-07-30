@@ -1,39 +1,38 @@
 /**
- * Gateway 402 — la porte d'entrée de Warrant.
+ * Gateway 402 — Warrant's front door.
  *
- * Trois routes, et l'ordre des étapes de la route payante est le produit :
+ * Three routes, and the ordering of the paid route's steps is the product:
  *
- *   POST /v1/quote      gratuit, sans authentification — classifier, tarifer, montrer
- *   POST /v1/warrants   payant — 402 dual-rail, puis mandat + exécution
- *   GET  /v1/warrants/:id  mandat, exécution et verdict (checks[] inclus)
- *   GET  /openapi.json  OpenAPI 3.1 avec l'extension x-payment-info
+ *   POST /v1/quote      free, unauthenticated — classify, price, disclose
+ *   POST /v1/warrants   paid — dual-rail 402, then warrant + execution
+ *   GET  /v1/warrants/:id  warrant, execution and verdict (checks[] included)
+ *   GET  /openapi.json  OpenAPI 3.1 with the x-payment-info extension
  *
- * Quatre principes gouvernent ce fichier. Ils viennent de découvertes, pas de
- * préférences :
+ * Four principles govern this file. They come from findings, not from
+ * preferences:
  *
- * 1. **L'agent ne déclare jamais sa catégorie ni son notionnel.** Le seul
- *    intrant de la tarification est l'`ActionSpec` — le calldata qui sera
- *    réellement exécuté. Un champ `category` dans la requête est lu, ignoré, et
- *    signalé dans la réponse (docs/13 § 5). C'est le fondement du modèle de
- *    menace : un agent sous prompt injection n'a rien à mentir.
+ * 1. **The agent never declares its own category or notional.** The only input
+ *    to pricing is the `ActionSpec` — the calldata that will actually be
+ *    executed. A `category` field in the request is read, ignored, and reported
+ *    back in the response (docs/13 § 5). This is the foundation of the threat
+ *    model: an agent under prompt injection has nothing to lie about.
  *
- * 2. **KeeperHub n'accepte pas de calldata brut.** Son API veut `functionName`
- *    et `functionArgs`, cette dernière étant une **chaîne JSON** et non un
- *    tableau, et résout l'ABI elle-même (repo/docs/onboarding-teardown.md,
- *    14:12). Le Gateway encode donc le calldata lui-même avec viem pour
- *    l'engager sous `actionHash`, puis passe la forme nominative à KeeperHub.
- *    `encodeActionSpec` et `decodeActionSpec` sont inverses l'une de l'autre et
- *    c'est testé : c'est le point de divergence le plus coûteux du système.
+ * 2. **KeeperHub does not accept raw calldata.** Its API wants `functionName`
+ *    and `functionArgs`, the latter being a **JSON string** and not an array,
+ *    and resolves the ABI itself (repo/docs/onboarding-teardown.md, 14:12). So
+ *    the Gateway encodes the calldata itself with viem in order to commit to it
+ *    under `actionHash`, then hands the named form to KeeperHub.
+ *    `encodeActionSpec` and `decodeActionSpec` are inverses of one another, and
+ *    that is tested: it is the costliest divergence point in the system.
  *
- * 3. **Un mandat dont la simulation échoue n'est jamais ouvert.** La simulation
- *    précède le règlement : la caution n'est pas prélevée pour un échec
- *    prévisible. La simulation n'apparaissant dans aucun audit trail
- *    (`simulate: true` ne crée pas de ligne d'exécution), elle est appelée
- *    explicitement et son résultat conservé par nos soins.
+ * 3. **A warrant whose simulation fails is never opened.** Simulation comes
+ *    before settlement: the bond is not charged for a foreseeable failure.
+ *    Since simulation appears in no audit trail (`simulate: true` creates no
+ *    execution row), it is called explicitly and its result kept by us.
  *
- * 4. **Les deux rails produisent un mandat identique.** Même `conditionHash`,
- *    même caution, même forme de `fundingRef`. Le rail n'est qu'un moyen de
- *    payer : il ne change que l'en-tête de reçu.
+ * 4. **Both rails produce an identical warrant.** Same `conditionHash`, same
+ *    bond, same shape of `fundingRef`. The rail is only a way of paying: it
+ *    changes nothing but the receipt header.
  */
 
 import { Hono } from 'hono'
@@ -114,22 +113,22 @@ import {
 } from './x402.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ActionSpec ⇄ appel nominatif KeeperHub
+// ActionSpec ⇄ KeeperHub named call
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le corps d'appel que l'API KeeperHub accepte réellement.
+ * The call body the KeeperHub API actually accepts.
  *
- * ⚠ `functionArgs` est une **chaîne JSON**, pas un tableau. Un tableau est
- * rejeté en 400 avec « functionArgs must be a JSON string when provided ». Il
- * n'existe aucun champ pour un calldata pré-encodé : `data`, `callData` et
- * `calldata` sont tous ignorés silencieusement.
+ * ⚠ `functionArgs` is a **JSON string**, not an array. An array is rejected
+ * with a 400 and "functionArgs must be a JSON string when provided". There is
+ * no field for pre-encoded calldata: `data`, `callData` and `calldata` are all
+ * silently ignored.
  */
 export interface KeeperHubCall {
   chainId: number
   contractAddress: Address
   functionName: string
-  /** `JSON.stringify` des arguments, dans l'ordre de l'ABI. */
+  /** `JSON.stringify` of the arguments, in ABI order. */
   functionArgs: string
   value?: string
 }
@@ -137,9 +136,9 @@ export interface KeeperHubCall {
 export interface EncodeActionSpecInput {
   chainId: number
   target: Address
-  /** Signature ABI humaine, ex. `transfer(address,uint256)`. */
+  /** Human-readable ABI signature, e.g. `transfer(address,uint256)`. */
   signature: string
-  /** Arguments, acceptés en chaînes — ils viennent d'un JSON. */
+  /** Arguments, accepted as strings — they come from JSON. */
   args: readonly unknown[]
   value?: string
   registryRef: Hex
@@ -153,8 +152,8 @@ export class ActionEncodingError extends Error {
 }
 
 /**
- * L'`ActionSpec` engage une version de registre qui n'est pas celle qui a servi
- * à la classifier. Refus à l'ouverture : l'engagement doit être rejouable.
+ * The `ActionSpec` commits to a registry version that is not the one used to
+ * classify it. Refused at opening: the commitment must stay replayable.
  */
 export class RegistryMismatchError extends Error {
   override readonly name = 'RegistryMismatchError'
@@ -162,8 +161,8 @@ export class RegistryMismatchError extends Error {
   readonly expected: Hex
   constructor(declared: Hex, expected: Hex) {
     super(
-      `registryRef engagé ${declared} alors que la classification utilise ${expected} : ` +
-        "l'engagement ne serait pas rejouable",
+      `registryRef committed as ${declared} while classification uses ${expected}: ` +
+        'the commitment would not be replayable',
     )
     this.declared = declared
     this.expected = expected
@@ -176,21 +175,21 @@ function abiFunctionOf(signature: string): AbiFunction {
     abi = parseAbi([`function ${signature}`] as string[]) as Abi
   } catch (err) {
     throw new ActionEncodingError(
-      `signature illisible "${signature}": ${(err as Error).message}`,
+      `unreadable signature "${signature}": ${(err as Error).message}`,
     )
   }
   const fn = abi.find((item): item is AbiFunction => item.type === 'function')
-  if (!fn) throw new ActionEncodingError(`signature sans fonction: "${signature}"`)
+  if (!fn) throw new ActionEncodingError(`signature with no function: "${signature}"`)
   return fn
 }
 
 /**
- * Résout l'entrée de registre du couple `(chainId, target, selector)`.
+ * Resolves the registry entry for the `(chainId, target, selector)` triple.
  *
- * Reprend `entryKey` de `@warrant/core` — la clé est le couple entier, jamais
- * le seul sélecteur — plutôt que d'écrire une seconde indexation. `lookupEntry`
- * n'étant pas exposée par le baril du paquet, on refait la boucle sur la même
- * clé, ce qui garde une seule définition de « même action ».
+ * Reuses `entryKey` from `@warrant/core` — the key is the whole triple, never
+ * the selector alone — rather than writing a second indexing scheme. Since
+ * `lookupEntry` is not exposed by the package barrel, we redo the loop over the
+ * same key, which keeps a single definition of "the same action".
  */
 function lookupSignature(
   registry: ClassificationRegistry,
@@ -204,18 +203,18 @@ function lookupSignature(
   )
 }
 
-/** Nom de fonction nu, sans la liste de types. */
+/** Bare function name, without the list of types. */
 export function functionNameOf(signature: string): string {
   const at = signature.indexOf('(')
   return at === -1 ? signature : signature.slice(0, at)
 }
 
 /**
- * Coercition d'un argument venu d'un JSON vers la forme attendue par viem.
+ * Coerces an argument coming from JSON into the shape viem expects.
  *
- * Les montants arrivent en chaînes décimales — c'est la règle de
- * canonicalisation de docs/07 § 4, et un `uint256` ne tient pas dans un
- * `number`. viem, lui, veut un `bigint`.
+ * Amounts arrive as decimal strings — that is the canonicalisation rule of
+ * docs/07 § 4, and a `uint256` does not fit in a `number`. viem, for its part,
+ * wants a `bigint`.
  */
 function coerceArg(type: string, value: unknown): unknown {
   if (type.endsWith(']')) {
@@ -223,7 +222,7 @@ function coerceArg(type: string, value: unknown): unknown {
     const items =
       Array.isArray(value) ? value : (JSON.parse(String(value)) as unknown[])
     if (!Array.isArray(items)) {
-      throw new ActionEncodingError(`tableau attendu pour le type ${type}`)
+      throw new ActionEncodingError(`array expected for type ${type}`)
     }
     return items.map((item) => coerceArg(inner, item))
   }
@@ -232,34 +231,34 @@ function coerceArg(type: string, value: unknown): unknown {
     try {
       return BigInt(String(value))
     } catch {
-      throw new ActionEncodingError(`entier attendu pour ${type}, reçu ${String(value)}`)
+      throw new ActionEncodingError(`integer expected for ${type}, got ${String(value)}`)
     }
   }
   if (type === 'bool') {
     if (typeof value === 'boolean') return value
     if (value === 'true') return true
     if (value === 'false') return false
-    throw new ActionEncodingError(`booléen attendu, reçu ${String(value)}`)
+    throw new ActionEncodingError(`boolean expected, got ${String(value)}`)
   }
   return value
 }
 
-/** Mise en chaîne d'un argument décodé. Miroir exact de `coerceArg`. */
+/** Stringifies a decoded argument. Exact mirror of `coerceArg`. */
 function stringifyArg(value: unknown): string {
   if (typeof value === 'bigint') return value.toString(10)
   if (typeof value === 'number') return String(value)
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'string') return value.startsWith('0x') ? value.toLowerCase() : value
   if (Array.isArray(value)) return JSON.stringify(value.map(stringifyArg))
-  throw new ActionEncodingError(`argument non représentable: ${typeof value}`)
+  throw new ActionEncodingError(`argument not representable: ${typeof value}`)
 }
 
 /**
- * Construit l'`ActionSpec` — donc le calldata engagé sous `actionHash` — depuis
- * une forme nominative.
+ * Builds the `ActionSpec` — hence the calldata committed under `actionHash` —
+ * from a named form.
  *
- * C'est le Gateway qui encode, pas KeeperHub : l'engagement doit porter sur des
- * octets, et KeeperHub ne nous rendrait le calldata qu'après exécution.
+ * It is the Gateway that encodes, not KeeperHub: the commitment has to bear on
+ * bytes, and KeeperHub would only hand the calldata back to us after execution.
  *
  * @throws {ActionEncodingError}
  */
@@ -267,8 +266,8 @@ export function encodeActionSpec(input: EncodeActionSpecInput): ActionSpec {
   const fn = abiFunctionOf(input.signature)
   if (fn.inputs.length !== input.args.length) {
     throw new ActionEncodingError(
-      `arité: "${input.signature}" attend ${fn.inputs.length} argument(s), ` +
-        `${input.args.length} fourni(s)`,
+      `arity: "${input.signature}" expects ${fn.inputs.length} argument(s), ` +
+        `${input.args.length} provided`,
     )
   }
   const args = fn.inputs.map((param, i) => coerceArg(param.type, input.args[i]))
@@ -281,7 +280,7 @@ export function encodeActionSpec(input: EncodeActionSpecInput): ActionSpec {
     } as Parameters<typeof encodeFunctionData>[0])
   } catch (err) {
     throw new ActionEncodingError(
-      `encodage impossible pour "${input.signature}": ${(err as Error).message}`,
+      `cannot encode "${input.signature}": ${(err as Error).message}`,
     )
   }
   return {
@@ -297,30 +296,30 @@ export function encodeActionSpec(input: EncodeActionSpecInput): ActionSpec {
 export interface DecodedAction {
   signature: string
   functionName: string
-  /** Arguments en chaînes, dans l'ordre de l'ABI. */
+  /** Arguments as strings, in ABI order. */
   args: string[]
-  /** `JSON.stringify(args)` — la forme que KeeperHub exige. */
+  /** `JSON.stringify(args)` — the shape KeeperHub demands. */
   functionArgs: string
 }
 
 export interface DecodeActionSpecOptions {
   registry: ClassificationRegistry
   /**
-   * Signature à utiliser quand le couple `(chainId, target, selector)` n'est pas
-   * au registre.
+   * Signature to use when the `(chainId, target, selector)` triple is not in
+   * the registry.
    *
-   * Ce n'est **pas** une déclaration à laquelle on fait confiance : le sélecteur
-   * qu'elle produit doit valoir celui du calldata, et le ré-encodage des
-   * arguments décodés doit reproduire le calldata octet pour octet. Une
-   * signature mensongère ne peut donc pas changer ce qui sera exécuté — elle ne
-   * fait que nommer ce qui est déjà engagé sous `actionHash`.
+   * This is **not** a declaration that we trust: the selector it produces must
+   * equal the calldata's, and re-encoding the decoded arguments must reproduce
+   * the calldata byte for byte. A lying signature therefore cannot change what
+   * will be executed — it can only name what is already committed under
+   * `actionHash`.
    */
   signature?: string
 }
 
 /**
- * Inverse de `encodeActionSpec` : du calldata engagé vers la forme nominative
- * que KeeperHub accepte.
+ * Inverse of `encodeActionSpec`: from the committed calldata to the named form
+ * KeeperHub accepts.
  *
  * @throws {ActionEncodingError}
  */
@@ -330,7 +329,7 @@ export function decodeActionSpec(
 ): DecodedAction {
   const calldata = actionSpec.calldata
   if (calldata.length < 10) {
-    throw new ActionEncodingError('calldata sans sélecteur : rien à nommer')
+    throw new ActionEncodingError('calldata with no selector: nothing to name')
   }
   const selector = calldata.slice(0, 10).toLowerCase()
 
@@ -338,16 +337,16 @@ export function decodeActionSpec(
   const signature = entry?.signature ?? opts.signature
   if (!signature) {
     throw new ActionEncodingError(
-      `couple (chainId ${actionSpec.chainId}, ${actionSpec.target}, ${selector}) ` +
-        "absent du registre et aucune signature fournie : l'API KeeperHub exige " +
-        'functionName/functionArgs, un calldata brut ne lui suffit pas',
+      `triple (chainId ${actionSpec.chainId}, ${actionSpec.target}, ${selector}) ` +
+        'absent from the registry and no signature provided: the KeeperHub API ' +
+        'demands functionName/functionArgs, raw calldata is not enough for it',
     )
   }
 
   const expected = toFunctionSelector(`function ${signature}`)
   if (expected.toLowerCase() !== selector) {
     throw new ActionEncodingError(
-      `signature "${signature}" (${expected}) incohérente avec le sélecteur ${selector} du calldata`,
+      `signature "${signature}" (${expected}) inconsistent with the calldata's selector ${selector}`,
     )
   }
 
@@ -358,16 +357,16 @@ export function decodeActionSpec(
     decoded = (result.args ?? []) as readonly unknown[]
   } catch (err) {
     throw new ActionEncodingError(
-      `décodage impossible pour "${signature}": ${(err as Error).message}`,
+      `cannot decode "${signature}": ${(err as Error).message}`,
     )
   }
 
   const args = decoded.map(stringifyArg)
 
-  // Aller-retour vérifié : ce que KeeperHub exécutera doit être exactement ce
-  // qui est engagé sous `actionHash`. Sans ce contrôle, un calldata non
-  // canonique — remplissage, arguments surnuméraires — serait exécuté sous une
-  // forme différente de celle qu'on a haché.
+  // Verified round trip: what KeeperHub will execute must be exactly what is
+  // committed under `actionHash`. Without this control, non-canonical calldata
+  // — padding, surplus arguments — would be executed in a form other than the
+  // one we hashed.
   const reencoded = encodeActionSpec({
     chainId: actionSpec.chainId,
     target: actionSpec.target,
@@ -378,8 +377,8 @@ export function decodeActionSpec(
   }).calldata
   if (reencoded.toLowerCase() !== calldata.toLowerCase()) {
     throw new ActionEncodingError(
-      `le ré-encodage de "${signature}" ne reproduit pas le calldata engagé : ` +
-        'la forme nominative transmise à KeeperHub divergerait de actionHash',
+      `re-encoding "${signature}" does not reproduce the committed calldata: ` +
+        'the named form handed to KeeperHub would diverge from actionHash',
     )
   }
 
@@ -391,7 +390,7 @@ export function decodeActionSpec(
   }
 }
 
-/** `ActionSpec` → corps d'appel KeeperHub. */
+/** `ActionSpec` → KeeperHub call body. */
 export function keeperHubCallOf(
   actionSpec: ActionSpec,
   opts: DecodeActionSpecOptions,
@@ -427,30 +426,30 @@ export interface WarrantTerms {
 
 /**
  * `termsHash = keccak256(abi.encode(id, beneficiary, bond, conditionHash,
- * actionHash, duration))` — miroir exact de `WarrantEscrow.termsHash`.
+ * actionHash, duration))` — exact mirror of `WarrantEscrow.termsHash`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi le nonce EIP-3009 ne peut plus être aléatoire
+ * Why the EIP-3009 nonce can no longer be random
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * L'autorisation EIP-3009 ne signe que six champs : `from`, `to`, `value`,
- * `validAfter`, `validBefore`, `nonce`. Rien qui dise *pour quel mandat*. Un
- * `opener` recevant une autorisation destinée à un mandat pouvait donc l'ouvrir
- * sur des termes de son choix — autre bénéficiaire, autre post-condition,
- * `duration` portée à MAX_DURATION — et l'agent avait bel et bien signé le
- * paiement, mais pas ces termes-là.
+ * An EIP-3009 authorization signs six fields and no more: `from`, `to`,
+ * `value`, `validAfter`, `validBefore`, `nonce`. Nothing that says *for which
+ * warrant*. An `opener` receiving an authorization meant for one warrant could
+ * therefore open it on terms of its own choosing — another beneficiary, another
+ * post-condition, `duration` raised to MAX_DURATION — and the agent had indeed
+ * signed the payment, but not those terms.
  *
- * Le contrat referme ça en contraignant `nonce` à valoir le hash des termes.
- * Comme le `nonce` *est* dans le digest signé, signer l'autorisation revient à
- * signer les termes : une seule signature, liaison complète. Et l'unicité que le
- * token exige du nonce est préservée, parce que `id` — qui contient un nonce de
- * mandat, lui aléatoire — entre dans le hash.
+ * The contract closes that by constraining `nonce` to equal the hash of the
+ * terms. Since the `nonce` *is* inside the signed digest, signing the
+ * authorization amounts to signing the terms: one signature, complete binding.
+ * And the uniqueness the token requires of the nonce is preserved, because `id`
+ * — which contains a warrant nonce, itself random — enters the hash.
  *
- * Conséquence sur le protocole, et c'est elle qui coûte : le client doit
- * connaître **tous** les termes avant de signer. `id`, `beneficiary`, `bond`,
- * `conditionHash`, `actionHash` et `duration` sont donc tous annoncés dans le
- * 402 (extension `warrant/commitment`), et le nonce de mandat qui détermine `id`
- * doit faire l'aller-retour — voir `resolveNonce`.
+ * The consequence on the protocol, and it is the one that costs: the client
+ * must know **every** term before signing. `id`, `beneficiary`, `bond`,
+ * `conditionHash`, `actionHash` and `duration` are therefore all announced in
+ * the 402 (`warrant/commitment` extension), and the warrant nonce that
+ * determines `id` must make the round trip — see `resolveNonce`.
  */
 export function termsHashOf(terms: WarrantTerms): Hex {
   return keccak256(
@@ -493,12 +492,12 @@ export interface ExecutionOutcome {
 }
 
 /**
- * Ce que le Gateway attend de KeeperHub.
+ * What the Gateway expects of KeeperHub.
  *
- * Volontairement plus étroit que `KeeperHubClient` : celui-ci expose un
- * `ContractCallRequest` à calldata brut, forme que l'API réelle n'accepte pas
- * (voir l'en-tête de ce fichier). Le port impose la forme nominative, et
- * `keeperHubExecutor()` en donne une implémentation HTTP.
+ * Deliberately narrower than `KeeperHubClient`: that one exposes a
+ * `ContractCallRequest` carrying raw calldata, a shape the real API does not
+ * accept (see this file's header). The port imposes the named form, and
+ * `keeperHubExecutor()` gives an HTTP implementation of it.
  */
 export interface ExecutorPort {
   simulateContractCall(call: KeeperHubCall): Promise<SimulationOutcome>
@@ -509,21 +508,21 @@ export interface ExecutorPort {
 }
 
 /**
- * Arguments d'`open()`, dans l'ordre de l'ABI.
+ * `open()` arguments, in ABI order.
  *
- * Deux champs ont **disparu** par rapport à l'ancienne signature, et leur
- * absence est la correction elle-même :
+ * Two fields have **disappeared** compared with the old signature, and their
+ * absence is the fix itself:
  *
- * - `agent` : il vaut `authorization.from`, prouvé par la signature EIP-3009 que
- *   le token vérifie. Le garder en double invitait à le déclarer, or `agent` est
- *   le destinataire de deux des trois sorties du contrat — un opener qui le
- *   choisit librement peut s'attribuer tout solde libre.
- * - `fundingRef` : il vaut `authorization.nonce`, inscrit par le contrat. Le
- *   passer serait laisser l'opener décrire un financement qu'il n'a pas fait.
+ * - `agent`: it equals `authorization.from`, proven by the EIP-3009 signature
+ *   the token verifies. Keeping it twice invited declaring it, and `agent` is
+ *   the recipient of two of the contract's three outputs — an opener that picks
+ *   it freely can award itself any free balance.
+ * - `fundingRef`: it equals `authorization.nonce`, written by the contract.
+ *   Passing it would be letting the opener describe a funding it never made.
  *
- * Les deux restent lisibles depuis `authorization` quand un appelant en a besoin
- * — et c'est le seul endroit où ils existent, donc le seul où ils peuvent être
- * justes.
+ * Both remain readable from `authorization` whenever a caller needs them — and
+ * that is the only place where they exist, hence the only place where they can
+ * be right.
  */
 export interface OpenWarrantArgs {
   id: Hex
@@ -531,17 +530,17 @@ export interface OpenWarrantArgs {
   bond: string
   conditionHash: Hex
   actionHash: Hex
-  /** Le contrat prend une durée et calcule `expiry` lui-même. */
+  /** The contract takes a duration and computes `expiry` itself. */
   duration: number
   /**
-   * L'autorisation EIP-3009 signée par l'agent. `open()` la présente au token,
-   * qui transfère `value` vers l'escrow — c'est le financement de la caution, et
-   * il est atomique avec l'ouverture.
+   * The EIP-3009 authorization signed by the agent. `open()` presents it to the
+   * token, which transfers `value` to the escrow — that is the funding of the
+   * bond, and it is atomic with the opening.
    */
   authorization: EscrowAuthorization
 }
 
-/** Le Gateway est l'`opener` : il ne peut qu'ouvrir (invariant I10). */
+/** The Gateway is the `opener`: it can do nothing but open (invariant I10). */
 export interface EscrowPort {
   open(args: OpenWarrantArgs): Promise<Hex>
 }
@@ -573,7 +572,7 @@ export interface WarrantRecord {
   expiry: number
   openedAt: number
   status: WarrantStatus
-  /** Rail emprunté. Journalisé, jamais rendu dans le corps du mandat. */
+  /** Rail taken. Logged, never returned in the warrant body. */
   rail: Rail
   executionId: string
   openTx?: Hex
@@ -613,17 +612,17 @@ export function memoryWarrantStore(): WarrantStore & { list(): WarrantRecord[] }
 export interface GatewayConfig {
   registry: ClassificationRegistry
   policy: Policy
-  /** Base publique du service, pour `resource.url` et `instance`. */
+  /** Public base of the service, for `resource.url` and `instance`. */
   baseUrl: string
-  /** `realm` MPP, ex. `warrant.sh`. */
+  /** MPP `realm`, e.g. `warrant.sh`. */
   realm: string
-  /** Réseau de règlement de la caution, en **CAIP-2**. */
+  /** Settlement network of the bond, in **CAIP-2**. */
   network: string
-  /** Contrat du token de caution — USDC natif Base. */
+  /** Bond token contract — native Base USDC. */
   asset: Address
-  /** Coffre Warrant : le scheme `exact` ne transporte pas de calldata (docs/04). */
+  /** Warrant vault: the `exact` scheme carries no calldata (docs/04). */
   payTo: Address
-  /** Domaine EIP-712 réel du token. À lire onchain plutôt qu'à croire. */
+  /** The token's real EIP-712 domain. To be read onchain rather than believed. */
   assetExtra: {
     name: string
     version: string
@@ -633,10 +632,10 @@ export interface GatewayConfig {
   facilitator: Facilitator
   executor: ExecutorPort
   escrow: EscrowPort
-  /** `MPP_SECRET_KEY`. Jamais loggée. */
+  /** `MPP_SECRET_KEY`. Never logged. */
   mppSecret: string
   mppMethod?: string
-  /** Devise annoncée dans le Challenge MPP. Défaut : l'adresse de l'actif. */
+  /** Currency announced in the MPP Challenge. Defaults to the asset address. */
   mppCurrency?: string
   maxTimeoutSeconds?: number
   challengeTtlSeconds?: number
@@ -644,46 +643,46 @@ export interface GatewayConfig {
   verdicts?: VerdictSource
   openapi?: Partial<OpenApiOptions>
   now?: () => number
-  /** Sel injectable pour rendre les Challenges déterministes en test. */
+  /** Injectable salt, to make Challenges deterministic under test. */
   challengeSalt?: () => string
   randomNonce?: () => bigint
   /**
-   * Ouvrir le mandat — donc encaisser la caution — **avant** de simuler.
+   * Open the warrant — hence charge the bond — **before** simulating.
    *
-   * Ce drapeau s'appelait `settleBeforeSimulate` quand le règlement était une
-   * étape distincte. Il ne l'est plus : `open()` encaisse, il n'y a donc qu'un
-   * ordre à choisir, celui de l'ouverture et de la simulation.
+   * This flag was called `settleBeforeSimulate` back when settlement was a
+   * separate step. It no longer is: `open()` charges, so there is only one
+   * ordering left to choose, that of the opening and the simulation.
    *
-   * Faux par défaut, et ce défaut est un choix : la simulation précède
-   * l'encaissement pour qu'un échec prévisible ne coûte rien à l'agent
-   * (docs/08 § 4). Mettre ce drapeau à vrai retrouve l'ordre littéral de la
-   * séquence de docs/04, au prix d'une caution prélevée pour rien.
+   * False by default, and that default is a choice: simulation comes before the
+   * charge so that a foreseeable failure costs the agent nothing (docs/08 § 4).
+   * Setting this flag to true restores the literal order of the docs/04
+   * sequence, at the price of a bond charged for nothing.
    */
   openBeforeSimulate?: boolean
   /**
-   * Soumettre l'autorisation à `POST /verify` du facilitateur avant d'ouvrir.
+   * Submit the authorization to the facilitator's `POST /verify` before opening.
    *
-   * **Faux par défaut, et c'est le point délicat de cette migration.** Le schéma
-   * `exact` de x402 signe `TransferWithAuthorization` ; l'escrow consomme
-   * `ReceiveWithAuthorization` (voir `RECEIVE_WITH_AUTHORIZATION_TYPE`). Un
-   * facilitateur conforme au schéma recalcule donc le mauvais digest EIP-712,
-   * n'y retrouve pas `authorization.from`, et répond `isValid: false` sur une
-   * autorisation parfaitement valide. Activer ce contrôle par défaut refuserait
-   * tous les paiements.
+   * **False by default, and this is the delicate point of this migration.** The
+   * x402 `exact` scheme signs `TransferWithAuthorization`; the escrow consumes
+   * `ReceiveWithAuthorization` (see `RECEIVE_WITH_AUTHORIZATION_TYPE`). A
+   * facilitator conformant to the scheme therefore recomputes the wrong EIP-712
+   * digest, does not find `authorization.from` in it, and answers
+   * `isValid: false` on a perfectly valid authorization. Turning this check on
+   * by default would refuse every payment.
    *
-   * Ne rien perdre à le désactiver tient à ce que le contrôle est devenu
-   * redondant : le token vérifie la même signature, de façon autoritative, dans
-   * la transaction d'`open`. Une signature fausse n'ouvre rien et ne déplace
-   * rien — elle coûte le gas d'une transaction révèrtée à l'opener, plus jamais
-   * une caution à l'agent. C'est précisément ce que l'atomicité a acheté.
+   * That nothing is lost by disabling it comes down to the check having become
+   * redundant: the token verifies the same signature, authoritatively, inside
+   * the `open` transaction. A false signature opens nothing and moves nothing —
+   * it costs the opener the gas of a reverted transaction, and never again a
+   * bond to the agent. That is precisely what atomicity bought.
    *
-   * À remettre à vrai le jour où le facilitateur annonce savoir vérifier le
-   * typehash `receive`.
+   * To be set back to true the day the facilitator announces it knows how to
+   * verify the `receive` typehash.
    */
   verifyWithFacilitator?: boolean
 }
 
-/** Contexte serveur attaché à un Challenge MPP. Jamais transmis au client. */
+/** Server-side context attached to an MPP Challenge. Never sent to the client. */
 interface ChallengeContext {
   requirements: PaymentRequirements
   conditionHash: Hex
@@ -692,7 +691,7 @@ interface ChallengeContext {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le serveur
+// The server
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function createGateway(cfg: GatewayConfig) {
@@ -712,11 +711,11 @@ export function createGateway(cfg: GatewayConfig) {
 
   const app = new Hono()
 
-  // ── POST /v1/quote — gratuit, sans authentification ───────────────────────
+  // ── POST /v1/quote — free, unauthenticated ───────────────────────────────
   //
-  // La porte d'entrée sans friction : un agent peut connaître le prix et
-  // l'engagement exact avant d'ouvrir son portefeuille. C'est aussi ce qui rend
-  // la tarification auditable — le devis est reproductible par un tiers.
+  // The frictionless front door: an agent can know the price and the exact
+  // commitment before opening its wallet. It is also what makes the pricing
+  // auditable — the quote is reproducible by a third party.
   app.post('/v1/quote', async (c) => {
     let body: Record<string, unknown>
     try {
@@ -744,18 +743,18 @@ export function createGateway(cfg: GatewayConfig) {
       actionHash: priced.actionHash,
       params: priced.classification.params,
       /**
-       * Rappel explicite du modèle de menace : si l'appelant a déclaré une
-       * catégorie, elle n'a servi à rien. Le dire est plus utile que de refuser
-       * la requête — un agent honnête corrige, un agent hostile apprend que le
-       * champ ne lui donne aucune prise.
+       * Explicit reminder of the threat model: if the caller declared a
+       * category, it served no purpose. Saying so is more useful than refusing
+       * the request — an honest agent corrects itself, a hostile one learns
+       * that the field gives it no grip.
        */
       ...(body['category'] !== undefined
         ? {
             ignoredFields: {
               category: body['category'],
               note:
-                'la catégorie est dérivée du calldata, jamais déclarée — ' +
-                'le champ reçu a été ignoré (docs/13 § 5)',
+                'the category is derived from the calldata, never declared — ' +
+                'the field we received was ignored (docs/13 § 5)',
             },
           }
         : {}),
@@ -769,7 +768,7 @@ export function createGateway(cfg: GatewayConfig) {
     })
   })
 
-  // ── POST /v1/warrants — payant, dual-rail ─────────────────────────────────
+  // ── POST /v1/warrants — paid, dual-rail ──────────────────────────────────
   app.post('/v1/warrants', async (c) => {
     let body: Record<string, unknown>
     try {
@@ -778,8 +777,8 @@ export function createGateway(cfg: GatewayConfig) {
       return sendProblem(c, badJson())
     }
 
-    // 1-4. Classifier, construire la post-condition depuis la politique,
-    //      injecter `calldata_matches_commitment`, calculer les engagements.
+    // 1-4. Classify, build the post-condition from the policy, inject
+    //      `calldata_matches_commitment`, compute the commitments.
     let priced: PricedAction
     try {
       priced = priceAction(body, cfg)
@@ -809,13 +808,13 @@ export function createGateway(cfg: GatewayConfig) {
         ? 'mpp'
         : undefined
 
-    // 5. Pas de paiement → 402 avec les **deux** challenges, simultanément.
+    // 5. No payment → 402 with **both** challenges, simultaneously.
     if (!rail) {
       return challengeResponse(c, priced, requirements)
     }
 
-    // 6. Résolution du paiement, quel que soit le rail : le facilitateur voit le
-    //    même `PaymentPayload` dans les deux cas.
+    // 6. Payment resolution, whichever the rail: the facilitator sees the same
+    //    `PaymentPayload` in both cases.
     let resolved: ResolvedPayment
     try {
       resolved =
@@ -824,15 +823,15 @@ export function createGateway(cfg: GatewayConfig) {
           : resolveMpp(authHeader as string, requirements, resourceUrl, challenges)
     } catch (err) {
       if (err instanceof MppError && err.code === 'challenge_replayed') {
-        // Un Credential vaut pour exactement une requête. On ne réémet pas de
-        // Challenge : le client doit repartir d'une requête neuve, sans quoi
-        // « rejeu refusé » deviendrait « rejeu réessayable ».
+        // A Credential is good for exactly one request. We do not reissue a
+        // Challenge: the client must start over from a fresh request, without
+        // which "replay refused" would become "replay retryable".
         return sendProblem(
           c,
           problem(
             'challenge_replayed',
             409,
-            'Credential déjà utilisé',
+            'Credential already used',
             err.message,
             { rail },
           ),
@@ -841,9 +840,9 @@ export function createGateway(cfg: GatewayConfig) {
       return paymentErrorResponse(c, priced, requirements, rail, err)
     }
 
-    // 7. `verify` — aucun fonds ne bouge, et l'appel est **optionnel** : voir
-    //    `verifyWithFacilitator`. Le token refait ce contrôle de façon
-    //    autoritative dans `open()`, sur le bon typehash.
+    // 7. `verify` — no funds move, and the call is **optional**: see
+    //    `verifyWithFacilitator`. The token redoes this check
+    //    authoritatively inside `open()`, on the right typehash.
     if (cfg.verifyWithFacilitator) {
       try {
         const verification = await cfg.facilitator.verify(resolved.payload, requirements)
@@ -855,7 +854,7 @@ export function createGateway(cfg: GatewayConfig) {
             rail,
             new PaymentRejected(
               'verification_failed',
-              verification.invalidReason ?? 'le facilitateur refuse le paiement',
+              verification.invalidReason ?? 'the facilitator refuses the payment',
             ),
           )
         }
@@ -865,7 +864,7 @@ export function createGateway(cfg: GatewayConfig) {
           problem(
             'facilitator_unavailable',
             502,
-            'Facilitateur indisponible',
+            'Facilitator unavailable',
             errText(err),
             { rail },
           ),
@@ -873,15 +872,15 @@ export function createGateway(cfg: GatewayConfig) {
       }
     }
 
-    // 7 bis. L'autorisation dans la forme du contrat, et les deux valeurs que
-    //        le contrat en dérivera. On les calcule **avant** d'ouvrir pour que
-    //        `warrantId` et la journalisation soient d'accord avec la chaîne.
+    // 7 bis. The authorization in the contract's own shape, and the two values
+    //        the contract will derive from it. We compute them **before**
+    //        opening so that `warrantId` and the logs agree with the chain.
     //
-    //        `agent` est `auth.from` et rien d'autre. On ne consulte plus
-    //        `settlement.payer` ni `verified.payer` : le contrat enregistrera
-    //        `auth.from`, et retenir ici une adresse qu'un tiers nous a
-    //        rapportée produirait un journal qui désigne un autre agent que la
-    //        chaîne — donc un `warrantId` que le Settler ne retrouverait pas.
+    //        `agent` is `auth.from` and nothing else. We no longer consult
+    //        `settlement.payer` nor `verified.payer`: the contract will record
+    //        `auth.from`, and holding on here to an address that a third party
+    //        reported to us would produce a log naming an agent other than the
+    //        chain's — hence a `warrantId` the Settler would not find.
     let authorization: EscrowAuthorization
     let fundingRef: Hex
     try {
@@ -891,12 +890,12 @@ export function createGateway(cfg: GatewayConfig) {
       return paymentErrorResponse(c, priced, requirements, rail, err)
     }
     const agent = authorization.from
-
-    // La caution recalculée doit valoir **exactement** le montant signé, sinon
-    // `open()` révèrte en `ValueMismatch()`. `assertPayloadMatches` l'a déjà
-    // vérifié contre `requirements.amount` ; on le redit contre le `bond` que
-    // l'on va réellement passer, parce que c'est ce couple-là que le contrat
-    // compare et qu'une divergence entre les deux serait un bug chez nous.
+    // The recomputed bond must equal the signed amount **exactly**, otherwise
+    // `open()` reverts with `ValueMismatch()`. `assertPayloadMatches` has
+    // already checked it against `requirements.amount`; we say it again against
+    // the `bond` we are actually going to pass, because that is the pair the
+    // contract compares and a divergence between the two would be a bug on our
+    // side.
     if (authorization.value !== BigInt(priced.quote.bond)) {
       return paymentErrorResponse(
         c,
@@ -905,33 +904,33 @@ export function createGateway(cfg: GatewayConfig) {
         rail,
         new PaymentRejected(
           'amount_mismatch',
-          `autorisation de ${authorization.value} pour une caution de ${priced.quote.bond} : ` +
-            'open() exige une égalité stricte (ValueMismatch)',
+          `authorization for ${authorization.value} against a bond of ${priced.quote.bond}: ` +
+            'open() demands strict equality (ValueMismatch)',
         ),
       )
     }
 
-    // Le bénéficiaire est refusé par le contrat s'il est l'agent lui-même
-    // (`BadBeneficiary`) — une saisie rembourserait le fautif. La politique est
-    // statique et l'agent ne l'est pas, donc le cas ne se détecte qu'ici, une
-    // fois l'agent connu. Le dire en 4xx vaut mieux qu'un revert en 502 : ce
-    // n'est pas une panne, c'est un agent qui ne peut pas être son propre
-    // bénéficiaire.
+    // The beneficiary is refused by the contract if it is the agent itself
+    // (`BadBeneficiary`) — a slash would reimburse the culprit. The policy is
+    // static and the agent is not, so the case can only be detected here, once
+    // the agent is known. Saying it in a 4xx is worth more than a revert in a
+    // 502: this is not an outage, it is an agent that cannot be its own
+    // beneficiary.
     if (cfg.policy.beneficiary.toLowerCase() === agent) {
       return sendProblem(
         c,
         problem(
           'bad_beneficiary',
           422,
-          'Bénéficiaire dégénéré',
-          `l'agent ${agent} est aussi le bénéficiaire de la politique : une saisie le ` +
-            'rembourserait, ce que le contrat refuse (BadBeneficiary)',
+          'Degenerate beneficiary',
+          `agent ${agent} is also the policy's beneficiary: a slash would ` +
+            'reimburse it, which the contract refuses (BadBeneficiary)',
           { rail },
         ),
       )
     }
 
-    // Forme nominative exigée par KeeperHub, dérivée du calldata engagé.
+    // Named form demanded by KeeperHub, derived from the committed calldata.
     let call: KeeperHubCall
     try {
       call = keeperHubCallOf(priced.actionSpec, {
@@ -944,20 +943,21 @@ export function createGateway(cfg: GatewayConfig) {
       return sendProblem(c, problemFor(err))
     }
 
-    // Le nonce de mandat doit être **celui annoncé dans le 402**. S'il manque,
-    // on ne peut pas le deviner : on en tirerait un autre, donc un autre `id`,
-    // donc un autre `termsHash` que celui signé, et `open()` révèrterait en
-    // `TermsMismatch()`. Un refus nommé vaut mieux qu'un revert onchain.
+    // The warrant nonce must be **the one announced in the 402**. If it is
+    // missing we cannot guess it: we would draw another one, hence another
+    // `id`, hence another `termsHash` than the one signed, and `open()` would
+    // revert with `TermsMismatch()`. A named refusal beats an onchain revert.
     if (body['nonce'] === undefined) {
       return sendProblem(
         c,
         problem(
           'missing_nonce',
           400,
-          'Nonce de mandat absent',
-          "le champ `nonce` du 402 (extension warrant/commitment) doit être renvoyé " +
-            "avec le paiement : il détermine l'identifiant du mandat, qui entre dans " +
-            "le termsHash que l'autorisation EIP-3009 doit porter comme nonce",
+          'Missing warrant nonce',
+          'the `nonce` field of the 402 (warrant/commitment extension) must be ' +
+            'sent back with the payment: it determines the warrant identifier, ' +
+            'which enters the termsHash that the EIP-3009 authorization must ' +
+            'carry as its nonce',
           { rail },
         ),
       )
@@ -967,12 +967,13 @@ export function createGateway(cfg: GatewayConfig) {
     const openedAt = now()
     const duration = cfg.policy.duration
 
-    // Les termes engagés, et la liaison signature ↔ termes.
+    // The committed terms, and the signature ↔ terms binding.
     //
-    // Le contrat refait ce contrôle, et c'est lui qui fait autorité. On le fait
-    // aussi ici pour la même raison qu'ailleurs dans ce fichier : un revert
-    // onchain ne dit pas *quel* terme a divergé, alors qu'à ce point on connaît
-    // les six et on peut les rendre au client, qui n'a plus qu'à resigner.
+    // The contract redoes this check, and it is the one that is authoritative.
+    // We do it here too for the same reason as elsewhere in this file: an
+    // onchain revert does not say *which* term diverged, whereas at this point
+    // we know all six and can hand them back to the client, who then only has
+    // to re-sign.
     const expectedNonce = termsHashOf({
       id,
       beneficiary: cfg.policy.beneficiary,
@@ -989,11 +990,11 @@ export function createGateway(cfg: GatewayConfig) {
         rail,
         new PaymentRejected(
           'terms_mismatch',
-          `le nonce de l'autorisation (${authorization.nonce}) ne vaut pas le termsHash ` +
-            `des termes servis (${expectedNonce}). L'autorisation EIP-3009 doit porter ` +
-            'ce hash comme nonce — c\'est ce qui lie la signature aux termes du mandat, ' +
-            'que les six champs signés par EIP-3009 ne suffisent pas à couvrir. ' +
-            `Termes : id=${id}, beneficiary=${cfg.policy.beneficiary}, ` +
+          `the authorization's nonce (${authorization.nonce}) does not equal the termsHash ` +
+            `of the terms served (${expectedNonce}). The EIP-3009 authorization must carry ` +
+            'this hash as its nonce — that is what binds the signature to the terms of the ' +
+            'warrant, which the six fields signed by EIP-3009 are not enough to cover. ' +
+            `Terms: id=${id}, beneficiary=${cfg.policy.beneficiary}, ` +
             `bond=${priced.quote.bond}, conditionHash=${priced.conditionHash}, ` +
             `actionHash=${priced.actionHash}, duration=${duration}`,
         ),
@@ -1004,19 +1005,19 @@ export function createGateway(cfg: GatewayConfig) {
     let simulation: SimulationOutcome | undefined
 
     /**
-     * L'ouverture, qui **est** le règlement.
+     * The opening, which **is** the settlement.
      *
-     * Une seule transaction là où il y en avait deux. Ce n'est pas une
-     * optimisation : entre l'ancien `settle` et l'ancien `open`, les fonds
-     * étaient sur le contrat sans mandat qui les rattache à quiconque, et
-     * l'`opener` désignait seul à qui ils reviendraient. C'est la faille que le
-     * correctif referme, et elle ne peut se refermer qu'ici — en passant
-     * l'autorisation au contrat au lieu de la faire régler à côté.
+     * A single transaction where there used to be two. This is not an
+     * optimisation: between the old `settle` and the old `open`, the funds sat
+     * on the contract with no warrant tying them to anyone, and the `opener`
+     * alone decided who would get them. That is the flaw the fix closes, and it
+     * can only be closed here — by handing the authorization to the contract
+     * instead of having it settled on the side.
      *
-     * Conséquence sur les modes d'échec, qui va dans le bon sens : un `open` qui
-     * révèrte ne laisse **rien** derrière lui. Plus de règlement orphelin à
-     * rembourser à la main, donc plus besoin de distinguer « la caution est
-     * prise mais le mandat n'existe pas » de « rien ne s'est passé ».
+     * The consequence on failure modes, and it goes the right way: an `open`
+     * that reverts leaves **nothing** behind. No more orphan settlement to
+     * refund by hand, hence no more need to distinguish "the bond is taken but
+     * the warrant does not exist" from "nothing happened".
      */
     const doOpen = async (): Promise<ProblemDetails | undefined> => {
       try {
@@ -1031,12 +1032,12 @@ export function createGateway(cfg: GatewayConfig) {
         })
         return undefined
       } catch (err) {
-        return problem('open_failed', 502, "Ouverture du mandat en échec", errText(err), {
+        return problem('open_failed', 502, 'Warrant opening failed', errText(err), {
           rail,
           fundingRef,
-          // Vrai par construction depuis que le financement est atomique : si
-          // l'ouverture a échoué, le transfert EIP-3009 a échoué avec elle et le
-          // nonce n'est pas consommé. L'agent peut resigner, ou réessayer.
+          // True by construction ever since the funding became atomic: if the
+          // opening failed, the EIP-3009 transfer failed with it and the nonce
+          // is not consumed. The agent can re-sign, or retry.
           bondCharged: false,
         })
       }
@@ -1047,13 +1048,13 @@ export function createGateway(cfg: GatewayConfig) {
         const result = await cfg.executor.simulateContractCall(call)
         simulation = result
         if (!result.success || result.wouldRevert === true) {
-          // Un mandat dont la simulation échoue n'est jamais ouvert.
+          // A warrant whose simulation fails is never opened.
           return problem(
             'simulation_failed',
             422,
-            'Simulation en échec',
+            'Simulation failed',
             result.revertReason ??
-              "l'action reverterait à l'exécution : aucun mandat ouvert, aucune caution prélevée",
+              'the action would revert on execution: no warrant opened, no bond charged',
             { rail, warrantOpened: false },
           )
         }
@@ -1062,37 +1063,37 @@ export function createGateway(cfg: GatewayConfig) {
         return problem(
           'executor_unavailable',
           502,
-          'Exécuteur indisponible',
+          'Executor unavailable',
           errText(err),
           { rail, warrantOpened: false },
         )
       }
     }
 
-    // 8. Simulation **avant** ouverture : la caution n'est pas encaissée pour un
-    //    échec prévisible. `openBeforeSimulate` retrouve l'ordre littéral de
-    //    docs/04 pour qui le préfère.
+    // 8. Simulation **before** opening: the bond is not charged for a
+    //    foreseeable failure. `openBeforeSimulate` restores the literal order
+    //    of docs/04 for whoever prefers it.
     const steps = cfg.openBeforeSimulate ? [doOpen, doSimulate] : [doSimulate, doOpen]
     for (const step of steps) {
       const failure = await step()
       if (failure) return sendProblem(c, failure)
     }
     if (!openTx || !simulation) {
-      return sendProblem(c, problem('internal', 500, 'Ouverture incomplète'))
+      return sendProblem(c, problem('internal', 500, 'Incomplete opening'))
     }
 
-    // 9. Le reçu de règlement, **synthétisé depuis l'ouverture**.
+    // 9. The settlement receipt, **synthesised from the opening**.
     //
-    //    Les deux protocoles attendent une référence de transaction : x402 dans
-    //    `PAYMENT-RESPONSE`, MPP dans `Payment-Receipt`. Cette référence était le
-    //    hash rendu par le facilitateur ; c'est maintenant le hash de l'`open`,
-    //    parce que c'est cette transaction-là qui a réellement déplacé l'USDC.
-    //    Le reçu désigne donc un règlement que le client peut aller lire, et qui
-    //    contient aussi l'ouverture du mandat qu'il a payée — strictement plus
-    //    d'information qu'avant, pas moins.
+    //    Both protocols expect a transaction reference: x402 in
+    //    `PAYMENT-RESPONSE`, MPP in `Payment-Receipt`. That reference used to be
+    //    the hash returned by the facilitator; it is now the hash of the `open`,
+    //    because that is the transaction that actually moved the USDC. So the
+    //    receipt designates a settlement the client can go and read, and which
+    //    also contains the opening of the warrant it paid for — strictly more
+    //    information than before, not less.
     //
-    //    `fundingRef`, lui, n'est plus ce hash : c'est le nonce EIP-3009, la
-    //    valeur que le contrat inscrit. Les deux ne se confondent plus.
+    //    `fundingRef`, for its part, is no longer that hash: it is the EIP-3009
+    //    nonce, the value the contract writes. The two are no longer conflated.
     const settlement: SettlementResponse = {
       success: true,
       transaction: openTx,
@@ -1101,21 +1102,21 @@ export function createGateway(cfg: GatewayConfig) {
       amount: priced.quote.bond,
     }
 
-    // 10. Exécution. `idempotencyKey` = l'identifiant du mandat : un retry
-    //     réseau ne peut pas diffuser deux transactions pour un même mandat.
+    // 10. Execution. `idempotencyKey` = the warrant identifier: a network retry
+    //     cannot broadcast two transactions for one and the same warrant.
     let execution: ExecutionOutcome
     try {
       execution = await cfg.executor.executeContractCall(call, id)
     } catch (err) {
       return sendProblem(
         c,
-        problem('execution_failed', 502, "Exécution en échec", errText(err), {
+        problem('execution_failed', 502, 'Execution failed', errText(err), {
           rail,
           warrantId: id,
           fundingRef,
           note:
-            "le mandat est ouvert et expirera vers reclaim : une défaillance d'infrastructure " +
-            "n'est pas une post-condition violée",
+            'the warrant is open and will expire towards reclaim: an infrastructure ' +
+            'failure is not a violated post-condition',
         }),
       )
     }
@@ -1143,7 +1144,7 @@ export function createGateway(cfg: GatewayConfig) {
     }
     await store.put(record)
 
-    // 12. Reçu du rail emprunté — et de lui seul.
+    // 12. Receipt for the rail that was taken — and for it alone.
     if (rail === 'x402') {
       c.header(HEADER_PAYMENT_RESPONSE, encodeHeaderObject(settlement))
     } else {
@@ -1176,9 +1177,9 @@ export function createGateway(cfg: GatewayConfig) {
 
   // ── GET /v1/warrants ──────────────────────────────────────────────────────
   //
-  // Historique et statistiques. Les compteurs servent directement le dashboard
-  // public : le critère de notation le plus lourd du hackathon demande des
-  // transactions réelles, en donner le décompte vivant coûte peu.
+  // History and statistics. The counters serve the public dashboard directly:
+  // the hackathon's heaviest scoring criterion asks for real transactions, and
+  // giving a live count of them costs little.
   app.get('/v1/warrants', async (c) => {
     if (!store.list) {
       return sendProblem(
@@ -1186,8 +1187,8 @@ export function createGateway(cfg: GatewayConfig) {
         problem(
           'not_supported',
           501,
-          'Ce store ne sait pas énumérer les mandats',
-          'store.list absent',
+          'This store cannot enumerate warrants',
+          'store.list missing',
         ),
       )
     }
@@ -1197,7 +1198,7 @@ export function createGateway(cfg: GatewayConfig) {
     if (agent && !/^0x[0-9a-fA-F]{40}$/.test(agent)) {
       return sendProblem(
         c,
-        problem('bad_agent', 400, 'Adresse d’agent invalide', q['agent'] ?? ''),
+        problem('bad_agent', 400, 'Invalid agent address', q['agent'] ?? ''),
       )
     }
 
@@ -1219,7 +1220,7 @@ export function createGateway(cfg: GatewayConfig) {
     if (since !== undefined) records = records.filter((r) => r.openedAt >= since)
     if (until !== undefined) records = records.filter((r) => r.openedAt <= until)
 
-    // Plus récents d'abord : c'est ce qu'on veut voir sur un dashboard.
+    // Most recent first: that is what one wants to see on a dashboard.
     records.sort((a, b) => b.openedAt - a.openedAt)
 
     const cursor = q['cursor']
@@ -1229,8 +1230,8 @@ export function createGateway(cfg: GatewayConfig) {
     const page = records.slice(start, start + limit)
     const next = records[start + limit]
 
-    // Les statistiques portent sur l'ensemble filtré, pas sur la page : un
-    // compteur qui change avec la pagination n'est pas un compteur.
+    // The statistics bear on the whole filtered set, not on the page: a counter
+    // that changes with pagination is not a counter.
     const sumOf = (pred: (r: WarrantRecord) => boolean): string =>
       records
         .filter(pred)
@@ -1281,12 +1282,12 @@ export function createGateway(cfg: GatewayConfig) {
     if (!/^0x[0-9a-fA-F]{64}$/.test(raw)) {
       return sendProblem(
         c,
-        problem('bad_warrant_id', 400, 'Identifiant de mandat invalide', raw),
+        problem('bad_warrant_id', 400, 'Invalid warrant identifier', raw),
       )
     }
     const record = await store.get(raw.toLowerCase() as Hex)
     if (!record) {
-      return sendProblem(c, problem('not_found', 404, 'Mandat inconnu', raw))
+      return sendProblem(c, problem('not_found', 404, 'Unknown warrant', raw))
     }
 
     const verdict = cfg.verdicts ? await cfg.verdicts.get(record.id) : undefined
@@ -1315,8 +1316,8 @@ export function createGateway(cfg: GatewayConfig) {
       },
       actionSpec: record.actionSpec,
       conditionSpec: record.conditionSpec,
-      // Un verdict sans `checks[]` est une assertion ; avec, c'est une preuve
-      // rejouable (docs/04 « Modèle de données »).
+      // A verdict without `checks[]` is an assertion; with it, it is a
+      // replayable proof (docs/04 "Data model").
       verdict: verdict ?? null,
       checks: verdict?.checks ?? [],
     })
@@ -1341,15 +1342,15 @@ export function createGateway(cfg: GatewayConfig) {
 
   return app
 
-  // ── helpers liés à la configuration ───────────────────────────────────────
+  // ── configuration-bound helpers ───────────────────────────────────────────
 
   /**
-   * Émet un 402 portant les **deux** challenges.
+   * Emits a 402 carrying **both** challenges.
    *
-   * `opts.problem` remplit le corps en RFC 9457 (chemin MPP) ; `opts.error`
-   * remplit le champ `error` du `PaymentRequired` (format propriétaire x402).
-   * Sans ni l'un ni l'autre, le corps est `{}` — toute l'information étant dans
-   * les en-têtes.
+   * `opts.problem` fills the body in RFC 9457 (MPP path); `opts.error` fills the
+   * `error` field of the `PaymentRequired` (x402's proprietary format). With
+   * neither one nor the other, the body is `{}` — all the information being in
+   * the headers.
    */
   function challengeResponse(
     c: Context,
@@ -1364,18 +1365,18 @@ export function createGateway(cfg: GatewayConfig) {
     }
 
     /**
-     * Les termes que le client doit connaître **avant** de signer.
+     * The terms the client must know **before** signing.
      *
-     * Depuis que le nonce EIP-3009 vaut `termsHash(...)`, l'agent ne peut plus
-     * signer un paiement puis découvrir les termes : il signe les termes *en*
-     * signant le paiement. Le 402 doit donc les publier tous, et le `nonce` de
-     * mandat avec eux — c'est lui qui détermine `id`, et il doit revenir
-     * inchangé dans `body.nonce`.
+     * Ever since the EIP-3009 nonce equals `termsHash(...)`, the agent can no
+     * longer sign a payment and then discover the terms: it signs the terms *by*
+     * signing the payment. So the 402 must publish them all, and the warrant
+     * `nonce` along with them — it is what determines `id`, and it must come
+     * back unchanged in `body.nonce`.
      *
-     * `id` n'est pas annoncé, et ne peut pas l'être : il vaut
-     * `keccak256(agent, nonce, actionHash)` et nous ne connaissons pas encore
-     * l'agent. C'est au client de le calculer — il est le seul à savoir quelle
-     * adresse signera.
+     * `id` is not announced, and cannot be: it equals
+     * `keccak256(agent, nonce, actionHash)` and we do not know the agent yet. It
+     * is up to the client to compute it — it alone knows which address will
+     * sign.
      */
     const warrantNonce = randomNonce()
     const terms = {
@@ -1390,9 +1391,9 @@ export function createGateway(cfg: GatewayConfig) {
       authorizationNonce:
         'keccak256(abi.encode(warrantId, beneficiary, bond, conditionHash, actionHash, duration))',
       note:
-        "le nonce de l'autorisation EIP-3009 doit valoir authorizationNonce, et " +
-        'le type signé est ReceiveWithAuthorization — pas TransferWithAuthorization. ' +
-        'Renvoyer `nonce` dans le corps de la requête payante.',
+        "the EIP-3009 authorization's nonce must equal authorizationNonce, and " +
+        'the signed type is ReceiveWithAuthorization — not TransferWithAuthorization. ' +
+        'Send `nonce` back in the body of the paid request.',
     }
 
     const challenge: MppChallenge = challenges.issue({
@@ -1404,14 +1405,14 @@ export function createGateway(cfg: GatewayConfig) {
         route: '/v1/warrants',
         conditionHash: priced.conditionHash,
         actionHash: priced.actionHash,
-        // Les termes voyagent aussi dans `opaque`, que le MAC du Challenge
-        // couvre : sur le rail MPP, un client qui les altère ne recalcule pas le
-        // même `challenge.id` et se fait refuser à la consommation.
+        // The terms travel in `opaque` too, which the Challenge's MAC covers:
+        // on the MPP rail, a client that alters them does not recompute the same
+        // `challenge.id` and gets refused at consumption.
         nonce: terms.nonce,
         beneficiary: terms.beneficiary,
         duration: terms.duration,
       },
-      description: `Caution pour ${priced.quote.category}`,
+      description: `Bond for ${priced.quote.category}`,
       context: {
         requirements,
         conditionHash: priced.conditionHash,
@@ -1420,7 +1421,7 @@ export function createGateway(cfg: GatewayConfig) {
       },
     })
 
-    // Les deux challenges, simultanément, sur la même route.
+    // Both challenges, simultaneously, on the same route.
     c.header(HEADER_WWW_AUTHENTICATE, formatChallengeHeader(challenge))
     c.header(
       HEADER_PAYMENT_REQUIRED,
@@ -1442,9 +1443,9 @@ export function createGateway(cfg: GatewayConfig) {
             'warrant/commitment': {
               info: {
                 category: priced.quote.category,
-                // Tous les termes — `conditionHash` et `actionHash` compris,
-                // parce que l'agent les signe désormais en signant son paiement :
-                // le nonce EIP-3009 vaut leur hash.
+                // Every term — `conditionHash` and `actionHash` included,
+                // because the agent now signs them by signing its payment: the
+                // EIP-3009 nonce equals their hash.
                 ...terms,
               },
             },
@@ -1458,7 +1459,7 @@ export function createGateway(cfg: GatewayConfig) {
         'content-type': PROBLEM_CONTENT_TYPE,
       })
     }
-    // Corps `{}` : toute l'information est dans les en-têtes (docs/05 § 1.2).
+    // Body `{}`: all the information is in the headers (docs/05 § 1.2).
     return c.json({}, 402)
   }
 
@@ -1479,18 +1480,18 @@ export function createGateway(cfg: GatewayConfig) {
             ? 'malformed_payment_header'
             : 'payment_rejected'
 
-    // Rail MPP → RFC 9457. Rail x402 → format propriétaire x402, c'est-à-dire
-    // un nouveau 402 dont le `PaymentRequired` porte l'explication (docs/05 § 2.7).
+    // MPP rail → RFC 9457. x402 rail → x402's proprietary format, that is, a new
+    // 402 whose `PaymentRequired` carries the explanation (docs/05 § 2.7).
     return rail === 'mpp'
       ? challengeResponse(c, priced, requirements, {
-          problem: problem(code, 402, 'Paiement refusé', detail, { rail }),
+          problem: problem(code, 402, 'Payment refused', detail, { rail }),
         })
       : challengeResponse(c, priced, requirements, { error: `${code}: ${detail}` })
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tarification — le seul intrant est l'ActionSpec
+// Pricing — the only input is the ActionSpec
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PricedAction {
@@ -1503,38 +1504,39 @@ export interface PricedAction {
 }
 
 /**
- * Classifier → politique → tarif, dans cet ordre et sans autre intrant que
- * l'`ActionSpec`.
+ * Classify → policy → price, in that order and with no input other than the
+ * `ActionSpec`.
  *
- * `body.category`, `body.notionalUSD` et tout autre champ déclaratif sont
- * ignorés : ils ne sont même pas lus ici. Deux requêtes qui ne diffèrent que
- * par ces champs produisent le même `conditionHash` et la même caution — c'est
- * précisément ce que le test de reproductibilité vérifie.
+ * `body.category`, `body.notionalUSD` and every other declarative field are
+ * ignored: they are not even read here. Two requests that differ only by those
+ * fields produce the same `conditionHash` and the same bond — which is exactly
+ * what the reproducibility test verifies.
  */
 export function priceAction(body: Record<string, unknown>, cfg: GatewayConfig): PricedAction {
   const actionSpec = validateActionSpec(body['actionSpec'])
   const classification = classify(actionSpec, cfg.registry)
 
-  // Le `registryRef` déclaré est engagé sous `actionHash` : s'il désignait une
-  // autre version du registre que celle qui a servi à classifier, un tiers
-  // rejouerait `classify` avec le mauvais registre et pourrait constater une
-  // catégorie différente sans qu'aucune des deux parties n'ait menti. Le refus
-  // porte la valeur attendue pour que la correction tienne en un aller-retour.
+  // The declared `registryRef` is committed under `actionHash`: were it to
+  // designate a registry version other than the one used to classify, a third
+  // party replaying `classify` with the wrong registry could observe a different
+  // category without either side having lied. The refusal carries the expected
+  // value so that the correction takes a single round trip.
   if (actionSpec.registryRef.toLowerCase() !== classification.registryRef.toLowerCase()) {
     throw new RegistryMismatchError(actionSpec.registryRef, classification.registryRef)
   }
 
   const actionHash = hashAction(actionSpec)
 
-  // `priceRisk` délègue à `buildConditionSpec`, qui injecte d'office
-  // `calldata_matches_commitment` dès qu'un `actionHash` est fourni. Un seul
-  // chemin de construction, donc aucune spec produite sans l'engagement.
+  // `priceRisk` delegates to `buildConditionSpec`, which injects
+  // `calldata_matches_commitment` as a matter of course as soon as an
+  // `actionHash` is supplied. A single construction path, hence no spec
+  // produced without the commitment.
   const quote = priceRisk(classification, cfg.policy, {
     chainId: actionSpec.chainId,
     actionHash,
   })
-  // Ceinture et bretelles : refuse de servir une spec sans le vérificateur
-  // d'engagement, quelle qu'en soit la cause.
+  // Belt and braces: refuse to serve a spec without the commitment checker,
+  // whatever the cause.
   const conditionSpec = validateGatewayConditionSpec(quote.conditionSpec)
 
   return {
@@ -1548,18 +1550,18 @@ export function priceAction(body: Record<string, unknown>, cfg: GatewayConfig): 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Résolution du paiement
+// Payment resolution
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le paiement, résolu depuis l'un ou l'autre rail.
+ * The payment, resolved from one rail or the other.
  *
- * Ne porte plus de `payer`. C'était l'adresse que le rail *déclarait* — `source`
- * d'un Credential MPP, `from` d'une autorisation — et le Gateway la recoupait
- * avec celle du facilitateur pour en tirer l'agent. Le contrat dérivant
- * désormais l'agent de la signature, la seule adresse qui compte est
- * `authorization.from`, et elle est lue là où elle est prouvée. Conserver une
- * seconde source aurait laissé croire qu'elle fait foi.
+ * No longer carries a `payer`. That was the address the rail *declared* — an
+ * MPP Credential's `source`, an authorization's `from` — and the Gateway
+ * cross-checked it against the facilitator's to derive the agent. Since the
+ * contract now derives the agent from the signature, the only address that
+ * counts is `authorization.from`, and it is read where it is proven. Keeping a
+ * second source would have suggested that it carried weight.
  */
 interface ResolvedPayment {
   payload: PaymentPayload
@@ -1583,16 +1585,17 @@ function resolveMpp(
   challenges: ChallengeStore<ChallengeContext>,
 ): ResolvedPayment {
   const credential: MppCredential = decodeCredentialHeader(header)
-  // Consommation stricte : Challenge connu, non expiré, réécho tel quel, jamais
-  // rejoué. Toute anomalie lève une `MppError`.
+  // Strict consumption: Challenge known, unexpired, echoed back verbatim, never
+  // replayed. Any anomaly raises an `MppError`.
   const entry = challenges.consume(credential)
 
-  // Le montant engagé est celui du Challenge émis, pas celui que le Credential
-  // recopie : le Challenge est lié cryptographiquement à son `id`.
+  // The committed amount is the one from the Challenge that was issued, not the
+  // one the Credential copies: the Challenge is cryptographically bound to its
+  // `id`.
   if (entry.context.bond !== requirements.amount) {
     throw new PaymentRejected(
       'amount_mismatch',
-      `Challenge émis pour ${entry.context.bond}, caution recalculée à ${requirements.amount}`,
+      `Challenge issued for ${entry.context.bond}, bond recomputed to ${requirements.amount}`,
     )
   }
 
@@ -1602,20 +1605,20 @@ function resolveMpp(
 }
 
 /**
- * `nonce` du mandat — celui qui entre dans `warrantId`, pas celui de l'EIP-3009.
+ * The warrant's `nonce` — the one that enters `warrantId`, not the EIP-3009 one.
  *
- * ⚠ Il **ne peut plus** être repris du nonce de l'autorisation, comme il l'était.
- * Ce nonce vaut désormais `termsHash(id, …)`, et `id` vaut
- * `keccak256(agent, nonce, actionHash)` : reprendre l'un pour calculer l'autre
- * serait circulaire. Les deux nonces sont maintenant deux choses distinctes —
- * l'un identifie le mandat, l'autre lie l'autorisation à ses termes.
+ * ⚠ It can **no longer** be taken from the authorization's nonce, as it once
+ * was. That nonce now equals `termsHash(id, …)`, and `id` equals
+ * `keccak256(agent, nonce, actionHash)`: taking one to compute the other would
+ * be circular. The two nonces are now two distinct things — one identifies the
+ * warrant, the other binds the authorization to its terms.
  *
- * D'où l'aller-retour : le Gateway tire ce nonce à l'émission du 402, l'annonce
- * dans l'extension `warrant/commitment`, et le client le renvoie dans
- * `body.nonce` avec son paiement. Sans lui, le serveur en tirerait un autre,
- * calculerait un autre `id`, donc un autre `termsHash`, et le contrat
- * révèrterait en `TermsMismatch()` — c'est pourquoi il est exigé dès qu'un
- * paiement est présent, plutôt que remplacé en silence.
+ * Hence the round trip: the Gateway draws this nonce when it issues the 402,
+ * announces it in the `warrant/commitment` extension, and the client sends it
+ * back in `body.nonce` with its payment. Without it the server would draw
+ * another one, compute another `id`, hence another `termsHash`, and the
+ * contract would revert with `TermsMismatch()` — which is why it is required as
+ * soon as a payment is present, rather than silently replaced.
  */
 function resolveNonce(declared: unknown, fallback: () => bigint): bigint {
   if (typeof declared === 'string' && /^(0x[0-9a-fA-F]+|[0-9]+)$/.test(declared)) {
@@ -1628,11 +1631,11 @@ function resolveNonce(declared: unknown, fallback: () => bigint): bigint {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Erreurs
+// Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
 function badJson(): ProblemDetails {
-  return problem('malformed_request', 400, 'Corps de requête illisible', 'JSON attendu')
+  return problem('malformed_request', 400, 'Unreadable request body', 'JSON expected')
 }
 
 function problemFor(err: unknown): ProblemDetails {
@@ -1640,38 +1643,38 @@ function problemFor(err: unknown): ProblemDetails {
     return problem(
       'classification_refused',
       422,
-      'Action non classifiable',
+      'Unclassifiable action',
       err.message,
       { code: err.code },
     )
   }
   if (err instanceof DslError) {
-    return problem('invalid_spec', 400, 'Spécification invalide', err.message, {
+    return problem('invalid_spec', 400, 'Invalid specification', err.message, {
       issues: (err as unknown as { issues?: unknown }).issues ?? [],
     })
   }
   if (err instanceof PolicyError) {
-    return problem('policy_gap', 422, 'Politique incomplète', err.message)
+    return problem('policy_gap', 422, 'Incomplete policy', err.message)
   }
   if (err instanceof RiskError) {
-    return problem('policy_gap', 422, 'Politique incohérente', err.message)
+    return problem('policy_gap', 422, 'Inconsistent policy', err.message)
   }
   if (err instanceof RegistryMismatchError) {
     return problem(
       'registry_mismatch',
       422,
-      'Version de registre incompatible',
+      'Incompatible registry version',
       err.message,
       { declared: err.declared, expected: err.expected },
     )
   }
   if (err instanceof ActionEncodingError) {
-    return problem('unencodable_action', 422, 'Action non exécutable', err.message)
+    return problem('unencodable_action', 422, 'Unexecutable action', err.message)
   }
   if (err instanceof FacilitatorError) {
-    return problem('facilitator_unavailable', 502, 'Facilitateur indisponible', err.message)
+    return problem('facilitator_unavailable', 502, 'Facilitator unavailable', err.message)
   }
-  return problem('internal', 500, 'Erreur interne', errText(err))
+  return problem('internal', 500, 'Internal error', errText(err))
 }
 
 function sendProblem(c: Context, details: ProblemDetails) {
@@ -1685,23 +1688,23 @@ function errText(err: unknown): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Implémentations par défaut des ports
+// Default port implementations
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface KeeperHubExecutorConfig {
-  /** Clé d'organisation `kh_`. Une clé `wfb_` est rejetée en 401 partout. */
+  /** `kh_` organisation key. A `wfb_` key is rejected with a 401 everywhere. */
   apiKey: string
   baseUrl?: string
   fetchImpl?: typeof fetch
 }
 
 /**
- * Exécuteur HTTP KeeperHub, dans la forme que l'API accepte réellement.
+ * KeeperHub HTTP executor, in the shape the API actually accepts.
  *
- * Ne réutilise pas `KeeperHubClient.executeContractCall` : son
- * `ContractCallRequest` envoie un champ `data` porteur du calldata, forme
- * qu'aucune route KeeperHub n'accepte — `data`, `callData` et `calldata` sont
- * ignorés, et seuls `functionName` + `functionArgs` sont lus
+ * Does not reuse `KeeperHubClient.executeContractCall`: its
+ * `ContractCallRequest` sends a `data` field carrying the calldata, a shape no
+ * KeeperHub route accepts — `data`, `callData` and `calldata` are ignored, and
+ * only `functionName` + `functionArgs` are read
  * (repo/docs/onboarding-teardown.md, 14:12).
  */
 export function keeperHubExecutor(cfg: KeeperHubExecutorConfig): ExecutorPort {
@@ -1751,8 +1754,8 @@ export function keeperHubExecutor(cfg: KeeperHubExecutorConfig): ExecutorPort {
 
   return {
     async simulateContractCall(call) {
-      // `simulate` doit être un booléen strict : l'API rejette `"true"` en 400,
-      // précisément pour qu'une coercition ne devienne pas une diffusion réelle.
+      // `simulate` must be a strict boolean: the API rejects `"true"` with a
+      // 400, precisely so that a coercion cannot become a real broadcast.
       const data = await post({ ...callBody(call), simulate: true }, {})
       const result = (data['result'] ?? data) as Record<string, unknown>
       return {
@@ -1775,12 +1778,12 @@ export function keeperHubExecutor(cfg: KeeperHubExecutorConfig): ExecutorPort {
       )
       const executionId = String(data['executionId'] ?? data['id'] ?? '')
 
-      // ⚠ La réponse de POST ne porte **pas** le hash : un `202` avec
-      // `{ executionId, status: "completed" }`, et rien d'autre. Le hash n'est
-      // servi que par la route de statut, où il est disponible immédiatement.
-      // Sans ce second appel, `txHash` est toujours indéfini et le verdict
-      // perd le seul lien qui rattache un mandat à une transaction — mesuré
-      // sur Sepolia, pas déduit.
+      // ⚠ The POST response does **not** carry the hash: a `202` with
+      // `{ executionId, status: "completed" }`, and nothing else. The hash is
+      // served only by the status route, where it is available immediately.
+      // Without this second call, `txHash` is always undefined and the verdict
+      // loses the only link tying a warrant to a transaction — measured on
+      // Sepolia, not inferred.
       let txHash = hashOf(data)
       let fresh: Record<string, unknown> = {}
       if (!txHash && executionId) {
@@ -1802,7 +1805,7 @@ function callBody(call: KeeperHubCall): Record<string, unknown> {
     chainId: call.chainId,
     contractAddress: call.contractAddress,
     functionName: call.functionName,
-    // Chaîne JSON, pas tableau. Un tableau est rejeté en 400.
+    // JSON string, not an array. An array is rejected with a 400.
     functionArgs: call.functionArgs,
     value: call.value ?? '0',
   }
@@ -1818,24 +1821,23 @@ export interface ViemEscrowConfig {
 }
 
 /**
- * `EscrowPort` adossé à un `WalletClient` viem portant la clé `opener`.
+ * `EscrowPort` backed by a viem `WalletClient` holding the `opener` key.
  *
- * Conservé alors que le déploiement réel ouvre par KeeperHub : le jour où
- * l'`opener` redevient une clé locale — organisation KeeperHub indisponible,
- * ou déploiement où l'on ne veut aucune dépendance à un tiers pour écrire —
- * c'est ce port qui reprend, sans rien changer d'autre. Les deux
- * implémentations satisfont la même interface parce que le contrat n'expose
- * qu'une seule façon d'ouvrir.
+ * Kept even though the real deployment opens through KeeperHub: the day the
+ * `opener` becomes a local key again — KeeperHub organisation unavailable, or a
+ * deployment where we want no third-party dependency in order to write — this
+ * port takes over, with nothing else to change. Both implementations satisfy
+ * the same interface because the contract exposes only one way of opening.
  */
 export function viemEscrow(cfg: ViemEscrowConfig, abi: unknown): EscrowPort {
   return {
     async open(args) {
-      // `account` n'est PAS repassé ici. Le transmettre sous forme d'adresse
-      // dégradait le client viem en « JSON-RPC account » : viem émettait alors
-      // `eth_sendTransaction`, que les RPC publics ne servent pas — il n'y a
-      // aucun compte déverrouillé chez eux. Le `walletClient` porte déjà son
-      // compte local, qui signe hors ligne ; le laisser décider est la seule
-      // manière d'obtenir une transaction signée localement.
+      // `account` is NOT passed back here. Handing it over as an address
+      // degraded the viem client into a "JSON-RPC account": viem then emitted
+      // `eth_sendTransaction`, which public RPCs do not serve — there is no
+      // unlocked account on them. The `walletClient` already carries its local
+      // account, which signs offline; letting it decide is the only way to get a
+      // locally signed transaction.
       return cfg.walletClient.writeContract({
         address: cfg.address,
         abi,
@@ -1848,10 +1850,10 @@ export function viemEscrow(cfg: ViemEscrowConfig, abi: unknown): EscrowPort {
           args.conditionHash,
           args.actionHash,
           BigInt(args.duration),
-          // La struct `Authorization` en **objet nommé** : c'est la forme que
-          // viem attend d'un tuple dont les composants ont des noms. Un tableau
-          // positionnel serait refusé à l'encodage — ce qui est préférable à
-          // l'accepter dans un ordre qu'on n'aurait pas vérifié.
+          // The `Authorization` struct as a **named object**: that is the shape
+          // viem expects of a tuple whose components have names. A positional
+          // array would be refused at encoding — which is preferable to
+          // accepting it in an order we would not have checked.
           {
             from: args.authorization.from,
             value: args.authorization.value,
@@ -1869,25 +1871,25 @@ export function viemEscrow(cfg: ViemEscrowConfig, abi: unknown): EscrowPort {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// `EscrowPort` par KeeperHub
+// `EscrowPort` through KeeperHub
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * L'exécution d'appel de contrat vue par l'escrow.
+ * The contract-call execution as the escrow sees it.
  *
- * Structurellement satisfaite par `KeeperHubClient`, mais volontairement
- * redéclarée ici plutôt qu'importée : `gateway.ts` ne connaît que des ports, et
- * une dépendance de type vers le client HTTP ferait de ce fichier le point où
- * l'on découvre que l'ouverture passe par un tiers. Le test vérifie par
- * assertion de type que le vrai client conforme — c'est là, et pas dans une
- * signature, que la promesse est tenue.
+ * Structurally satisfied by `KeeperHubClient`, but deliberately redeclared here
+ * rather than imported: `gateway.ts` knows nothing but ports, and a type
+ * dependency towards the HTTP client would make this file the place where one
+ * discovers that the opening goes through a third party. The test verifies by
+ * type assertion that the real client conforms — that is where the promise is
+ * kept, not in a signature.
  */
 export interface EscrowContractCall {
   chainId: number
   contractAddress: Address
   functionName: string
   functionArgs: readonly unknown[]
-  /** Chaîne JSON à l'envoi — voir `ContractCallRequest.abi`. */
+  /** JSON string on the wire — see `ContractCallRequest.abi`. */
   abi?: readonly unknown[]
 }
 
@@ -1907,39 +1909,39 @@ export interface KeeperHubEscrowClient {
 
 export interface KeeperHubEscrowConfig {
   address: Address
-  /** Chaîne de l'escrow. Distincte, en général, de celle de l'action. */
+  /** The escrow's chain. Generally distinct from the action's. */
   chainId: number
   client: KeeperHubEscrowClient
   /**
-   * ABI de `WarrantEscrow`.
+   * ABI of `WarrantEscrow`.
    *
-   * Non facultative en pratique : KeeperHub ne sait auto-résoudre l'ABI que
-   * d'un contrat **vérifié** sur l'explorateur, ce que l'escrow n'est pas.
-   * L'exiger ici évite de découvrir le problème au premier mandat payant.
+   * Not optional in practice: KeeperHub can auto-resolve the ABI of a
+   * **verified** contract only, which the escrow is not. Requiring it here
+   * avoids discovering the problem on the first paid warrant.
    */
   abi: readonly unknown[]
 }
 
 /**
- * `EscrowPort` qui ouvre le mandat **à travers KeeperHub**.
+ * `EscrowPort` that opens the warrant **through KeeperHub**.
  *
- * C'est le chemin réel du déploiement, pas une variante : l'`opener` onchain
- * est le wallet de l'organisation KeeperHub, et une clé locale signant `open()`
- * se ferait répondre `NotOpener()`. Le choix est argumenté dans
- * docs/transactions.md § 3 — l'ouverture est l'opération de volume et elle est
- * sponsorisée en gas, le règlement est l'opération sensible et reste sur une
- * clé qu'on maîtrise. Une organisation KeeperHub n'ayant qu'un seul wallet,
- * l'invariant I10 (`opener != settler`) impose que ce soit l'un ou l'autre.
+ * This is the deployment's real path, not a variant: the onchain `opener` is
+ * the KeeperHub organisation's wallet, and a local key signing `open()` would
+ * be answered `NotOpener()`. The choice is argued in docs/transactions.md § 3 —
+ * opening is the volume operation and it is gas-sponsored, settlement is the
+ * sensitive operation and stays on a key we control. A KeeperHub organisation
+ * having only one wallet, invariant I10 (`opener != settler`) forces it to be
+ * one or the other.
  *
- * Deux différences de comportement avec `viemEscrow`, assumées :
+ * Two behavioural differences from `viemEscrow`, both accepted:
  *
- * - l'appel est **synchrone côté API** : au retour, la transaction est déjà
- *   incluse ou l'exécution a échoué. On n'attend donc pas de confirmations ici
- *   — c'est le Settler qui le fait, sur un RPC indépendant.
- * - la transaction est **sponsorisée**, donc encapsulée par un forwarder :
- *   `tx.to` n'est pas l'escrow. Sans importance pour l'ouverture (on ne relit
- *   pas cette transaction par sa forme), mais c'est la raison d'être de
- *   `checks/forwarder.ts` côté action.
+ * - the call is **synchronous on the API side**: on return, the transaction is
+ *   already included or the execution has failed. So we do not wait for
+ *   confirmations here — the Settler does that, on an independent RPC.
+ * - the transaction is **sponsored**, hence wrapped by a forwarder: `tx.to` is
+ *   not the escrow. Of no importance for the opening (we do not re-read that
+ *   transaction by its shape), but it is the raison d'être of
+ *   `checks/forwarder.ts` on the action side.
  */
 export function keeperHubEscrow(cfg: KeeperHubEscrowConfig): EscrowPort {
   return {
@@ -1949,19 +1951,19 @@ export function keeperHubEscrow(cfg: KeeperHubEscrowConfig): EscrowPort {
           chainId: cfg.chainId,
           contractAddress: cfg.address,
           functionName: 'open',
-          // Ordre de l'ABI, jamais nominatif : KeeperHub positionne les
-          // arguments. Tout est passé en chaîne — `bond` et `duration` sont des
-          // entiers 256/64 bits qui ne tiennent pas dans un `number` JSON, et
-          // une valeur qui transite en `number` perdrait des unités atomiques
-          // sans rien signaler.
+          // ABI order, never named: KeeperHub positions the arguments.
+          // Everything is passed as a string — `bond` and `duration` are
+          // 256/64-bit integers that do not fit in a JSON `number`, and a value
+          // travelling as a `number` would lose atomic units without signalling
+          // anything.
           //
-          // La struct `Authorization` est un **objet nommé**, pas un tableau, et
-          // c'est délibéré : `functionArgs` est sérialisé en JSON puis décodé
-          // par KeeperHub, qui encode avec viem. viem exige des composants
-          // nommés pour un tuple nommé. Un tableau positionnel se ferait
-          // refuser à l'encodage plutôt que d'être encodé dans un ordre
-          // hasardeux — le mode d'échec qu'on veut, sur huit champs dont quatre
-          // sont des mots de 32 octets indistinguables.
+          // The `Authorization` struct is a **named object**, not an array, and
+          // that is deliberate: `functionArgs` is serialised to JSON then
+          // decoded by KeeperHub, which encodes with viem. viem requires named
+          // components for a named tuple. A positional array would be refused at
+          // encoding rather than encoded in some haphazard order — the failure
+          // mode we want, on eight fields of which four are indistinguishable
+          // 32-byte words.
           functionArgs: [
             args.id,
             args.beneficiary,
@@ -1975,7 +1977,7 @@ export function keeperHubEscrow(cfg: KeeperHubEscrowConfig): EscrowPort {
               validAfter: args.authorization.validAfter.toString(10),
               validBefore: args.authorization.validBefore.toString(10),
               nonce: args.authorization.nonce,
-              // `v` tient dans un `number` sans risque : c'est 27 ou 28.
+              // `v` fits in a `number` without risk: it is 27 or 28.
               v: args.authorization.v,
               r: args.authorization.r,
               s: args.authorization.s,
@@ -1983,27 +1985,27 @@ export function keeperHubEscrow(cfg: KeeperHubEscrowConfig): EscrowPort {
           ],
           abi: cfg.abi,
         },
-        // L'identifiant du mandat comme clé d'idempotence : la fenêtre de
-        // rejeu est de 24 h à l'échelle de l'organisation, donc un timeout
-        // réseau suivi d'un retry ne peut pas ouvrir deux fois le même mandat
-        // — le second appel se heurterait de toute façon à `AlreadyExists()`,
-        // mais après avoir consommé du gas et brouillé l'audit trail.
+        // The warrant identifier as the idempotency key: the replay window is
+        // 24 h at the scale of the organisation, so a network timeout followed
+        // by a retry cannot open the same warrant twice — the second call would
+        // run into `AlreadyExists()` anyway, but only after burning gas and
+        // muddying the audit trail.
         `warrant-open-${args.id}`,
       )
 
       if (execution.status !== 'success') {
         throw new Error(
-          `KeeperHub: ouverture du mandat ${args.id} en statut ${execution.status}` +
+          `KeeperHub: opening of warrant ${args.id} in status ${execution.status}` +
             (execution.error ? ` — ${execution.error}` : '') +
-            ` (executionId ${execution.executionId || 'inconnu'})`,
+            ` (executionId ${execution.executionId || 'unknown'})`,
         )
       }
       if (!execution.txHash) {
-        // Un succès sans hash ne prouve rien et ne se rejoue pas : le Settler
-        // n'aurait aucun point d'entrée pour aller lire la chaîne. Refus.
+        // A success without a hash proves nothing and does not replay: the
+        // Settler would have no entry point to go and read the chain. Refused.
         throw new Error(
-          `KeeperHub: ouverture ${args.id} rapportée en succès sans hash de ` +
-            `transaction (executionId ${execution.executionId || 'inconnu'})`,
+          `KeeperHub: opening ${args.id} reported successful without a transaction ` +
+            `hash (executionId ${execution.executionId || 'unknown'})`,
         )
       }
       return execution.txHash

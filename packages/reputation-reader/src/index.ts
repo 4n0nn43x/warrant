@@ -1,26 +1,26 @@
 /**
- * `@warrant/reputation-reader` — réputation ERC-8004 pondérée par le capital.
+ * `@warrant/reputation-reader` — stake-weighted ERC-8004 reputation.
  *
- * ERC-8004 compte plus de 150 000 enregistrements de réputation, et rien n'y est
- * en jeu quand on publie un feedback : la réputation y est **déclarative**.
- * `getSummary` rend une moyenne de notes, sans jamais dire combien un agent a
- * risqué pour l'obtenir.
+ * ERC-8004 holds more than 150,000 reputation records, and nothing is at stake
+ * when a feedback is published: reputation there is **declarative**. `getSummary`
+ * returns an average of ratings, without ever saying how much an agent risked to
+ * earn it.
  *
- * Cette bibliothèque calcule, depuis les seuls **events onchain** :
+ * This library computes, from **onchain events** alone:
  *
  *     stakeWeightedScore(agent) = Σ(bond_honored) / (Σ(bond_honored) + Σ(bond_slashed))
- *     totalAtRisk(agent)        = Σ(bond) sur tous les mandats réglés
+ *     totalAtRisk(agent)        = Σ(bond) over every settled warrant
  *
- * Un agent avec 200 petits mandats honorés et un score de 1,0 devient
- * distinguable d'un agent avec 50 000 $ cumulés de cautions honorées au même
- * score : `totalAtRisk` les sépare.
+ * An agent with 200 small honored warrants and a score of 1.0 becomes
+ * distinguishable from an agent with $50,000 of cumulated honored bonds at the
+ * same score: `totalAtRisk` tells them apart.
  *
- * Elle lit des **logs**, pas des vues — `feedbackURI` et `feedbackHash` ne sont
- * pas stockés par le ReputationRegistry, ils ne sont émis que dans l'event
- * `NewFeedback`. C'est une contrainte d'architecture, pas un détail.
+ * It reads **logs**, not views — `feedbackURI` and `feedbackHash` are not stored
+ * by the ReputationRegistry, they are only emitted in the `NewFeedback` event.
+ * That is an architectural constraint, not a detail.
  *
- * Elle ne dépend que de `viem`, et d'aucun autre paquet Warrant : elle se lit,
- * se publie et s'utilise sans le reste du projet.
+ * It depends on `viem` alone, and on no other Warrant package: it can be read,
+ * published and used without the rest of the project.
  *
  * ```ts
  * import { createPublicClient, http } from 'viem'
@@ -32,7 +32,7 @@
  *   reputationRegistry: ERC8004_ADDRESSES.mainnet.reputation,
  *   escrow: '0x…',
  *   agentId: 1234n,
- *   clients: ['0x…settler'],   // qui a le droit de noter cet agent pour Warrant
+ *   clients: ['0x…settler'],   // who may rate this agent on Warrant's behalf
  * })
  * console.log(formatScore(rep.stakeWeightedScore), rep.totalAtRisk)
  * ```

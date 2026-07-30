@@ -1,9 +1,10 @@
-"""Les deux adaptateurs de framework, et ce qu'ils doivent avoir en commun.
+"""The two framework adapters, and what they must have in common.
 
-Le test qui compte est le dernier : LangChain et CrewAI doivent exposer **le même**
-nom, la même description et le même schéma d'arguments. Une divergence entre les
-deux serait exactement ce que la source unique existe pour empêcher, et elle
-passerait inaperçue autrement — chaque adaptateur, pris seul, aurait l'air correct.
+The test that matters is the last one: LangChain and CrewAI must expose **the
+same** name, the same description and the same argument schema. A divergence
+between the two would be exactly what the single source of truth exists to
+prevent, and it would otherwise go unnoticed — each adapter, taken alone, would
+look correct.
 """
 
 from __future__ import annotations
@@ -66,9 +67,9 @@ def test_the_json_schema_carries_the_field_descriptions(lc_tools: list[Any]) -> 
     """
     schema = {tool.name: tool.args_schema.model_json_schema() for tool in lc_tools}
     action_spec = schema["request_warrant"]["$defs"]["ActionSpec"]["properties"]
-    assert "dérivés" in action_spec["calldata"]["description"]
+    assert "derived" in action_spec["calldata"]["description"]
     assert schema["request_warrant"]["properties"]["beneficiary"]["description"]
-    assert "jamais l'agent" in schema["request_warrant"]["properties"]["beneficiary"]["description"]
+    assert "never the agent" in schema["request_warrant"]["properties"]["beneficiary"]["description"]
 
 
 def test_no_adapter_exposes_a_category_argument(
@@ -76,7 +77,7 @@ def test_no_adapter_exposes_a_category_argument(
 ) -> None:
     for tool in [*lc_tools, *crew_tools]:
         if tool.name == "list_warrants":
-            continue  # filtre a posteriori, pas une déclaration
+            continue  # after-the-fact filter, not a declaration
         schema = tool.args_schema.model_json_schema()
         assert "category" not in schema.get("properties", {})
 

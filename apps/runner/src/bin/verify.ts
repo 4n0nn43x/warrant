@@ -1,63 +1,63 @@
 /**
- * Recoupement des compteurs contre la chaîne — le binaire qui a le droit de dire
- * que nos chiffres sont faux.
+ * Cross-checking the counters against the chain — the binary that is allowed to
+ * say our figures are wrong.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * Pourquoi `counters` ne suffit pas
+ * Why `counters` is not enough
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * `bin/counters.ts` lit le journal pour obtenir une liste d'`id`, puis
- * `getWarrant(id)` pour obtenir leur statut. C'est déjà mieux qu'un compteur de
- * journal — le statut vient de la chaîne — mais la construction garde deux angles
- * morts, et ce sont exactement les deux qu'un jury cherchera :
+ * `bin/counters.ts` reads the ledger to obtain a list of `id`s, then
+ * `getWarrant(id)` to obtain their status. That is already better than a ledger
+ * counter — the status comes from the chain — but the construction keeps two blind
+ * spots, and they are exactly the two a jury will look for:
  *
- *   1. **la liste vient de nous.** Un mandat ouvert onchain et absent du journal
- *      n'est dans aucune liste, donc dans aucun total. Le compteur peut être
- *      parfaitement cohérent *et* sous-déclarer le volume. Pire dans l'autre
- *      sens : rien n'y détecte un mandat que nous revendiquons et qui n'existe
- *      pas — `unknown` le compte, mais personne ne le vérifie ;
- *   2. **les montants sont dérivés.** `fees` vaut `bond × feeBpsAtOpen / 10000`,
- *      calculé par nous, jamais lu. Si le contrat prélevait autre chose que ce
- *      qu'il annonce, le compteur afficherait ce que nous croyons, pas ce qui a
- *      été transféré. La dérivation est juste — `feeBpsAtOpen` est figée à
- *      l'ouverture précisément pour ça — mais « juste par construction » n'est pas
- *      « vérifié ».
+ *   1. **the list comes from us.** A warrant opened onchain and missing from the
+ *      ledger is in no list, hence in no total. The counter can be perfectly
+ *      consistent *and* under-report the volume. Worse the other way round:
+ *      nothing in it detects a warrant we claim and that does not exist —
+ *      `unknown` counts it, but nobody verifies it;
+ *   2. **the amounts are derived.** `fees` is `bond × feeBpsAtOpen / 10000`,
+ *      computed by us, never read. If the contract took anything other than what
+ *      it announces, the counter would display what we believe, not what was
+ *      transferred. The derivation is correct — `feeBpsAtOpen` is frozen at
+ *      opening precisely for that — but "correct by construction" is not
+ *      "verified".
  *
- * Ce binaire construit donc un **troisième** compteur, à partir des seuls events
- * de l'escrow, en énumérant les `id` au lieu de les recevoir et en lisant `fee`,
- * `refunded` et `amount` dans les payloads. Puis il croise les trois et n'accorde
- * de valeur qu'à ce qui se recoupe :
+ * So this binary builds a **third** counter, out of the escrow's events alone,
+ * enumerating the `id`s instead of receiving them and reading `fee`, `refunded`
+ * and `amount` from the payloads. Then it cross-checks all three and grants
+ * credit only to what agrees:
  *
- *   journal  ─┐
- *             ├─→ ids ─→ getWarrant  ─→ compteur d'ÉTAT   ─┐
- *   events  ──┴─────────────────────────→ compteur d'EVENTS ┴─→ égalité ou échec
+ *   ledger   ─┐
+ *             ├─→ ids ─→ getWarrant  ─→ STATE counter   ─┐
+ *   events  ──┴─────────────────────────→ EVENTS counter ┴─→ equality or failure
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * Les invariants vérifiés, et ce que chacun attraperait
+ * The invariants checked, and what each one would catch
  * ═════════════════════════════════════════════════════════════════════════════
  *
- *   I-A  état ≡ events, champ par champ sur l'intersection des `id`.
- *        Attrape : un décodage de `status` décalé, une dérivation de frais fausse.
- *   I-B  `totalLocked()` == Σ caution des mandats ouverts, selon les events.
- *        Attrape : un mandat ouvert non compté, ou compté deux fois. C'est le
- *        seul invariant qui confronte notre agrégat à un agrégat que **le
- *        contrat** tient lui-même.
- *   I-C  conservation par mandat honoré : `refunded + fee == bond`.
- *        Attrape : une caution partiellement rendue, un prélèvement hors frais.
- *   I-D  conservation par saisie : `amount == bond`.
- *        Attrape : une saisie partielle — le contrat n'en prévoit pas.
- *   I-E  solde USDC de la trésorerie ≥ Σ frais, et == si elle n'a rien dépensé.
- *        Attrape : des frais annoncés qui n'ont jamais atterri. Vérification
- *        externe au contrat : elle passe par le token, pas par l'escrow.
- *   I-F  couverture du journal : tout `id` du journal existe dans les events, et
- *        tout mandat de **notre** agent apparaît au journal.
- *        Attrape : le mandat orphelin (ouvert, non journalisé, donc non réglable)
- *        et le mandat revendiqué qui n'existe pas.
+ *   I-A  state ≡ events, field by field over the intersection of the `id`s.
+ *        Catches: a shifted `status` decoding, a wrong fee derivation.
+ *   I-B  `totalLocked()` == Σ bond of the open warrants, according to the events.
+ *        Catches: an open warrant not counted, or counted twice. It is the only
+ *        invariant that confronts our aggregate with an aggregate **the contract**
+ *        keeps itself.
+ *   I-C  conservation per honored warrant: `refunded + fee == bond`.
+ *        Catches: a partially returned bond, a deduction outside the fee.
+ *   I-D  conservation per slash: `amount == bond`.
+ *        Catches: a partial slash — the contract provides for none.
+ *   I-E  treasury USDC balance ≥ Σ fees, and == if it has spent nothing.
+ *        Catches: announced fees that never landed. A check external to the
+ *        contract: it goes through the token, not through the escrow.
+ *   I-F  ledger coverage: every ledger `id` exists in the events, and every
+ *        warrant of **our** agent appears in the ledger.
+ *        Catches: the orphan warrant (opened, unjournaled, hence unsettleable)
+ *        and the claimed warrant that does not exist.
  *
- * Sortie 0 si tout se recoupe, 1 sinon. Un compteur qu'aucun processus ne peut
- * contredire n'est pas un compteur, c'est une affirmation.
+ * Exit 0 if everything agrees, 1 otherwise. A counter no process can contradict
+ * is not a counter, it is an assertion.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/runner verify
  *   pnpm --filter @warrant/runner verify -- --json
  */
@@ -80,23 +80,23 @@ import { loadEnv } from '../runner.js'
 
 loadEnv()
 
-/** Un écart constaté. `attendu`/`obtenu` sont toujours des chaînes exactes. */
+/** An observed discrepancy. `expected`/`observed` are always exact strings. */
 interface Divergence {
   invariant: string
-  sujet: string
-  attendu: string
-  obtenu: string
-  conséquence: string
+  subject: string
+  expected: string
+  observed: string
+  consequence: string
 }
 
 /**
- * Le compteur reconstruit à partir des events seuls.
+ * The counter rebuilt from the events alone.
  *
- * Même forme que `Tally` pour que la comparaison soit champ par champ et non
- * « à peu près la même chose ». Les montants viennent des payloads : `fee` et
- * `refunded` de `WarrantHonored`, `amount` de `WarrantSlashed`, `refunded` de
- * `WarrantReclaimed`. Aucune multiplication par `feeBps` ici — c'est tout
- * l'intérêt.
+ * Same shape as `Tally` so that the comparison is field by field and not
+ * "roughly the same thing". The amounts come from the payloads: `fee` and
+ * `refunded` from `WarrantHonored`, `amount` from `WarrantSlashed`, `refunded`
+ * from `WarrantReclaimed`. No multiplication by `feeBps` here — that is the whole
+ * point.
  */
 function tallyFromEvents(warrants: Iterable<EventWarrant>): Tally {
   let opened = 0
@@ -166,13 +166,13 @@ function compareTallies(
   for (const f of fields) {
     if (String(fromState[f]) !== String(fromEvents[f])) {
       out.push({
-        invariant: 'I-A état ≡ events',
-        sujet: `${label}.${f}`,
-        attendu: `${String(fromEvents[f])} (events)`,
-        obtenu: `${String(fromState[f])} (getWarrant)`,
-        conséquence:
-          "le compteur publié ne décrit pas ce que la chaîne a émis : il n'a aucune " +
-          'valeur probante en l’état',
+        invariant: 'I-A state ≡ events',
+        subject: `${label}.${f}`,
+        expected: `${String(fromEvents[f])} (events)`,
+        observed: `${String(fromState[f])} (getWarrant)`,
+        consequence:
+          'the published counter does not describe what the chain emitted: as it ' +
+          'stands it has no evidential value',
       })
     }
   }
@@ -188,17 +188,17 @@ async function main(): Promise<void> {
 
   const observed = await client.getChainId()
   if (observed !== chainId) {
-    throw new Error(`le RPC répond chainId ${observed}, attendu ${chainId}`)
+    throw new Error(`the RPC answers chainId ${observed}, expected ${chainId}`)
   }
 
   const roles = await readEscrowRoles(client, escrow)
 
-  // ── Le balayage, sur toute l'histoire du contrat ──────────────────────────
+  // ── The scan, over the contract's whole history ───────────────────────────
   const deployed = await deploymentBlock(client, escrow)
   const from = bigint('VERIFY_FROM_BLOCK', deployed.block)
   const scan = await scanWarrantEvents(client, escrow, from, deployed.head)
 
-  // ── Le journal, et les mandats qu'il revendique ───────────────────────────
+  // ── The ledger, and the warrants it claims ────────────────────────────────
   const repoRoot = resolve(
     optional('RUNNER_REPO_ROOT', new URL('../../../../', import.meta.url).pathname),
   )
@@ -215,124 +215,124 @@ async function main(): Promise<void> {
 
   const divergences: Divergence[] = []
 
-  // ── I-A : état ≡ events, sur l'intersection ───────────────────────────────
+  // ── I-A: state ≡ events, over the intersection ────────────────────────────
   //
-  // L'intersection et non l'union : comparer un total d'events sur *toute*
-  // l'histoire à un total d'état sur *les ids du journal* mesurerait la
-  // couverture du journal (c'est I-F) et non l'accord des deux lectures.
+  // The intersection and not the union: comparing an events total over the *whole*
+  // history against a state total over *the ledger's ids* would measure the
+  // ledger's coverage (that is I-F) and not the agreement of the two reads.
   const intersection = journalIds.filter((id) => scan.warrants.has(id))
   compareTallies(
-    'journal',
+    'ledger',
     tally(intersection.map((id) => state.get(id)!).filter(Boolean)),
     tallyFromEvents(intersection.map((id) => scan.warrants.get(id)!)),
     divergences,
   )
   const campaignIntersection = intersection.filter((id) => campaignIds.has(id))
   compareTallies(
-    `campagne(${campaign})`,
+    `campaign(${campaign})`,
     tally(campaignIntersection.map((id) => state.get(id)!).filter(Boolean)),
     tallyFromEvents(campaignIntersection.map((id) => scan.warrants.get(id)!)),
     divergences,
   )
 
-  // ── I-B : `totalLocked()` == Σ caution des ouverts, selon les events ──────
+  // ── I-B: `totalLocked()` == Σ bond of the open ones, per the events ────────
   const eventsAll = tallyFromEvents(scan.warrants.values())
   if (roles.totalLocked.toString(10) !== eventsAll.locked) {
     divergences.push({
-      invariant: 'I-B totalLocked() ≡ Σ bond des ouverts',
-      sujet: 'escrow.totalLocked()',
-      attendu: `${eventsAll.locked} (Σ bond des ${eventsAll.open} mandats ouverts d'après les events)`,
-      obtenu: roles.totalLocked.toString(10),
-      conséquence:
-        'un mandat ouvert échappe au balayage (fenêtre de blocs trop courte) ou le ' +
-        'contrat immobilise du capital qui n’est rattaché à aucun mandat',
+      invariant: 'I-B totalLocked() ≡ Σ bond of the open ones',
+      subject: 'escrow.totalLocked()',
+      expected: `${eventsAll.locked} (Σ bond of the ${eventsAll.open} warrants open per the events)`,
+      observed: roles.totalLocked.toString(10),
+      consequence:
+        'an open warrant escapes the scan (block window too short) or the contract ' +
+        'locks up capital attached to no warrant at all',
     })
   }
 
-  // ── I-C / I-D : conservation, mandat par mandat ───────────────────────────
+  // ── I-C / I-D: conservation, warrant by warrant ───────────────────────────
   for (const w of scan.warrants.values()) {
     if (w.honored && w.honored.refunded + w.honored.fee !== w.bond) {
       divergences.push({
         invariant: 'I-C refunded + fee ≡ bond',
-        sujet: w.id,
-        attendu: w.bond.toString(10),
-        obtenu: `${w.honored.refunded} + ${w.honored.fee}`,
-        conséquence: 'de la caution a disparu entre le dépôt et le règlement',
+        subject: w.id,
+        expected: w.bond.toString(10),
+        observed: `${w.honored.refunded} + ${w.honored.fee}`,
+        consequence: 'some of the bond vanished between the deposit and the settlement',
       })
     }
     if (w.slashed && w.slashed.amount !== w.bond) {
       divergences.push({
         invariant: 'I-D amount ≡ bond',
-        sujet: w.id,
-        attendu: w.bond.toString(10),
-        obtenu: w.slashed.amount.toString(10),
-        conséquence: 'saisie partielle : le contrat ne devrait pas savoir en produire',
+        subject: w.id,
+        expected: w.bond.toString(10),
+        observed: w.slashed.amount.toString(10),
+        consequence: 'partial slash: the contract should not know how to produce one',
       })
     }
   }
   if (scan.orphanSettlements.length > 0) {
     divergences.push({
-      invariant: 'I-B règlements rattachés',
-      sujet: `${scan.orphanSettlements.length} règlement(s) sans ouverture`,
-      attendu: '0',
-      obtenu: scan.orphanSettlements.slice(0, 5).join(', '),
-      conséquence:
-        `le balayage commence au bloc ${from} et rate l'ouverture de ces mandats : ` +
-        'baisser VERIFY_FROM_BLOCK',
+      invariant: 'I-B settlements attached',
+      subject: `${scan.orphanSettlements.length} settlement(s) with no opening`,
+      expected: '0',
+      observed: scan.orphanSettlements.slice(0, 5).join(', '),
+      consequence:
+        `the scan starts at block ${from} and misses the opening of these warrants: ` +
+        'lower VERIFY_FROM_BLOCK',
     })
   }
 
-  // ── I-E : les frais ont réellement atterri sur la trésorerie ─────────────
+  // ── I-E: the fees really did land in the treasury ─────────────────────────
   const treasuryUsdc = await usdcBalance(client, token, roles.treasury)
   const feesTotal = BigInt(eventsAll.fees)
   if (treasuryUsdc < feesTotal) {
     divergences.push({
-      invariant: 'I-E trésorerie ≥ Σ frais',
-      sujet: roles.treasury,
-      attendu: `≥ ${feesTotal}`,
-      obtenu: treasuryUsdc.toString(10),
-      conséquence:
-        'des frais comptés dans le compteur n’ont jamais été transférés — le compteur ' +
-        'décrit une intention, pas un mouvement de fonds',
+      invariant: 'I-E treasury ≥ Σ fees',
+      subject: roles.treasury,
+      expected: `≥ ${feesTotal}`,
+      observed: treasuryUsdc.toString(10),
+      consequence:
+        'fees counted in the counter were never transferred — the counter describes ' +
+        'an intention, not a movement of funds',
     })
   }
 
-  // ── I-F : couverture du journal dans les deux sens ────────────────────────
+  // ── I-F: ledger coverage, both ways ───────────────────────────────────────
   const missingFromChain = journalIds.filter((id) => !scan.warrants.has(id))
   if (missingFromChain.length > 0) {
     divergences.push({
-      invariant: 'I-F journal ⊆ events',
-      sujet: `${missingFromChain.length} mandat(s) revendiqués et introuvables`,
-      attendu: '0',
-      obtenu: missingFromChain.slice(0, 5).join(', '),
-      conséquence:
-        'le journal revendique des mandats que la chaîne ne connaît pas : le volume ' +
-        'annoncé est surévalué d’autant',
+      invariant: 'I-F ledger ⊆ events',
+      subject: `${missingFromChain.length} warrant(s) claimed and not found`,
+      expected: '0',
+      observed: missingFromChain.slice(0, 5).join(', '),
+      consequence:
+        'the ledger claims warrants the chain does not know about: the announced ' +
+        'volume is overstated by that much',
     })
   }
   const ours = new Set(journalIds)
-  // Seuls les mandats de **nos** agents nous concernent : l'escrow est public, et
-  // un tiers qui y ouvre un mandat n'est pas un défaut de notre comptabilité.
+  // Only **our** agents' warrants concern us: the escrow is public, and a third
+  // party opening a warrant on it is not a defect of our accounting.
   const ourAgents = new Set(records.map((r) => r.agent.toLowerCase()))
   const agentUnjournaled = [...scan.warrants.values()].filter(
     (w) => !ours.has(w.id) && ourAgents.has(w.agent),
   )
   if (agentUnjournaled.length > 0) {
     divergences.push({
-      invariant: 'F-1 mandats de notre agent ⊆ journal',
-      sujet: `${agentUnjournaled.length} mandat(s) ouverts hors journal`,
-      attendu: '0',
-      obtenu: agentUnjournaled
+      invariant: "F-1 our agent's warrants ⊆ ledger",
+      subject: `${agentUnjournaled.length} warrant(s) opened outside the ledger`,
+      expected: '0',
+      observed: agentUnjournaled
         .slice(0, 5)
         .map((w) => `${w.id}@${w.openedAtBlock}`)
         .join(', '),
-      conséquence:
-        'ces mandats sont ORPHELINS : le Settler n’a pas leur ConditionSpec, il ' +
-        'refusera de juger, et leur caution attend reclaim() à expiration',
+      consequence:
+        'these warrants are ORPHANS: the Settler does not have their ConditionSpec, ' +
+        'it will refuse to judge, and their bond waits for reclaim() at expiry',
     })
   }
 
-  // ── Rapport ───────────────────────────────────────────────────────────────
+  // ── Report ────────────────────────────────────────────────────────────────
   const report = {
     at: new Date().toISOString(),
     chainId,
@@ -341,10 +341,10 @@ async function main(): Promise<void> {
     scan: {
       fromBlock: scan.fromBlock.toString(10),
       toBlock: scan.toBlock.toString(10),
-      blocs: (scan.toBlock - scan.fromBlock + 1n).toString(10),
-      requêtesGetLogs: scan.requests,
-      blocDeDéploiement: deployed.block.toString(10),
-      histoireComplète: deployed.complete,
+      blocks: (scan.toBlock - scan.fromBlock + 1n).toString(10),
+      getLogsRequests: scan.requests,
+      deploymentBlock: deployed.block.toString(10),
+      completeHistory: deployed.complete,
     },
     escrowOnchain: {
       opener: roles.opener,
@@ -354,48 +354,48 @@ async function main(): Promise<void> {
       totalLocked: roles.totalLocked.toString(10),
       treasuryUsdc: treasuryUsdc.toString(10),
     },
-    tousMandatsDeLEscrow_events: eventsAll,
-    journal_events: tallyFromEvents(intersection.map((id) => scan.warrants.get(id)!)),
-    journal_état: tally(intersection.map((id) => state.get(id)!).filter(Boolean)),
-    campagne_events: tallyFromEvents(campaignIntersection.map((id) => scan.warrants.get(id)!)),
-    campagne_état: tally(campaignIntersection.map((id) => state.get(id)!).filter(Boolean)),
+    allEscrowWarrants_events: eventsAll,
+    ledger_events: tallyFromEvents(intersection.map((id) => scan.warrants.get(id)!)),
+    ledger_state: tally(intersection.map((id) => state.get(id)!).filter(Boolean)),
+    campaign_events: tallyFromEvents(campaignIntersection.map((id) => scan.warrants.get(id)!)),
+    campaign_state: tally(campaignIntersection.map((id) => state.get(id)!).filter(Boolean)),
     journalRecords: records.length,
-    mandatsDeNosAgentsHorsJournal: agentUnjournaled.length,
+    ourAgentsWarrantsOutsideLedger: agentUnjournaled.length,
     divergences,
-    verdict: divergences.length === 0 ? 'RECOUPÉ' : 'DIVERGENT',
+    verdict: divergences.length === 0 ? 'RECONCILED' : 'DIVERGENT',
   }
 
   if (!jsonOnly) {
-    const e = report.campagne_events
-    const g = report.tousMandatsDeLEscrow_events
+    const e = report.campaign_events
+    const g = report.allEscrowWarrants_events
     console.error(
       [
         '',
-        `WARRANT — recoupement onchain (chainId ${chainId}, escrow ${escrow})`,
-        `balayage ${scan.fromBlock}..${scan.toBlock} (${scan.toBlock - scan.fromBlock + 1n} blocs, ` +
-          `${scan.requests} requêtes eth_getLogs, déploiement au bloc ${deployed.block})`,
+        `WARRANT — onchain cross-check (chainId ${chainId}, escrow ${escrow})`,
+        `scan ${scan.fromBlock}..${scan.toBlock} (${scan.toBlock - scan.fromBlock + 1n} blocks, ` +
+          `${scan.requests} eth_getLogs requests, deployed at block ${deployed.block})`,
         '',
-        `Escrow entier, d'après les EVENTS seuls`,
-        `  mandats ouverts ............. ${g.opened}`,
-        `  honorés ..................... ${g.honored}`,
-        `  saisis ...................... ${g.slashed}`,
-        `  réclamés .................... ${g.reclaimed}`,
-        `  encore ouverts .............. ${g.open}`,
-        `  capital immobilisé .......... ${g.locked_usdc} USDC  (totalLocked() = ${usdc(roles.totalLocked)})`,
-        `  capital détruit ............. ${g.destroyed_usdc} USDC`,
-        `  frais prélevés .............. ${g.fees_usdc} USDC  (trésorerie = ${usdc(treasuryUsdc)})`,
-        `  capital rendu à l'agent ..... ${g.refunded_usdc} USDC`,
+        `Whole escrow, from the EVENTS alone`,
+        `  warrants opened ............. ${g.opened}`,
+        `  honored ..................... ${g.honored}`,
+        `  slashed ..................... ${g.slashed}`,
+        `  reclaimed ................... ${g.reclaimed}`,
+        `  still open .................. ${g.open}`,
+        `  capital locked .............. ${g.locked_usdc} USDC  (totalLocked() = ${usdc(roles.totalLocked)})`,
+        `  capital destroyed ........... ${g.destroyed_usdc} USDC`,
+        `  fees collected .............. ${g.fees_usdc} USDC  (treasury = ${usdc(treasuryUsdc)})`,
+        `  capital returned to agent ... ${g.refunded_usdc} USDC`,
         '',
-        `Campagne « ${campaign} », d'après les EVENTS`,
-        `  ouverts ${e.opened} · honorés ${e.honored} · saisis ${e.slashed} · ` +
-          `réclamés ${e.reclaimed} · ouverts ${e.open}`,
-        `  détruit ${e.destroyed_usdc} · frais ${e.fees_usdc} · rendu ${e.refunded_usdc} USDC`,
+        `Campaign "${campaign}", from the EVENTS`,
+        `  opened ${e.opened} · honored ${e.honored} · slashed ${e.slashed} · ` +
+          `reclaimed ${e.reclaimed} · still open ${e.open}`,
+        `  destroyed ${e.destroyed_usdc} · fees ${e.fees_usdc} · returned ${e.refunded_usdc} USDC`,
         '',
         divergences.length === 0
-          ? '✓ RECOUPÉ — état, events, journal et agrégats du contrat concordent (I-A…I-F)'
-          : `✗ DIVERGENT — ${divergences.length} écart(s) :`,
+          ? "✓ RECONCILED — state, events, ledger and the contract's own aggregates agree (I-A…I-F)"
+          : `✗ DIVERGENT — ${divergences.length} discrepancy(ies):`,
         ...divergences.map(
-          (d) => `    [${d.invariant}] ${d.sujet}\n      attendu ${d.attendu}\n      obtenu  ${d.obtenu}\n      → ${d.conséquence}`,
+          (d) => `    [${d.invariant}] ${d.subject}\n      expected ${d.expected}\n      observed ${d.observed}\n      → ${d.consequence}`,
         ),
         '',
       ].join('\n'),
@@ -407,7 +407,7 @@ async function main(): Promise<void> {
 
 main().catch((e: unknown) => {
   console.error(
-    JSON.stringify({ msg: 'verify: échec', error: e instanceof Error ? e.message : String(e) }),
+    JSON.stringify({ msg: 'verify: failed', error: e instanceof Error ? e.message : String(e) }),
   )
   process.exit(1)
 })

@@ -51,13 +51,13 @@ import {
 } from './x402.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Décor
+// Fixtures
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REGISTRY = loadRegistry()
 const REGISTRY_REF = registryRefOf(REGISTRY)
 
-/** USDC natif Ethereum — présent au registre pour `transfer` et `approve`. */
+/** Native Ethereum USDC — present in the registry for `transfer` and `approve`. */
 const USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' as Address
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Address
 const DEST = `0x${'de'.repeat(20)}` as Address
@@ -68,22 +68,22 @@ const AGENT = `0x${'a9'.repeat(20)}` as Address
 const OPEN_TX = `0x${'0e'.repeat(32)}` as Hex
 
 /**
- * Signature de 65 octets dont le dernier vaut 0x1b = 27.
+ * A 65-byte signature whose last byte is 0x1b = 27.
  *
- * L'ancien remplissage `0x2d…2d` avait la bonne longueur et un `v` de 45, que
- * `ecrecover` ne sait pas recouvrer. Sans importance quand la signature n'était
- * qu'un opaque transmis au facilitateur ; elle est maintenant découpée en
- * `v`/`r`/`s` et passée au contrat, donc sa forme compte.
+ * The old `0x2d…2d` padding had the right length and a `v` of 45, which
+ * `ecrecover` cannot recover. Of no importance while the signature was merely
+ * an opaque blob forwarded to the facilitator; it is now split into `v`/`r`/`s`
+ * and passed to the contract, so its shape matters.
  */
 const SIGNATURE = `0x${'aa'.repeat(32)}${'bb'.repeat(32)}1b` as Hex
 
 /**
- * Le nonce **de mandat** — celui qui entre dans `warrantId`.
+ * The **warrant** nonce — the one that enters `warrantId`.
  *
- * Distinct du nonce de l'autorisation EIP-3009, qui vaut `termsHash(...)` et
- * n'est donc plus libre. Les confondre était possible tant que le second était
- * aléatoire ; c'est désormais circulaire, `termsHash` contenant `id` qui contient
- * ce nonce-ci.
+ * Distinct from the EIP-3009 authorization nonce, which equals `termsHash(...)`
+ * and is therefore no longer free. Conflating the two was possible as long as
+ * the second was random; it is now circular, `termsHash` containing `id` which
+ * contains this very nonce.
  */
 const WARRANT_NONCE = BigInt(`0x${'7c'.repeat(32)}`)
 
@@ -101,7 +101,7 @@ const POLICY: Policy = {
   },
 }
 
-/** `transfer(DEST, 100 USDC)` sur l'USDC Ethereum. */
+/** `transfer(DEST, 100 USDC)` on Ethereum USDC. */
 function transferAction() {
   return encodeActionSpec({
     chainId: 1,
@@ -112,7 +112,7 @@ function transferAction() {
   })
 }
 
-/** Une action dont le couple (chainId, target, selector) est hors registre. */
+/** An action whose (chainId, target, selector) triple is outside the registry. */
 function unknownAction() {
   return encodeActionSpec({
     chainId: 1,
@@ -124,12 +124,12 @@ function unknownAction() {
 }
 
 /**
- * L'autorisation EIP-3009 que le rail transporte.
+ * The EIP-3009 authorization the rail carries.
  *
- * `to` vaut `payTo`, et `payTo` **doit** être l'escrow en exploitation : c'est
- * l'escrow qui appellera `receiveWithAuthorization`, et la variante `receive`
- * exige `to == msg.sender`. `bin/gateway.ts` refuse de démarrer si les deux
- * divergent ; ici `VAULT` tient les deux rôles.
+ * `to` equals `payTo`, and `payTo` **must** be the escrow in production: it is
+ * the escrow that will call `receiveWithAuthorization`, and the `receive`
+ * variant requires `to == msg.sender`. `bin/gateway.ts` refuses to start if the
+ * two diverge; here `VAULT` plays both roles.
  */
 const AUTHORIZATION = {
   from: AGENT,
@@ -137,7 +137,7 @@ const AUTHORIZATION = {
   value: '5000000',
   validAfter: String(NOW),
   validBefore: String(NOW + 60),
-  // Remplacé par le `termsHash` réel dans chaque paiement : voir `termsFor`.
+  // Replaced by the real `termsHash` in every payment: see `termsFrom`.
   nonce: `0x${'00'.repeat(32)}` as Hex,
 }
 
@@ -153,23 +153,23 @@ function requirements(amount = '5000000'): PaymentRequirements {
   }
 }
 
-/** Les termes qu'un client doit dériver du 402 avant de pouvoir signer. */
+/** The terms a client must derive from the 402 before it can sign. */
 interface Terms {
-  /** Le nonce de mandat annoncé, à renvoyer tel quel dans `body.nonce`. */
+  /** The announced warrant nonce, to be sent back verbatim in `body.nonce`. */
   nonce: string
   id: Hex
-  /** `termsHash(...)` — le nonce que l'autorisation EIP-3009 doit porter. */
+  /** `termsHash(...)` — the nonce the EIP-3009 authorization must carry. */
   authNonce: Hex
   bond: string
 }
 
 /**
- * Rejoue ce que fait un client : lire le 402, dériver `id`, calculer le
+ * Replays what a client does: read the 402, derive `id`, compute the
  * `termsHash`.
  *
- * Aucun de ces calculs n'était nécessaire avant : le client tirait un nonce
- * aléatoire et signait six champs. Le nonce valant désormais le hash des termes,
- * signer le paiement *est* signer les termes — et il faut donc les connaître.
+ * None of those computations were needed before: the client drew a random nonce
+ * and signed six fields. The nonce now being the hash of the terms, signing the
+ * payment *is* signing the terms — so they have to be known.
  */
 function termsFrom(challenged: Response): Terms {
   const required = decodeHeaderObject<PaymentRequired>(
@@ -180,8 +180,8 @@ function termsFrom(challenged: Response): Terms {
   ).info
   const nonce = String(info['nonce'])
   const actionHash = String(info['actionHash']) as Hex
-  // `id` n'est pas annoncé et ne peut pas l'être : le serveur ne connaît pas
-  // encore l'adresse qui signera. C'est au client de le composer.
+  // `id` is not announced and cannot be: the server does not yet know the
+  // address that will sign. It is up to the client to compose it.
   const id = warrantIdOf(AGENT, BigInt(nonce), actionHash)
   const authNonce = termsHashOf({
     id,
@@ -260,11 +260,11 @@ function harness(over: Partial<GatewayConfig> = {}): Harness {
         counters.verified++
         return { isValid: true, payer: AGENT }
       },
-      // `settle` n'est plus sur le chemin d'ouverture : `open()` encaisse la
-      // caution lui-même. Le compteur reste, et rester à zéro est l'assertion.
+      // `settle` is no longer on the opening path: `open()` charges the bond
+      // itself. The counter stays, and staying at zero is the assertion.
       async settle() {
         counters.settled++
-        throw new Error('settle() ne doit plus être appelé : open() encaisse')
+        throw new Error('settle() must no longer be called: open() charges')
       },
     },
     executor,
@@ -274,13 +274,14 @@ function harness(over: Partial<GatewayConfig> = {}): Harness {
         return OPEN_TX
       },
     },
-    mppSecret: 'secret-de-test',
+    mppSecret: 'test-secret',
     mppCurrency: 'USDC',
     store,
     verdicts: { get: (id) => verdicts.get(id.toLowerCase()) },
     now: () => NOW,
-    // Le nonce de mandat est tiré à l'émission du 402 et annoncé au client. Le
-    // figer rend les termes — donc le `termsHash` — reproductibles en test.
+    // The warrant nonce is drawn when the 402 is issued and announced to the
+    // client. Freezing it makes the terms — hence the `termsHash` —
+    // reproducible under test.
     randomNonce: () => WARRANT_NONCE,
     challengeSalt: (() => {
       let n = 0
@@ -315,11 +316,10 @@ function post(h: Harness, path: string, body: unknown, headers: Record<string, s
 }
 
 /**
- * Enchaînement complet du rail x402 : 402, dérivation des termes, paiement.
+ * The full x402 rail sequence: 402, terms derivation, payment.
  *
- * Les deux requêtes sont désormais indissociables — le nonce de mandat annoncé
- * par la première doit revenir dans la seconde, sinon le `termsHash` ne
- * correspond plus.
+ * The two requests are now inseparable — the warrant nonce announced by the
+ * first must come back in the second, or the `termsHash` no longer matches.
  */
 async function payWithX402(
   h: Harness,
@@ -337,7 +337,7 @@ async function payWithX402(
   return { challenged, terms, paid }
 }
 
-/** Enchaînement complet du rail MPP : 402, puis Credential. */
+/** The full MPP rail sequence: 402, then Credential. */
 async function payWithMpp(h: Harness, body: Record<string, unknown>) {
   const challenged = await post(h, '/v1/warrants', body)
   const challenge = parseChallengeHeader(challenged.headers.get(HEADER_WWW_AUTHENTICATE) as string)
@@ -362,7 +362,7 @@ async function payWithMpp(h: Harness, body: Record<string, unknown>) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('encodeActionSpec / decodeActionSpec', () => {
-  it('produit un aller-retour exact', () => {
+  it('produces an exact round trip', () => {
     const spec = transferAction()
     const decoded = decodeActionSpec(spec, { registry: REGISTRY })
 
@@ -380,7 +380,7 @@ describe('encodeActionSpec / decodeActionSpec', () => {
     expect(reencoded).toEqual(spec)
   })
 
-  it('rend `functionArgs` comme une **chaîne** JSON, pas un tableau', () => {
+  it('returns `functionArgs` as a JSON **string**, not an array', () => {
     const call = keeperHubCallOf(transferAction(), { registry: REGISTRY })
     expect(typeof call.functionArgs).toBe('string')
     expect(Array.isArray(call.functionArgs)).toBe(false)
@@ -390,12 +390,12 @@ describe('encodeActionSpec / decodeActionSpec', () => {
       contractAddress: USDC,
       functionName: 'transfer',
     })
-    // Aucun champ de calldata brut : l'API KeeperHub les ignore tous.
+    // No raw calldata field: the KeeperHub API ignores every one of them.
     expect(call).not.toHaveProperty('data')
     expect(call).not.toHaveProperty('calldata')
   })
 
-  it('nomme aussi les signatures à plusieurs arguments', () => {
+  it('names multi-argument signatures too', () => {
     const spec = encodeActionSpec({
       chainId: 1,
       target: '0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2' as Address,
@@ -408,23 +408,23 @@ describe('encodeActionSpec / decodeActionSpec', () => {
     expect(JSON.parse(call.functionArgs)).toEqual([USDC, '1000000', DEST])
   })
 
-  it('refuse une action hors registre sans signature fournie', () => {
+  it('refuses an out-of-registry action when no signature is provided', () => {
     expect(() => keeperHubCallOf(unknownAction(), { registry: REGISTRY })).toThrow(
-      /absent du registre/,
+      /absent from the registry/,
     )
   })
 
-  it('accepte une signature fournie, mais la vérifie contre le calldata', () => {
+  it('accepts a provided signature, but checks it against the calldata', () => {
     const spec = unknownAction()
     const call = keeperHubCallOf(spec, { registry: REGISTRY, signature: 'poke(uint256)' })
     expect(call.functionName).toBe('poke')
-    // Une signature mensongère ne peut pas renommer ce qui est engagé.
+    // A lying signature cannot rename what is committed.
     expect(() =>
       keeperHubCallOf(spec, { registry: REGISTRY, signature: 'transfer(address,uint256)' }),
-    ).toThrow(/incohérente avec le sélecteur/)
+    ).toThrow(/inconsistent with the calldata's selector/)
   })
 
-  it("refuse un calldata non canonique : la forme transmise divergerait d'actionHash", () => {
+  it('refuses non-canonical calldata: the forwarded form would diverge from actionHash', () => {
     const spec = transferAction()
     const padded = { ...spec, calldata: `${spec.calldata}00000000` as Hex }
     expect(() => decodeActionSpec(padded, { registry: REGISTRY })).toThrow()
@@ -432,12 +432,12 @@ describe('encodeActionSpec / decodeActionSpec', () => {
 })
 
 describe('termsHashOf', () => {
-  it('reproduit `abi.encode` de Solidity, octet pour octet', () => {
-    // Vecteur obtenu par `cast abi-encode` puis `cast keccak` sur la signature
-    // exacte de `WarrantEscrow.termsHash`. C'est la seule vérification qui
-    // compte vraiment ici : `termsHashOf` réimplémente une formule onchain, et
-    // une divergence ne se verrait qu'en `TermsMismatch()` au premier mandat
-    // payant — après que l'agent a signé.
+  it('reproduces Solidity `abi.encode`, byte for byte', () => {
+    // Vector obtained with `cast abi-encode` then `cast keccak` on the exact
+    // signature of `WarrantEscrow.termsHash`. It is the only check that really
+    // counts here: `termsHashOf` reimplements an onchain formula, and a
+    // divergence would show up only as `TermsMismatch()` on the first paid
+    // warrant — after the agent has signed.
     expect(
       termsHashOf({
         id: `0x${'11'.repeat(32)}` as Hex,
@@ -450,7 +450,7 @@ describe('termsHashOf', () => {
     ).toBe('0x000512926ed2fc649aff43db8e28d4fbdebe7892d403312dc594cccdb2a840cc')
   })
 
-  it('est sensible à chacun des six termes', () => {
+  it('is sensitive to each of the six terms', () => {
     const base = {
       id: `0x${'11'.repeat(32)}` as Hex,
       beneficiary: '0x00000000000000000000000000000000000000b1' as Address,
@@ -460,8 +460,8 @@ describe('termsHashOf', () => {
       duration: 3600,
     }
     const ref = termsHashOf(base)
-    // Chaque terme doit bouger le hash : un terme qui n'y entre pas serait un
-    // terme que l'agent ne signe pas, donc que l'opener pourrait choisir.
+    // Every term must move the hash: a term that does not enter it would be a
+    // term the agent does not sign, hence one the opener could choose.
     expect(termsHashOf({ ...base, id: `0x${'12'.repeat(32)}` as Hex })).not.toBe(ref)
     expect(
       termsHashOf({ ...base, beneficiary: `0x${'be'.repeat(20)}` as Address }),
@@ -469,17 +469,17 @@ describe('termsHashOf', () => {
     expect(termsHashOf({ ...base, bond: '5000001' })).not.toBe(ref)
     expect(termsHashOf({ ...base, conditionHash: `0x${'23'.repeat(32)}` as Hex })).not.toBe(ref)
     expect(termsHashOf({ ...base, actionHash: `0x${'34'.repeat(32)}` as Hex })).not.toBe(ref)
-    // `duration` en particulier : c'est celui qu'un opener aurait porté à
-    // MAX_DURATION pour retarder le `reclaim` de l'agent.
+    // `duration` in particular: that is the one an opener would have raised to
+    // MAX_DURATION in order to delay the agent's `reclaim`.
     expect(termsHashOf({ ...base, duration: 604800 })).not.toBe(ref)
   })
 })
 
 describe('warrantIdOf', () => {
-  it('vaut keccak256(abi.encode(agent, nonce, actionHash))', () => {
+  it('equals keccak256(abi.encode(agent, nonce, actionHash))', () => {
     const id = warrantIdOf(AGENT, 7n, `0x${'11'.repeat(32)}` as Hex)
     expect(id).toMatch(/^0x[0-9a-f]{64}$/)
-    // Déterministe, et sensible à chacun des trois arguments.
+    // Deterministic, and sensitive to each of the three arguments.
     expect(warrantIdOf(AGENT, 7n, `0x${'11'.repeat(32)}` as Hex)).toBe(id)
     expect(warrantIdOf(AGENT, 8n, `0x${'11'.repeat(32)}` as Hex)).not.toBe(id)
     expect(warrantIdOf(DEST, 7n, `0x${'11'.repeat(32)}` as Hex)).not.toBe(id)
@@ -497,23 +497,23 @@ describe('POST /v1/quote', () => {
     h = harness()
   })
 
-  it('est gratuit et sans authentification', async () => {
+  it('is free and unauthenticated', async () => {
     const res = await post(h, '/v1/quote', { actionSpec: transferAction() })
     expect(res.status).toBe(200)
     expect(res.headers.get(HEADER_PAYMENT_REQUIRED)).toBeNull()
     expect(res.headers.get(HEADER_WWW_AUTHENTICATE)).toBeNull()
   })
 
-  it('dérive la catégorie et le notionnel du calldata', async () => {
+  it('derives the category and the notional from the calldata', async () => {
     const res = await post(h, '/v1/quote', { actionSpec: transferAction() })
     const body = (await res.json()) as Record<string, unknown>
     expect(body['category']).toBe('erc20.transfer')
     expect(body['notionalUSD']).toBe('100000000')
-    // 100 bps × 100 $ = 1 $, sous le plancher : la caution est minBond.
+    // 100 bps × $100 = $1, below the floor: the bond is minBond.
     expect(body['bond']).toBe('5000000')
   })
 
-  it('rend un conditionHash reproductible', async () => {
+  it('returns a reproducible conditionHash', async () => {
     const a = (await (await post(h, '/v1/quote', { actionSpec: transferAction() })).json()) as Record<
       string,
       unknown
@@ -527,7 +527,7 @@ describe('POST /v1/quote', () => {
     expect(a['conditionSpec']).toEqual(b['conditionSpec'])
   })
 
-  it('ignore une catégorie déclarée : c\'est le calldata qui décide', async () => {
+  it('ignores a declared category: the calldata is what decides', async () => {
     const honest = (await (
       await post(h, '/v1/quote', { actionSpec: transferAction() })
     ).json()) as Record<string, unknown>
@@ -546,7 +546,7 @@ describe('POST /v1/quote', () => {
     expect(liar['ignoredFields']).toMatchObject({ category: 'erc20.approve' })
   })
 
-  it('injecte calldata_matches_commitment dans toute conditionSpec produite', async () => {
+  it('injects calldata_matches_commitment into every conditionSpec produced', async () => {
     const body = (await (
       await post(h, '/v1/quote', { actionSpec: transferAction() })
     ).json()) as { conditionSpec: { checks: { kind: string; actionHash?: string }[] } }
@@ -562,16 +562,16 @@ describe('POST /v1/quote', () => {
     )
   })
 
-  it('tarifie une action non classifiée à maxBond', async () => {
+  it('prices an unclassified action at maxBond', async () => {
     const res = await post(h, '/v1/quote', { actionSpec: unknownAction() })
     const body = (await res.json()) as Record<string, unknown>
     expect(body['category']).toBe('unknown')
     expect(body['bond']).toBe(POLICY.maxBond)
   })
 
-  it('refuse en RFC 9457 un calldata que le registre ne sait pas décoder', async () => {
-    // Sélecteur `transfer` sur l'USDC, mais sans ses arguments : le décodage
-    // ABI échoue, et un décodage en échec est un refus, jamais un repli.
+  it('refuses in RFC 9457 a calldata the registry cannot decode', async () => {
+    // `transfer` selector on USDC, but without its arguments: ABI decoding
+    // fails, and a failed decoding is a refusal, never a fallback.
     const spec = { ...transferAction(), calldata: '0xa9059cbb' as Hex }
     const res = await post(h, '/v1/quote', { actionSpec: spec })
     expect(res.status).toBe(422)
@@ -581,11 +581,11 @@ describe('POST /v1/quote', () => {
     expect(body['code']).toBe('DECODE_FAILED')
   })
 
-  it('refuse un sélecteur enveloppant de routeur générique', async () => {
+  it('refuses a generic router wrapper selector', async () => {
     const spec = {
       ...transferAction(),
-      // `execute(address,uint256,bytes)` — la classification ne verrait qu'une
-      // enveloppe et ne pourrait rien affirmer de l'effet réel.
+      // `execute(address,uint256,bytes)` — classification would see nothing but
+      // an envelope and could assert nothing about the real effect.
       calldata: '0xb61d27f6' as Hex,
     }
     const res = await post(h, '/v1/quote', { actionSpec: spec })
@@ -593,19 +593,19 @@ describe('POST /v1/quote', () => {
     expect((await res.json())['code']).toBe('GENERIC_ROUTER')
   })
 
-  it("refuse un registryRef qui n'est pas celui du registre utilisé", async () => {
+  it('refuses a registryRef that is not the one of the registry in use', async () => {
     const spec = { ...transferAction(), registryRef: `0x${'00'.repeat(32)}` as Hex }
     const res = await post(h, '/v1/quote', { actionSpec: spec })
     expect(res.status).toBe(422)
     const body = (await res.json()) as Record<string, unknown>
     expect(String(body['type'])).toContain('registry_mismatch')
-    // La valeur attendue est rendue : la correction tient en un aller-retour.
+    // The expected value is returned: the correction takes a single round trip.
     expect(body['expected']).toBe(REGISTRY_REF)
   })
 
-  it('refuse une ActionSpec malformée avec le chemin du champ fautif', async () => {
+  it('refuses a malformed ActionSpec, with the path of the offending field', async () => {
     const res = await post(h, '/v1/quote', {
-      actionSpec: { ...transferAction(), target: 'pas-une-adresse' },
+      actionSpec: { ...transferAction(), target: 'not-an-address' },
     })
     expect(res.status).toBe(400)
     const body = (await res.json()) as Record<string, unknown>
@@ -617,13 +617,13 @@ describe('POST /v1/quote', () => {
 // 402 dual-rail
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('POST /v1/warrants — le 402', () => {
+describe('POST /v1/warrants — the 402', () => {
   let h: Harness
   beforeEach(() => {
     h = harness()
   })
 
-  it('émet les deux challenges simultanément, avec un corps {}', async () => {
+  it('emits both challenges simultaneously, with a {} body', async () => {
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     expect(res.status).toBe(402)
     expect(res.headers.get(HEADER_PAYMENT_REQUIRED)).toBeTruthy()
@@ -631,7 +631,7 @@ describe('POST /v1/warrants — le 402', () => {
     expect(await res.json()).toEqual({})
   })
 
-  it('le PAYMENT-REQUIRED est un PaymentRequired v2 décodable en base64', async () => {
+  it('the PAYMENT-REQUIRED is a base64-decodable PaymentRequired v2', async () => {
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     const header = res.headers.get(HEADER_PAYMENT_REQUIRED) as string
     expect(header).toMatch(/^[A-Za-z0-9+/=]+$/)
@@ -649,7 +649,7 @@ describe('POST /v1/warrants — le 402', () => {
     })
   })
 
-  it('le WWW-Authenticate est un Challenge MPP charge complet', async () => {
+  it('the WWW-Authenticate is a complete MPP charge Challenge', async () => {
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     const header = res.headers.get(HEADER_WWW_AUTHENTICATE) as string
     expect(header.startsWith('Payment ')).toBe(true)
@@ -664,14 +664,14 @@ describe('POST /v1/warrants — le 402', () => {
     const request = decodeJcs<MppRequestBody>(challenge.request)
     expect(request).toEqual({ amount: '5000000', currency: 'USDC', recipient: VAULT })
 
-    // Le montant annoncé est le même sur les deux rails.
+    // The announced amount is the same on both rails.
     const required = decodeHeaderObject<PaymentRequired>(
       res.headers.get(HEADER_PAYMENT_REQUIRED) as string,
     )
     expect(request.amount).toBe(required.accepts[0]?.amount)
   })
 
-  it("n'ouvre rien et ne règle rien tant que le paiement n'est pas là", async () => {
+  it('opens nothing and settles nothing for as long as the payment is not there', async () => {
     await post(h, '/v1/warrants', { actionSpec: transferAction() })
     expect(h.opened).toHaveLength(0)
     expect(h.settled).toBe(0)
@@ -680,16 +680,16 @@ describe('POST /v1/warrants — le 402', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Les deux rails, un seul mandat
+// Two rails, one and the same warrant
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('POST /v1/warrants — rail x402', () => {
+describe('POST /v1/warrants — x402 rail', () => {
   let h: Harness
   beforeEach(() => {
     h = harness()
   })
 
-  it('ouvre le mandat et exécute', async () => {
+  it('opens the warrant and executes', async () => {
     const { paid: res } = await payWithX402(h, { actionSpec: transferAction() })
     expect(res.status).toBe(200)
     const body = (await res.json()) as Record<string, unknown>
@@ -700,13 +700,13 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.executed).toHaveLength(1)
   })
 
-  it('rend PAYMENT-RESPONSE, et pas Payment-Receipt', async () => {
+  it('returns PAYMENT-RESPONSE, and not Payment-Receipt', async () => {
     const { paid: res } = await payWithX402(h, { actionSpec: transferAction() })
     const receipt = res.headers.get(HEADER_PAYMENT_RESPONSE) as string
     expect(receipt).toBeTruthy()
     expect(res.headers.get(HEADER_PAYMENT_RECEIPT)).toBeNull()
-    // La référence de règlement est le hash de l'`open` : c'est cette
-    // transaction qui a déplacé l'USDC, le facilitateur n'en diffuse plus aucune.
+    // The settlement reference is the hash of the `open`: that transaction is
+    // the one that moved the USDC, the facilitator broadcasts none any more.
     expect(decodeHeaderObject<SettlementResponse>(receipt)).toMatchObject({
       success: true,
       transaction: OPEN_TX,
@@ -715,23 +715,23 @@ describe('POST /v1/warrants — rail x402', () => {
     })
   })
 
-  it("n'appelle plus le facilitateur : open() encaisse la caution", async () => {
+  it('no longer calls the facilitator: open() charges the bond', async () => {
     await payWithX402(h, { actionSpec: transferAction() })
-    // Ni `/settle` — le règlement est dans `open()` — ni `/verify`, que le
-    // facilitateur ferait échouer à tort sur un typehash `receive`.
+    // Neither `/settle` — settlement lives inside `open()` — nor `/verify`,
+    // which the facilitator would wrongly fail on a `receive` typehash.
     expect(h.settled).toBe(0)
     expect(h.verified).toBe(0)
   })
 
-  it("passe l'autorisation à open(), découpée en v/r/s", async () => {
+  it('passes the authorization to open(), split into v/r/s', async () => {
     const { terms } = await payWithX402(h, { actionSpec: transferAction() })
     expect(h.opened[0]?.authorization).toEqual({
       from: AGENT,
       value: 5000000n,
       validAfter: BigInt(NOW),
       validBefore: BigInt(NOW + 60),
-      // Le nonce **est** le hash des termes : c'est ce qui lie la signature au
-      // mandat, là où les six champs d'EIP-3009 ne disent rien de lui.
+      // The nonce **is** the hash of the terms: that is what binds the
+      // signature to the warrant, where EIP-3009's six fields say nothing of it.
       nonce: terms.authNonce,
       v: 27,
       r: `0x${'aa'.repeat(32)}`,
@@ -740,10 +740,10 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.opened[0]?.id).toBe(terms.id)
   })
 
-  it('refuse une autorisation dont le nonce ne vaut pas le termsHash', async () => {
-    // Le détournement que le contrat referme : une autorisation valide, signée
-    // pour un mandat, réutilisée sur des termes différents. Ici on simule
-    // l'inverse — un nonce qui n'engage aucun terme — et c'est refusé.
+  it('refuses an authorization whose nonce does not equal the termsHash', async () => {
+    // The hijack the contract closes: a valid authorization, signed for one
+    // warrant, reused on different terms. Here we simulate the reverse — a
+    // nonce that commits to no terms at all — and it is refused.
     const { paid } = await payWithX402(h, { actionSpec: transferAction() }, {
       authNonce: `0x${'99'.repeat(32)}` as Hex,
     })
@@ -755,12 +755,12 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.opened).toHaveLength(0)
   })
 
-  it('exige le nonce de mandat annoncé dans le 402', async () => {
+  it('requires the warrant nonce announced in the 402', async () => {
     const challenged = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     const terms = termsFrom(challenged)
-    // Paiement correct, mais `body.nonce` omis : le serveur en tirerait un
-    // autre, donc un autre `id`, donc un autre termsHash. Refus nommé plutôt
-    // que TermsMismatch() onchain.
+    // Correct payment, but `body.nonce` omitted: the server would draw another
+    // one, hence another `id`, hence another termsHash. A named refusal rather
+    // than an onchain TermsMismatch().
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() }, {
       [HEADER_PAYMENT_SIGNATURE]: x402Header(terms),
     })
@@ -770,7 +770,7 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.opened).toHaveLength(0)
   })
 
-  it('le 402 annonce tous les termes que le client doit signer', async () => {
+  it('the 402 announces every term the client has to sign', async () => {
     const challenged = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     const required = decodeHeaderObject<PaymentRequired>(
       challenged.headers.get(HEADER_PAYMENT_REQUIRED) as string,
@@ -778,8 +778,8 @@ describe('POST /v1/warrants — rail x402', () => {
     const info = (
       required.extensions?.['warrant/commitment'] as { info: Record<string, unknown> }
     ).info
-    // Sans ces six valeurs, un client ne peut pas calculer le termsHash — donc
-    // ne peut pas signer une autorisation que `open()` accepterait.
+    // Without these six values, a client cannot compute the termsHash — hence
+    // cannot sign an authorization that `open()` would accept.
     expect(info).toMatchObject({
       nonce: `0x${'7c'.repeat(32)}`,
       beneficiary: BENEFICIARY,
@@ -789,28 +789,28 @@ describe('POST /v1/warrants — rail x402', () => {
     })
     expect(info['conditionHash']).toMatch(/^0x[0-9a-f]{64}$/)
     expect(info['actionHash']).toMatch(/^0x[0-9a-f]{64}$/)
-    // Et le typehash à signer, qui n'est pas celui du schéma `exact` par défaut.
+    // And the typehash to sign, which is not the `exact` scheme's default one.
     expect(required.accepts[0]?.extra?.primaryType).toBe('ReceiveWithAuthorization')
   })
 
-  it("ne passe plus ni `agent` ni `fundingRef` : le contrat les dérive", async () => {
+  it('no longer passes `agent` or `fundingRef`: the contract derives them', async () => {
     await payWithX402(h, { actionSpec: transferAction() })
-    // C'est la correction elle-même : un opener qui déclare l'agent peut
-    // s'attribuer tout solde libre du contrat.
+    // This is the fix itself: an opener that declares the agent can award
+    // itself any free balance of the contract.
     expect(h.opened[0]).not.toHaveProperty('agent')
     expect(h.opened[0]).not.toHaveProperty('fundingRef')
   })
 
-  it('la caution signée doit valoir exactement le bond recalculé', async () => {
-    // `open()` révèrte en `ValueMismatch()` sinon. On refuse en amont, pour que
-    // le client sache resigner plutôt que de lire un revert onchain.
+  it('the signed bond must equal exactly the recomputed bond', async () => {
+    // `open()` reverts with `ValueMismatch()` otherwise. We refuse upstream, so
+    // that the client knows to re-sign rather than read an onchain revert.
     const payload: PaymentPayload = {
       x402Version: 2,
       resource: { url: 'http://warrant.test/v1/warrants' },
       accepted: requirements('5000000'),
       payload: {
         signature: SIGNATURE,
-        // Le montant annoncé est bon, celui **signé** ne l'est pas.
+        // The announced amount is right, the **signed** one is not.
         authorization: { ...AUTHORIZATION, value: '4999999' },
       },
       extensions: {},
@@ -822,7 +822,7 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.opened).toHaveLength(0)
   })
 
-  it('refuse une signature qui ne fait pas 65 octets', async () => {
+  it('refuses a signature that is not 65 bytes', async () => {
     const payload: PaymentPayload = {
       x402Version: 2,
       resource: { url: 'http://warrant.test/v1/warrants' },
@@ -837,7 +837,7 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.opened).toHaveLength(0)
   })
 
-  it("transmet à KeeperHub la forme nominative, pas le calldata", async () => {
+  it('forwards the named form to KeeperHub, not the calldata', async () => {
     await payWithX402(h, { actionSpec: transferAction() })
     expect(h.executed[0]).toEqual({
       chainId: 1,
@@ -847,7 +847,7 @@ describe('POST /v1/warrants — rail x402', () => {
     })
   })
 
-  it('refuse un paiement dont le montant ne vaut pas la caution', async () => {
+  it('refuses a payment whose amount does not equal the bond', async () => {
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() }, {
       [HEADER_PAYMENT_SIGNATURE]: x402Header('1'),
     })
@@ -860,12 +860,13 @@ describe('POST /v1/warrants — rail x402', () => {
     expect(h.settled).toBe(0)
   })
 
-  it('refuse quand le facilitateur invalide le paiement — si on le lui demande', async () => {
-    // `verifyWithFacilitator` est faux par défaut, et ce défaut est un choix :
-    // un facilitateur conforme au schéma `exact` vérifie le typehash
-    // `TransferWithAuthorization` et invaliderait donc toutes nos autorisations,
-    // qui portent `ReceiveWithAuthorization`. Le contrôle reste disponible pour
-    // le jour où le facilitateur saura vérifier la bonne variante.
+  it('refuses when the facilitator invalidates the payment — if we ask it to', async () => {
+    // `verifyWithFacilitator` is false by default, and that default is a
+    // choice: a facilitator conformant to the `exact` scheme verifies the
+    // `TransferWithAuthorization` typehash and would therefore invalidate every
+    // one of our authorizations, which carry `ReceiveWithAuthorization`. The
+    // check stays available for the day the facilitator can verify the right
+    // variant.
     const strict = harness({
       verifyWithFacilitator: true,
       facilitator: {
@@ -873,7 +874,7 @@ describe('POST /v1/warrants — rail x402', () => {
           return { isValid: false, invalidReason: 'insufficient_funds' }
         },
         async settle() {
-          throw new Error('ne doit jamais être appelé')
+          throw new Error('must never be called')
         },
       },
     })
@@ -883,19 +884,19 @@ describe('POST /v1/warrants — rail x402', () => {
   })
 })
 
-describe('POST /v1/warrants — rail MPP', () => {
+describe('POST /v1/warrants — MPP rail', () => {
   let h: Harness
   beforeEach(() => {
     h = harness()
   })
 
-  it('ouvre le mandat depuis un Credential', async () => {
+  it('opens the warrant from a Credential', async () => {
     const { paid } = await payWithMpp(h, { actionSpec: transferAction() })
     expect(paid.status).toBe(200)
     expect(h.opened).toHaveLength(1)
   })
 
-  it('rend Payment-Receipt, et pas PAYMENT-RESPONSE', async () => {
+  it('returns Payment-Receipt, and not PAYMENT-RESPONSE', async () => {
     const { paid, challenge } = await payWithMpp(h, { actionSpec: transferAction() })
     const header = paid.headers.get(HEADER_PAYMENT_RECEIPT) as string
     expect(header).toBeTruthy()
@@ -909,7 +910,7 @@ describe('POST /v1/warrants — rail MPP', () => {
     })
   })
 
-  it('refuse strictement le rejeu du même Credential', async () => {
+  it('strictly refuses the replay of the same Credential', async () => {
     const { header, paid } = await payWithMpp(h, { actionSpec: transferAction() })
     expect(paid.status).toBe(200)
 
@@ -921,14 +922,14 @@ describe('POST /v1/warrants — rail MPP', () => {
     const body = (await replay.json()) as Record<string, unknown>
     expect(String(body['type'])).toContain('challenge_replayed')
 
-    // Aucun second mandat, aucune seconde exécution. Et toujours aucun appel au
-    // facilitateur : le rejeu est refusé avant même d'atteindre l'ouverture.
+    // No second warrant, no second execution. And still no call to the
+    // facilitator: the replay is refused before it even reaches the opening.
     expect(h.opened).toHaveLength(1)
     expect(h.settled).toBe(0)
     expect(h.executed).toHaveLength(1)
   })
 
-  it('refuse un Credential dont le Challenge a été altéré', async () => {
+  it('refuses a Credential whose Challenge has been altered', async () => {
     const challenged = await post(h, '/v1/warrants', { actionSpec: transferAction() })
     const challenge = parseChallengeHeader(
       challenged.headers.get(HEADER_WWW_AUTHENTICATE) as string,
@@ -952,9 +953,9 @@ describe('POST /v1/warrants — rail MPP', () => {
     expect(h.opened).toHaveLength(0)
   })
 
-  it('rend ses erreurs de paiement en RFC 9457, avec les deux challenges', async () => {
+  it('returns its payment errors in RFC 9457, with both challenges', async () => {
     const res = await post(h, '/v1/warrants', { actionSpec: transferAction() }, {
-      [HEADER_AUTHORIZATION]: 'Payment pas-un-credential',
+      [HEADER_AUTHORIZATION]: 'Payment not-a-credential',
     })
     expect(res.status).toBe(402)
     const body = (await res.json()) as Record<string, unknown>
@@ -965,8 +966,8 @@ describe('POST /v1/warrants — rail MPP', () => {
   })
 })
 
-describe('les deux rails produisent un mandat identique', () => {
-  it('même conditionHash, même caution, même fundingRef', async () => {
+describe('both rails produce an identical warrant', () => {
+  it('same conditionHash, same bond, same fundingRef', async () => {
     const viaX402 = harness()
     const viaMpp = harness()
 
@@ -976,30 +977,26 @@ describe('les deux rails produisent un mandat identique', () => {
     expect(x402Res.status).toBe(200)
     expect(mppRes.status).toBe(200)
 
-    // 1. Le corps de la réponse, champ à champ.
+    // 1. The body of the response, field by field.
     expect(await mppRes.json()).toEqual(await x402Res.json())
 
-    // 2. Les arguments d'ouverture onchain, champ à champ.
+    // 2. The onchain opening arguments, field by field.
     const a = viaX402.opened[0] as OpenWarrantArgs
     const b = viaMpp.opened[0] as OpenWarrantArgs
     expect(b).toEqual(a)
     for (const key of Object.keys(a) as (keyof OpenWarrantArgs)[]) {
-      // `toEqual` et non `toBe` : `authorization` est une struct reconstruite de
-      // part et d'autre, donc jamais la même instance. C'est son contenu qui
-      // doit être identique — et il l'est, les deux rails transportant la même
-      // signature.
+      // `toEqual` and not `toBe`: `authorization` is a struct rebuilt on either
+      // side, hence never the same instance. It is its content that must be
+      // identical — and it is, both rails carrying the same signature.
       expect(b[key]).toEqual(a[key])
     }
-    // Le `fundingRef` est le nonce de l'autorisation, et les deux rails
-    // transportent la **même** autorisation : il est identique par construction,
-    // là où l'ancien hash de règlement dépendait du facilitateur.
-    // Le `fundingRef` est le nonce de l'autorisation, c'est-à-dire le hash des
-    // termes. Les deux rails servant les mêmes termes, il est identique par
-    // construction — là où l'ancien hash de règlement dépendait du facilitateur.
+    // The `fundingRef` is the authorization's nonce, that is to say the hash of
+    // the terms. Both rails serving the same terms, it is identical by
+    // construction — where the old settlement hash depended on the facilitator.
     expect(a.authorization.nonce).toBe(b.authorization.nonce)
     expect(a.authorization.nonce).toMatch(/^0x[0-9a-f]{64}$/)
 
-    // 3. Le mandat enregistré, hors le rail lui-même.
+    // 3. The recorded warrant, apart from the rail itself.
     const recordA = (await viaX402.store.get(a.id)) as Record<string, unknown>
     const recordB = (await viaMpp.store.get(b.id)) as Record<string, unknown>
     expect(recordA['rail']).toBe('x402')
@@ -1008,7 +1005,7 @@ describe('les deux rails produisent un mandat identique', () => {
     const { rail: _b, ...restB } = recordB
     expect(restB).toEqual(restA)
 
-    // 4. Et l'appel transmis à KeeperHub.
+    // 4. And the call forwarded to KeeperHub.
     expect(viaMpp.executed).toEqual(viaX402.executed)
   })
 })
@@ -1017,7 +1014,7 @@ describe('les deux rails produisent un mandat identique', () => {
 // Simulation
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('simulation KeeperHub', () => {
+describe('KeeperHub simulation', () => {
   function failingExecutor(over: Partial<SimulationOutcome>) {
     const executed: KeeperHubCall[] = []
     return {
@@ -1028,13 +1025,13 @@ describe('simulation KeeperHub', () => {
         },
         async executeContractCall(call: KeeperHubCall): Promise<ExecutionOutcome> {
           executed.push(call)
-          return { executionId: 'ne-doit-pas-arriver', status: 'success' }
+          return { executionId: 'must-not-happen', status: 'success' }
         },
       } as ExecutorPort,
     }
   }
 
-  it('simulation en échec → 4xx, aucun mandat ouvert, aucune caution prélevée', async () => {
+  it('failed simulation → 4xx, no warrant opened, no bond charged', async () => {
     const { executor, executed } = failingExecutor({})
     const h = harness({ executor })
 
@@ -1048,13 +1045,13 @@ describe('simulation KeeperHub', () => {
     expect(String(body['detail'])).toContain('exceeds balance')
     expect(body['warrantOpened']).toBe(false)
 
-    // Aucun mandat, aucune caution, aucune exécution.
+    // No warrant, no bond, no execution.
     expect(h.opened).toHaveLength(0)
     expect(h.settled).toBe(0)
     expect(executed).toHaveLength(0)
   })
 
-  it("un `wouldRevert` seul suffit à refuser, même si `success` est vrai", async () => {
+  it('a lone `wouldRevert` is enough to refuse, even when `success` is true', async () => {
     const { executor } = failingExecutor({ success: true, wouldRevert: true })
     const h = harness({ executor })
     const { paid: res } = await payWithX402(h, { actionSpec: transferAction() })
@@ -1088,7 +1085,7 @@ describe('simulation KeeperHub', () => {
         },
         async settle() {
           order.push('settle')
-          throw new Error('settle() ne doit plus être appelé')
+          throw new Error('settle() must no longer be called')
         },
       },
       ...over,
@@ -1096,27 +1093,27 @@ describe('simulation KeeperHub', () => {
     return { h, order }
   }
 
-  it("simule avant d'ouvrir — l'ouverture encaisse, elle ne doit pas payer un échec prévisible", async () => {
+  it('simulates before opening — the opening charges, it must not pay for a foreseeable failure', async () => {
     const { h, order } = ordered()
     await payWithX402(h, { actionSpec: transferAction() })
-    // Plus d'étape `settle` : `open` la contient. Et pas de `verify` par défaut.
+    // No more `settle` step: `open` contains it. And no `verify` by default.
     expect(order).toEqual(['simulate', 'open', 'execute'])
   })
 
-  it('`openBeforeSimulate` retrouve l’ordre littéral de docs/04', async () => {
+  it('`openBeforeSimulate` restores the literal order of docs/04', async () => {
     const { h, order } = ordered({ openBeforeSimulate: true })
     await payWithX402(h, { actionSpec: transferAction() })
     expect(order).toEqual(['open', 'simulate', 'execute'])
   })
 
-  it('`verifyWithFacilitator` insère le contrôle en tête, sans régler', async () => {
+  it('`verifyWithFacilitator` inserts the check up front, without settling', async () => {
     const { h, order } = ordered({ verifyWithFacilitator: true })
     await payWithX402(h, { actionSpec: transferAction() })
     expect(order).toEqual(['verify', 'simulate', 'open', 'execute'])
     expect(order).not.toContain('settle')
   })
 
-  it('simule bien la même action que celle engagée', async () => {
+  it('simulates the very action that is committed', async () => {
     const h = harness()
     await payWithX402(h, { actionSpec: transferAction() })
     expect(h.simulated).toEqual(h.executed)
@@ -1124,11 +1121,11 @@ describe('simulation KeeperHub', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// La catégorie déclarée reste ignorée sur la route payante
+// The declared category stays ignored on the paid route
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('la catégorie déclarée est ignorée jusque dans le mandat', () => {
-  it('produit le même engagement avec ou sans champ `category`', async () => {
+describe('the declared category is ignored all the way into the warrant', () => {
+  it('produces the same commitment with or without a `category` field', async () => {
     const honest = harness()
     const liar = harness()
 
@@ -1143,7 +1140,7 @@ describe('la catégorie déclarée est ignorée jusque dans le mandat', () => {
     expect(liar.opened[0]?.bond).toBe('5000000')
   })
 
-  it('refuse une action non exécutable par KeeperHub avant toute ouverture', async () => {
+  it('refuses an action KeeperHub cannot execute, before any opening', async () => {
     const h = harness()
     const { paid: res } = await payWithX402(h, { actionSpec: unknownAction() })
     expect(res.status).toBe(422)
@@ -1159,7 +1156,7 @@ describe('la catégorie déclarée est ignorée jusque dans le mandat', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('GET /v1/warrants/:id', () => {
-  it('rend le mandat, sa conditionSpec engagée, et pas encore de verdict', async () => {
+  it('returns the warrant, its committed conditionSpec, and no verdict yet', async () => {
     const h = harness()
     const opened = (await (
       await payWithX402(h, { actionSpec: transferAction() })
@@ -1171,8 +1168,8 @@ describe('GET /v1/warrants/:id', () => {
     const warrant = body['warrant'] as Record<string, unknown>
     expect(warrant['id']).toBe(opened['warrantId'])
     expect(warrant['status']).toBe('Open')
-    // Le `fundingRef` est le nonce EIP-3009, c'est-à-dire le hash des termes —
-    // plus un hash de transaction.
+    // The `fundingRef` is the EIP-3009 nonce, that is to say the hash of the
+    // terms — no longer a transaction hash.
     expect(warrant['fundingRef']).toMatch(/^0x[0-9a-f]{64}$/)
     expect(warrant['expiry']).toBe(NOW + POLICY.duration)
     expect(body['verdict']).toBeNull()
@@ -1182,7 +1179,7 @@ describe('GET /v1/warrants/:id', () => {
     expect(spec.checks.some((c) => c.kind === COMMITMENT_KIND)).toBe(true)
   })
 
-  it('rend le verdict et le détail checks[] une fois réglé', async () => {
+  it('returns the verdict and the checks[] detail once settled', async () => {
     const h = harness()
     const opened = (await (
       await payWithX402(h, { actionSpec: transferAction() })
@@ -1205,16 +1202,16 @@ describe('GET /v1/warrants/:id', () => {
     expect((body['checks'] as { pass: boolean }[])[0]?.pass).toBe(false)
   })
 
-  it('rend un Problem Details 404 pour un mandat inconnu', async () => {
+  it('returns a 404 Problem Details for an unknown warrant', async () => {
     const h = harness()
     const res = await h.app.request(`/v1/warrants/0x${'00'.repeat(32)}`)
     expect(res.status).toBe(404)
     expect(res.headers.get('content-type')).toContain('application/problem+json')
   })
 
-  it('refuse un identifiant qui n\'est pas un bytes32', async () => {
+  it('refuses an identifier that is not a bytes32', async () => {
     const h = harness()
-    expect((await h.app.request('/v1/warrants/pas-un-id')).status).toBe(400)
+    expect((await h.app.request('/v1/warrants/not-an-id')).status).toBe(400)
   })
 })
 
@@ -1223,7 +1220,7 @@ describe('GET /v1/warrants/:id', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('GET /openapi.json', () => {
-  it('sert un OpenAPI 3.1 avec x-payment-info au format observé chez KeeperHub', async () => {
+  it('serves an OpenAPI 3.1 with x-payment-info in the format observed at KeeperHub', async () => {
     const h = harness()
     const doc = (await (await h.app.request('/openapi.json')).json()) as Record<string, any>
 
@@ -1235,7 +1232,7 @@ describe('GET /openapi.json', () => {
       { mpp: { method: 'tempo', intent: 'charge', currency: 'USDC' } },
     ])
 
-    // Prix dynamique : il est calculé par le Risk Pricer, il ne peut pas être fixe.
+    // Dynamic price: it is computed by the Risk Pricer, it cannot be fixed.
     expect(info['price']['mode']).toBe('dynamic')
     expect(info['price']['currency']).toBe('USD')
     expect(info['price']['min']).toBe('5')
@@ -1243,7 +1240,7 @@ describe('GET /openapi.json', () => {
     expect(info['price']['quote']).toMatchObject({ path: '/v1/quote', cost: 'free' })
   })
 
-  it('décrit les deux rails sur la route payante', async () => {
+  it('describes both rails on the paid route', async () => {
     const h = harness()
     const doc = (await (await h.app.request('/openapi.json')).json()) as Record<string, any>
     const responses = doc['paths']['/v1/warrants']['post']['responses']
@@ -1257,7 +1254,7 @@ describe('GET /openapi.json', () => {
     ])
   })
 
-  it('ne facture pas /v1/quote', async () => {
+  it('does not charge for /v1/quote', async () => {
     const h = harness()
     const doc = (await (await h.app.request('/openapi.json')).json()) as Record<string, any>
     expect(doc['paths']['/v1/quote']['post']['x-payment-info']).toBeUndefined()
@@ -1265,12 +1262,12 @@ describe('GET /openapi.json', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// keeperHubEscrow — l'ouverture passe par KeeperHub, pas par une clé locale
+// keeperHubEscrow — the opening goes through KeeperHub, not through a local key
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('keeperHubEscrow', () => {
   const ESCROW = `0x${'ad'.repeat(20)}` as Address
-  /** Un `termsHash` quelconque : ce port ne le calcule pas, il le transporte. */
+  /** Some `termsHash` or other: this port does not compute it, it carries it. */
   const TERMS_NONCE = `0x${'f3'.repeat(32)}` as Hex
   const ESCROW_ABI = [{ type: 'function', name: 'open', inputs: [], outputs: [] }] as const
 
@@ -1293,7 +1290,7 @@ describe('keeperHubEscrow', () => {
     },
   }
 
-  /** La struct `Authorization` telle qu'elle doit partir chez KeeperHub. */
+  /** The `Authorization` struct as it must leave for KeeperHub. */
   const AUTH_ARG = {
     from: AGENT,
     value: '5000000',
@@ -1305,7 +1302,7 @@ describe('keeperHubEscrow', () => {
     s: `0x${'bb'.repeat(32)}`,
   }
 
-  /** Client d'exécution enregistreur — un double de test, jamais un chemin runtime. */
+  /** Recording execution client — a test double, never a runtime path. */
   function recorder(execution: Partial<EscrowExecution>) {
     const calls: { req: EscrowContractCall; idempotencyKey?: string }[] = []
     const client: KeeperHubEscrowClient = {
@@ -1317,7 +1314,7 @@ describe('keeperHubEscrow', () => {
     return { calls, client }
   }
 
-  it('appelle open() avec les arguments dans l’ordre de l’ABI et rend le hash', async () => {
+  it('calls open() with the arguments in ABI order and returns the hash', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     const escrow = keeperHubEscrow({
       address: ESCROW,
@@ -1335,8 +1332,8 @@ describe('keeperHubEscrow', () => {
       functionName: 'open',
       abi: ESCROW_ABI,
     })
-    // L'ordre est celui de l'ABI : KeeperHub positionne, il ne nomme pas.
-    // `agent` et `fundingRef` ont disparu — le contrat les dérive de `auth`.
+    // The order is the ABI's: KeeperHub positions, it does not name.
+    // `agent` and `fundingRef` are gone — the contract derives them from `auth`.
     expect(calls[0]!.req.functionArgs).toEqual([
       OPEN_ARGS.id,
       OPEN_ARGS.beneficiary,
@@ -1348,20 +1345,20 @@ describe('keeperHubEscrow', () => {
     ])
   })
 
-  it("passe la struct `Authorization` en objet nommé, pas en tableau", async () => {
+  it('passes the `Authorization` struct as a named object, not as an array', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     await keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI }).open(
       OPEN_ARGS,
     )
     const auth = calls[0]!.req.functionArgs[6]
-    // viem exige des composants nommés pour un tuple nommé. Un tableau
-    // positionnel de huit champs dont quatre mots de 32 octets serait encodé
-    // dans un ordre que rien ne vérifierait.
+    // viem requires named components for a named tuple. A positional array of
+    // eight fields, four of which are 32-byte words, would be encoded in an
+    // order that nothing would check.
     expect(Array.isArray(auth)).toBe(false)
     expect(auth).toEqual(AUTH_ARG)
   })
 
-  it("`value` et les bornes de validité restent des chaînes décimales", async () => {
+  it('`value` and the validity bounds stay decimal strings', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     const huge = 2n ** 255n
     await keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI }).open({
@@ -1370,14 +1367,14 @@ describe('keeperHubEscrow', () => {
       authorization: { ...OPEN_ARGS.authorization, value: huge },
     })
     const auth = calls[0]!.req.functionArgs[6] as Record<string, unknown>
-    // Un `uint256` sérialisé en `number` JSON perdrait des unités atomiques en
-    // silence — et `value` doit valoir `bond` au bit près (ValueMismatch).
+    // A `uint256` serialised as a JSON `number` would lose atomic units in
+    // silence — and `value` must equal `bond` to the bit (ValueMismatch).
     expect(auth['value']).toBe(huge.toString(10))
     expect(typeof auth['validAfter']).toBe('string')
     expect(typeof auth['validBefore']).toBe('string')
   })
 
-  it("passe l'ABI : l'escrow n'est pas vérifié, l'auto-résolution échouerait", async () => {
+  it('passes the ABI: the escrow is not verified, auto-resolution would fail', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     await keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI }).open(
       OPEN_ARGS,
@@ -1385,7 +1382,7 @@ describe('keeperHubEscrow', () => {
     expect(calls[0]!.req.abi).toBe(ESCROW_ABI)
   })
 
-  it("`bond` et `duration` restent des chaînes : un uint256 ne tient pas dans un number", async () => {
+  it('`bond` and `duration` stay strings: a uint256 does not fit in a number', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     const bond = '115792089237316195423570985008687907853269984665640564039457584007913129639935'
     await keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI }).open({
@@ -1396,7 +1393,7 @@ describe('keeperHubEscrow', () => {
     expect(typeof calls[0]!.req.functionArgs[5]).toBe('string')
   })
 
-  it('utilise l’identifiant du mandat comme clé d’idempotence', async () => {
+  it('uses the warrant identifier as the idempotency key', async () => {
     const { calls, client } = recorder({ txHash: OPEN_TX })
     await keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI }).open(
       OPEN_ARGS,
@@ -1404,29 +1401,29 @@ describe('keeperHubEscrow', () => {
     expect(calls[0]!.idempotencyKey).toBe(`warrant-open-${OPEN_ARGS.id}`)
   })
 
-  it('refuse un succès sans hash : le Settler n’aurait rien à relire', async () => {
+  it('refuses a success with no hash: the Settler would have nothing to re-read', async () => {
     const { client } = recorder({ status: 'success' })
     const escrow = keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI })
-    await expect(escrow.open(OPEN_ARGS)).rejects.toThrow(/sans hash de transaction/)
+    await expect(escrow.open(OPEN_ARGS)).rejects.toThrow(/without a transaction hash/)
   })
 
-  it('propage un échec d’exécution avec son executionId', async () => {
+  it('propagates an execution failure together with its executionId', async () => {
     const { client } = recorder({ status: 'failed', error: 'NotOpener()' })
     const escrow = keeperHubEscrow({ address: ESCROW, chainId: 1, client, abi: ESCROW_ABI })
     await expect(escrow.open(OPEN_ARGS)).rejects.toThrow(/NotOpener\(\).*exec_open_1/s)
   })
 
-  it('le vrai KeeperHubClient satisfait le port, sans adaptateur', () => {
-    // Assertion de type, pas d'appel réseau : c'est ici qu'on vérifie que la
-    // redéclaration structurelle de `KeeperHubEscrowClient` ne diverge pas du
-    // client réel. Une divergence casse la compilation, pas la production.
-    const conforme: (c: KeeperHubClient) => KeeperHubEscrowClient = (c) => c
-    expect(typeof conforme).toBe('function')
+  it('the real KeeperHubClient satisfies the port, with no adapter', () => {
+    // A type assertion, not a network call: this is where we verify that the
+    // structural redeclaration of `KeeperHubEscrowClient` does not diverge from
+    // the real client. A divergence breaks compilation, not production.
+    const conforms: (c: KeeperHubClient) => KeeperHubEscrowClient = (c) => c
+    expect(typeof conforms).toBe('function')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// keeperHubExecutor — le hash n'est pas dans la réponse de POST
+// keeperHubExecutor — the hash is not in the POST response
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('keeperHubExecutor', () => {
@@ -1437,9 +1434,9 @@ describe('keeperHubExecutor', () => {
     functionArgs: JSON.stringify([DEST, '1000000']),
   }
 
-  it('va chercher le hash sur la route de statut quand POST ne le porte pas', async () => {
-    // Forme réellement observée sur Sepolia : POST rend un 202 avec
-    // `{ executionId, status }` et rien d'autre ; le hash n'est que sur /status.
+  it('fetches the hash from the status route when POST does not carry it', async () => {
+    // The shape actually observed on Sepolia: POST returns a 202 with
+    // `{ executionId, status }` and nothing else; the hash is only on /status.
     const seen: string[] = []
     const fetchImpl = (async (url: string | URL) => {
       const href = String(url)
@@ -1470,7 +1467,7 @@ describe('keeperHubExecutor', () => {
     expect(seen[1]).toContain('/api/execute/exec_9/status')
   })
 
-  it("n'appelle pas la route de statut quand le hash est déjà là", async () => {
+  it('does not call the status route when the hash is already there', async () => {
     const seen: string[] = []
     const fetchImpl = (async (url: string | URL) => {
       seen.push(String(url))

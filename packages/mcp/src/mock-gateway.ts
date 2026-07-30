@@ -1,18 +1,18 @@
 /**
- * Un Gateway en mémoire.
+ * An in-memory Gateway.
  *
- * Deux usages, et le second compte autant que le premier :
+ * Two uses, and the second matters as much as the first:
  *
- * - il sert de double aux tests du serveur MCP, qui n'ont ainsi besoin ni de
- *   réseau ni du paquet `@warrant/server` ;
- * - il permet à un builder de lancer le serveur MCP et de voir les quatre
- *   outils fonctionner **avant** d'avoir un Gateway, un wallet ou un RPC. La
- *   checklist DX vise « zéro à une transaction en moins de cinq minutes »
- *   (docs/09 § 8) ; l'essentiel des cinq minutes se perd d'ordinaire à câbler
- *   un backend pour découvrir que l'outil n'était pas celui qu'on croyait.
+ * - it stands in as a double for the MCP server tests, which therefore need
+ *   neither a network nor the `@warrant/server` package;
+ * - it lets a builder start the MCP server and watch the four tools work
+ *   **before** having a Gateway, a wallet or an RPC. The DX checklist aims at
+ *   "zero to one transaction in under five minutes" (docs/09 § 8); most of those
+ *   five minutes are usually lost wiring up a backend only to discover the tool
+ *   was not the one you thought it was.
  *
- * Il ne simule **pas** la vérification de paiement : il l'accepte sur parole.
- * Aucun code de production ne doit en dépendre.
+ * It does **not** simulate payment verification: it takes payment on trust. No
+ * production code may depend on it.
  */
 
 import { actionHash, conditionHash, WarrantStatus, type ActionSpec, type Hex } from '@warrant/core'
@@ -31,7 +31,7 @@ import type {
 
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 
-/** Sélecteur → catégorie. Le même principe que le registre, en miniature. */
+/** Selector → category. The same principle as the registry, in miniature. */
 const CATEGORIES: Record<string, { category: QuoteResult['category']; riskBps: number }> = {
   '0xa9059cbb': { category: 'erc20.transfer', riskBps: 50 },
   '0x095ea7b3': { category: 'erc20.approve', riskBps: 150 },
@@ -42,11 +42,12 @@ const CATEGORIES: Record<string, { category: QuoteResult['category']; riskBps: n
 }
 
 /**
- * Notionnel dérivé du calldata — jamais déclaré.
+ * Notional derived from the calldata — never declared.
  *
- * Approximation assumée : on lit le dernier mot de 32 octets et on suppose six
- * décimales. Le vrai Classifieur décode l'ABI (`@warrant/core`), mais le point
- * démontré est le même — la valeur vient du calldata, pas de la requête.
+ * An approximation we own: we read the last 32-byte word and assume six
+ * decimals. The real Classifier decodes the ABI (`@warrant/core`), but the point
+ * being demonstrated is the same — the value comes from the calldata, not from
+ * the request.
  */
 function notionalFromCalldata(calldata: string): bigint {
   const body = calldata.slice(10)
@@ -59,20 +60,20 @@ function clamp(value: bigint, min: bigint, max: bigint): bigint {
 }
 
 export interface MockGatewayOptions {
-  /** Bornes de caution, en unités atomiques USDC. */
+  /** Bond bounds, in USDC atomic units. */
   minBond?: bigint
   maxBond?: bigint
-  /** Ressource annoncée dans le `PaymentRequired`. */
+  /** Resource announced in the `PaymentRequired`. */
   resourceUrl?: string
   payTo?: string
-  /** Durée du mandat, en secondes. */
+  /** Warrant duration, in seconds. */
   duration?: number
-  /** `false` pour observer le chemin sans paiement de bout en bout. */
+  /** `false` to observe the no-payment path end to end. */
   requirePayment?: boolean
 }
 
 export interface MockGateway extends GatewayClient {
-  /** Ce que le Gateway a réellement reçu — sert à prouver le nettoyage des entrées. */
+  /** What the Gateway actually received — used to prove the inputs were stripped. */
   readonly seen: { actionSpecs: ActionSpec[]; payments: (PaymentPayload | undefined)[] }
   readonly warrants: Map<Hex, WarrantView>
 }
@@ -92,7 +93,7 @@ export function createMockGateway(options: MockGatewayOptions = {}): MockGateway
   function price(actionSpec: ActionSpec): QuoteResult {
     const selector = actionSpec.calldata.slice(0, 10).toLowerCase()
     const known = CATEGORIES[selector]
-    // `unknown` déclenche le repli le plus strict : ne pas savoir coûte cher.
+    // `unknown` triggers the strictest fallback: not knowing is expensive.
     const category = known?.category ?? 'unknown'
     const riskBps = known?.riskBps ?? 500
     const notional = notionalFromCalldata(actionSpec.calldata)
@@ -110,7 +111,7 @@ export function createMockGateway(options: MockGatewayOptions = {}): MockGateway
         confirmations: 3,
         checks: [{ kind: 'calldata_matches_commitment', actionHash: actionHash(actionSpec) }],
       },
-      rationale: `${category} à ${notional} USD, ${riskBps} bps, borné à [${minBond}, ${maxBond}].`,
+      rationale: `${category} at ${notional} USD, ${riskBps} bps, clamped to [${minBond}, ${maxBond}].`,
     }
   }
 

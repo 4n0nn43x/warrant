@@ -1,12 +1,12 @@
 /**
- * Comparaison et normalisation.
+ * Comparison and normalisation.
  *
- * Toute l'arithmétique est en `bigint`. Aucun `number` n'entre dans un
- * comparatif : les `uint256` dépassent `Number.MAX_SAFE_INTEGER` et un arrondi
- * silencieux transformerait un verdict en loterie.
+ * All arithmetic is in `bigint`. No `number` ever enters a comparison: `uint256`
+ * values overflow `Number.MAX_SAFE_INTEGER`, and a silent rounding would turn a
+ * verdict into a lottery.
  *
- * **Aucune tolérance implicite** (docs/07 § 5) : la comparaison est exacte. Si
- * une marge est voulue, elle est dans la `value` engagée.
+ * **No implicit tolerance** (docs/07 § 5): the comparison is exact. If a margin
+ * is wanted, it belongs in the committed `value`.
  */
 
 import { InvalidSpecError } from './errors.js'
@@ -29,7 +29,7 @@ export function compare(observed: bigint, op: Op, expected: bigint): boolean {
   }
 }
 
-/** Parse une chaîne décimale signée. Rejette tout le reste, y compris `1e18`. */
+/** Parses a signed decimal string. Rejects everything else, `1e18` included. */
 export function parseDecimal(raw: string, field: string): bigint {
   if (typeof raw !== 'string' || !DECIMAL_INTEGER.test(raw)) {
     throw new InvalidSpecError(
@@ -39,7 +39,7 @@ export function parseDecimal(raw: string, field: string): bigint {
   return BigInt(raw)
 }
 
-/** Parse une valeur engagée en décimal ou en hexadécimal (`address`, `bytes32`). */
+/** Parses a committed value in decimal or hexadecimal (`address`, `bytes32`). */
 export function parseDecimalOrHex(raw: string, field: string): bigint {
   if (typeof raw === 'string' && HEX_STRING.test(raw) && raw.length > 2) {
     return BigInt(raw)
@@ -50,7 +50,7 @@ export function parseDecimalOrHex(raw: string, field: string): bigint {
   return parseDecimal(raw, field)
 }
 
-/** Entier non signé issu d'un champ `number` du DSL. Passe en `bigint` aussitôt. */
+/** Unsigned integer from a `number` field of the DSL. Moves to `bigint` at once. */
 export function parseCount(raw: number, field: string): bigint {
   if (!Number.isInteger(raw) || raw < 0) {
     throw new InvalidSpecError(
@@ -61,9 +61,8 @@ export function parseCount(raw: number, field: string): bigint {
 }
 
 /**
- * Forme canonique d'une adresse : minuscule, sans checksum EIP-55 (docs/07 § 4
- * règle 2). Deux graphies d'une même adresse ne doivent jamais donner deux
- * résultats.
+ * Canonical form of an address: lowercase, no EIP-55 checksum (docs/07 § 4,
+ * rule 2). Two spellings of the same address must never yield two results.
  */
 export function lower<T extends string>(value: T): T {
   return value.toLowerCase() as T
@@ -73,18 +72,18 @@ export function addressEquals(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
 
-/** Extrait une adresse d'un topic indexé de 32 octets. */
+/** Extracts an address from a 32-byte indexed topic. */
 export function addressFromTopic(topic: Hex): Address {
   return `0x${topic.slice(-40)}`.toLowerCase() as Address
 }
 
-/** `BigInt` d'un champ `data` de log, tolérant au `0x` vide. */
+/** `BigInt` of a log `data` field, tolerant of an empty `0x`. */
 export function bigintFromData(data: Hex | undefined): bigint {
   if (!data || data === '0x') return 0n
   return BigInt(data)
 }
 
-/** Rendu lisible d'une adresse dans les champs `expected` / `observed`. */
+/** Readable rendering of an address in the `expected` / `observed` fields. */
 export function short(address: string): string {
   return address.toLowerCase()
 }

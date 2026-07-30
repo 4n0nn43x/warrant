@@ -1,35 +1,32 @@
 /**
- * Le serveur MCP de Warrant — révision de protocole 2026-07-28.
+ * Warrant's MCP server — protocol revision 2026-07-28.
  *
  * ```bash
  * claude mcp add --transport http warrant https://mcp.warrant.sh
  * ```
  *
- * Quatre outils, projetés depuis `@warrant/sdk` — le serveur ne redéfinit ni
- * schéma, ni description, ni logique. Il ne fait que deux choses que le SDK ne
- * peut pas faire : parler JSON-RPC, et implémenter le transport x402 v2 sur MCP
- * (docs/05 § 1.7).
+ * Four tools, projected from `@warrant/sdk` — the server redefines no schema, no
+ * description, no logic. It does only the two things the SDK cannot do: speak
+ * JSON-RPC, and implement the x402 v2 transport over MCP (docs/05 § 1.7).
  *
- * Choix d'implémentation à expliciter : on utilise le `Server` bas niveau
- * plutôt que `McpServer`. `McpServer` valide les arguments lui-même et lève un
- * `McpError` JSON-RPC quand ils sont invalides — l'erreur sort alors du produit
- * sans `hint` ni lien de doc, ce que la checklist DX interdit (docs/09 § 8).
- * Ici, **toute** erreur revient en résultat d'outil structuré et actionnable.
- * L'agent qui la reçoit peut se corriger au tour suivant ; c'est le seul
- * critère qui compte.
+ * One implementation choice to spell out: we use the low-level `Server` rather
+ * than `McpServer`. `McpServer` validates the arguments itself and throws a
+ * JSON-RPC `McpError` when they are invalid — the error then leaves the product
+ * without a `hint` or a documentation link, which the DX checklist forbids
+ * (docs/09 § 8). Here, **every** error comes back as a structured, actionable
+ * tool result. The agent that receives it can correct itself on the next turn;
+ * that is the only criterion that counts.
  *
- * Le raisonnement survit intact au passage au SDK v2 : `registerTool()` y
- * valide toujours les arguments contre le schéma avant d'appeler le callback,
- * et une violation devient une erreur de protocole. Le `Server` bas niveau, lui,
- * nous laisse recevoir les arguments bruts et les faire passer par le parsing
- * du SDK Warrant, qui produit des `WarrantError` porteuses de `field`, `hint` et
- * `docs`.
+ * The reasoning survives the move to SDK v2 intact: `registerTool()` there still
+ * validates the arguments against the schema before calling the callback, and a
+ * violation becomes a protocol error. The low-level `Server`, by contrast, lets
+ * us receive the raw arguments and run them through the Warrant SDK's parsing,
+ * which produces `WarrantError`s carrying `field`, `hint` and `docs`.
  *
- * Ce que le SDK v2 prend en charge et qu'on n'écrit donc pas ici : le champ
- * `resultType` (`"complete"` est posé par le codec 2026-07-28 au moment de
- * l'encodage — un handler ne l'écrit jamais lui-même), la validation
- * en-tête↔corps (`-32020`), le `405` sur GET/DELETE, et le service des clients
- * 2025 restés en arrière. Voir `http.ts`.
+ * What SDK v2 takes care of and we therefore do not write here: the `resultType`
+ * field (`"complete"` is set by the 2026-07-28 codec at encoding time — a handler
+ * never writes it itself), header↔body validation (`-32020`), the `405` on
+ * GET/DELETE, and serving clients that stayed on 2025. See `http.ts`.
  */
 
 import { Server, type CacheHint, type CallToolResult, type Tool } from '@modelcontextprotocol/server'
@@ -46,73 +43,72 @@ import { z } from 'zod'
 import { dualFormat, extractPayment, paymentRequiredResult, withSettlement } from './x402-mcp.js'
 
 export interface WarrantMcpOptions {
-  /** Le Gateway Warrant. Mocké dans les tests, câblé au HTTP en production. */
+  /** The Warrant Gateway. Mocked in the tests, wired to HTTP in production. */
   client: GatewayClient
   name?: string
   version?: string
 }
 
-const SERVER_INSTRUCTIONS = `Warrant transforme une action onchain en engagement cautionné.
+const SERVER_INSTRUCTIONS = `Warrant turns an onchain action into a bonded commitment.
 
-Séquence recommandée :
-1. quote_risk — gratuit. Donne la caution, le taux de risque et la post-condition qui sera engagée.
-2. request_warrant — payant. Ouvre le mandat, finance la caution via x402, déclenche l'exécution KeeperHub.
-3. get_warrant — lit le verdict et le détail checks[] une fois le mandat réglé.
-4. list_warrants — historique et statistiques d'un agent.
+Recommended sequence:
+1. quote_risk — free. Gives the bond, the risk rate and the post-condition that will be committed.
+2. request_warrant — paid. Opens the warrant, funds the bond via x402, triggers the KeeperHub execution.
+3. get_warrant — reads the verdict and the checks[] detail once the warrant is settled.
+4. list_warrants — an agent's history and statistics.
 
-À savoir avant d'appeler : la catégorie de l'action et son notionnel sont dérivés du calldata, jamais
-déclarés. Aucun outil n'accepte de champ category ni notional ; en glisser un ne change rien au prix.
+Worth knowing before calling: the category of the action and its notional are derived from the calldata,
+never declared. No tool accepts a category or notional field; slipping one in changes nothing about the price.
 
-request_warrant appelé sans paiement retourne un résultat en erreur contenant un objet PaymentRequired
-x402 v2. Réglez-le, puis rappelez le même outil avec le PaymentPayload dans _meta["x402/payment"].`
+request_warrant called without payment returns an erroring result containing an x402 v2 PaymentRequired
+object. Settle it, then call the same tool again with the PaymentPayload in _meta["x402/payment"].`
 
 /**
- * Ce que le serveur promet sur la fraîcheur de `tools/list` (SEP-2549).
+ * What the server promises about the freshness of `tools/list` (SEP-2549).
  *
- * `cacheScope: 'public'` : la liste ne varie pas selon l'appelant. `WARRANT_TOOLS`
- * est une constante du paquet, aucun outil n'est masqué par autorisation — la
- * spec autorise alors explicitement les caches partagés (`server/tools` : le
- * jeu d'outils « MUST NOT vary per-connection », il ne peut varier que « by the
- * authorization presented on the request », ce qui n'est pas notre cas).
+ * `cacheScope: 'public'`: the list does not vary by caller. `WARRANT_TOOLS` is a
+ * constant of the package, no tool is hidden by authorization — the spec then
+ * explicitly permits shared caches (`server/tools`: the tool set "MUST NOT vary
+ * per-connection", it may only vary "by the authorization presented on the
+ * request", which is not our case).
  *
- * `ttlMs` d'une heure : ces quatre outils sont figés à la compilation, et la
- * seule chose qui les change est un redéploiement — lequel remplace le
- * processus. Une heure est donc un pari sur la fréquence de nos déploiements,
- * pas sur la stabilité du produit. Le pari est bon marché parce que se tromper
- * coûte peu : un agent qui appellerait un nom d'outil disparu reçoit l'erreur
- * `invalid_input` qui **liste les outils réellement disponibles** (voir plus
- * bas), donc il se corrige au tour suivant sans intervention. Le défaut du SDK
- * (`ttlMs: 0`) ferait au contraire refaire un `tools/list` à chaque tour d'un
- * agent, sur une liste qui n'a pas bougé depuis le début du hackathon.
+ * A `ttlMs` of one hour: these four tools are frozen at compile time, and the
+ * only thing that changes them is a redeployment — which replaces the process.
+ * One hour is therefore a bet on how often we deploy, not on the stability of the
+ * product. The bet is cheap because being wrong costs little: an agent that
+ * called a tool name that has since vanished receives the `invalid_input` error
+ * which **lists the tools actually available** (see below), so it corrects itself
+ * on the next turn with no intervention. The SDK default (`ttlMs: 0`) would
+ * instead make an agent redo a `tools/list` on every turn, over a list that has
+ * not moved since the start of the hackathon.
  */
 const TOOLS_LIST_CACHE_HINT: CacheHint = {
   ttlMs: 3_600_000,
   cacheScope: 'public',
 }
 
-/** JSON Schema draft-7 — ce qu'attend `tools/list`. */
+/** JSON Schema draft-7 — what `tools/list` expects. */
 function toJsonSchema(schema: z.ZodType): Tool['inputSchema'] {
   return z.toJSONSchema(schema, { target: 'draft-7', io: 'input' }) as Tool['inputSchema']
 }
 
 /**
- * Descripteur → entrée de `tools/list`.
+ * Descriptor → `tools/list` entry.
  *
- * `additionalProperties` est laissé absent volontairement. Un `category`
- * parasite dans l'`actionSpec` doit être **ignoré**, pas rejeté : le rejeter
- * apprendrait à l'agent que le champ existe quelque part, alors qu'il n'existe
- * nulle part. Le nettoyage est fait au parsing, côté SDK.
+ * `additionalProperties` is deliberately left absent. A stray `category` in the
+ * `actionSpec` must be **ignored**, not rejected: rejecting it would teach the
+ * agent that the field exists somewhere, when it exists nowhere. The stripping is
+ * done at parse time, on the SDK side.
  *
- * Aucune propriété ne porte l'annotation `x-mcp-header` de 2026-07-28, et c'est
- * délibéré. Cette annotation demande au client de recopier la valeur d'un
- * paramètre dans un en-tête `Mcp-Param-{Name}` pour que les intermédiaires
- * (load balancers, WAF) puissent router sans lire le corps. Nos paramètres sont
- * soit des objets (`actionSpec`, non éligible — l'annotation est réservée aux
- * types primitifs), soit des identités onchain (`agent`, `beneficiary`,
- * `warrantId`) ; et la spec avertit précisément de ne pas exposer de PII ou
- * d'identifiants sensibles en en-tête, « visible[s] to network intermediaries ».
- * L'adresse d'un agent et l'identifiant d'un mandat sont exactement ce qu'on ne
- * veut pas voir apparaître dans les logs de chaque proxy traversé.
+ * No property carries the 2026-07-28 `x-mcp-header` annotation, and that too is
+ * deliberate. That annotation asks the client to copy a parameter's value into an
+ * `Mcp-Param-{Name}` header so that intermediaries (load balancers, WAFs) can
+ * route without reading the body. Our parameters are either objects
+ * (`actionSpec`, not eligible — the annotation is reserved for primitive types),
+ * or onchain identities (`agent`, `beneficiary`, `warrantId`); and the spec warns
+ * precisely against exposing PII or sensitive identifiers in a header, "visible
+ * to network intermediaries". An agent's address and a warrant's identifier are
+ * exactly what we do not want showing up in the logs of every proxy on the way.
  */
 export function describeTool(tool: AnyWarrantTool): Tool {
   return {
@@ -120,19 +116,20 @@ export function describeTool(tool: AnyWarrantTool): Tool {
     title: tool.title,
     description: tool.description,
     inputSchema: toJsonSchema(tool.input),
-    // Pas d'`outputSchema`, et c'est délibéré.
+    // No `outputSchema`, and that is deliberate.
     //
-    // Le client MCP officiel met en cache l'`outputSchema` annoncé et valide
-    // **tout** `structuredContent` reçu contre lui, y compris sur un résultat
-    // `isError: true`. Or nos deux chemins d'erreur placent justement un objet
-    // dans `structuredContent` : le `PaymentRequired` du transport x402, que la
-    // spec impose (docs/05 § 1.7), et nos erreurs actionnables. Annoncer un
-    // `outputSchema` ferait donc lever une erreur au client à la place du 402 —
-    // le flux de paiement serait cassé avec le client de référence.
+    // The official MCP client caches the announced `outputSchema` and validates
+    // **any** `structuredContent` it receives against it, including on an
+    // `isError: true` result. Yet both of our error paths put an object in
+    // `structuredContent`: the x402 transport's `PaymentRequired`, which the spec
+    // mandates (docs/05 § 1.7), and our actionable errors. Announcing an
+    // `outputSchema` would therefore make the client throw an error instead of
+    // handling the 402 — the payment flow would be broken with the reference
+    // client.
     //
-    // Les schémas de sortie existent quand même (`tool.output`, dans
-    // `@warrant/sdk`) : ils typent le SDK et alimenteront l'OpenAPI. Ils ne
-    // sont simplement pas annoncés sur ce transport-ci.
+    // The output schemas do exist all the same (`tool.output`, in
+    // `@warrant/sdk`): they type the SDK and will feed the OpenAPI. They are
+    // simply not announced on this particular transport.
     annotations: {
       title: tool.title,
       readOnlyHint: tool.readOnly,
@@ -142,16 +139,16 @@ export function describeTool(tool: AnyWarrantTool): Tool {
     },
     _meta: {
       /**
-       * Découverte : un client sait, avant d'appeler, lequel des quatre outils
-       * exigera un paiement. C'est l'équivalent MCP de `x-payment-info` sur
-       * l'OpenAPI (docs/09 § 1).
+       * Discovery: a client knows, before calling, which of the four tools will
+       * require a payment. This is the MCP equivalent of `x-payment-info` on the
+       * OpenAPI (docs/09 § 1).
        */
       'x402/paid': tool.paid,
     },
   }
 }
 
-/** Toute erreur sort par ici — structurée, avec `hint` et lien de doc. */
+/** Every error leaves through here — structured, with a `hint` and a doc link. */
 function errorResult(err: unknown): CallToolResult {
   const warrantError = toWarrantError(err)
   return dualFormat(warrantError.toJSON() as unknown as Record<string, unknown>, true)
@@ -165,10 +162,11 @@ export function createWarrantMcpServer(options: WarrantMcpOptions): Server {
     {
       capabilities: { tools: {} },
       instructions: SERVER_INSTRUCTIONS,
-      // Le SDK pose `ttlMs`/`cacheScope` sur le résultat au moment de l'encodage
-      // 2026-07-28 et les omet pour un client 2025, qui n'a pas ce vocabulaire.
-      // Passer par cette option plutôt que par le retour du handler évite d'avoir
-      // à savoir, dans le handler, à quelle révision on répond.
+      // The SDK sets `ttlMs`/`cacheScope` on the result at 2026-07-28 encoding
+      // time and omits them for a 2025 client, which does not have that
+      // vocabulary. Going through this option rather than through the handler's
+      // return value spares the handler from having to know which revision it is
+      // answering.
       cacheHints: { 'tools/list': TOOLS_LIST_CACHE_HINT },
     },
   )
@@ -183,29 +181,30 @@ export function createWarrantMcpServer(options: WarrantMcpOptions): Server {
     const tool = warrantToolByName(name)
     if (!tool) {
       return errorResult(
-        new WarrantError('invalid_input', `Outil inconnu : ${name}.`, {
-          hint: `Les outils disponibles sont ${WARRANT_TOOLS.map((t) => t.name).join(', ')}.`,
+        new WarrantError('invalid_input', `Unknown tool: ${name}.`, {
+          hint: `The available tools are ${WARRANT_TOOLS.map((t) => t.name).join(', ')}.`,
         }),
       )
     }
 
-    // Étape 3 du flux : le paiement, s'il est là, voyage dans `_meta`.
+    // Step 3 of the flow: the payment, if it is there, travels in `_meta`.
     //
-    // En 2026-07-28 le SDK a déjà extrait de ce `_meta` les clés réservées
-    // `io.modelcontextprotocol/*` (version de protocole, identité et capacités
-    // du client) : ce qu'on lit ici est le `_meta` applicatif, celui du client.
+    // On 2026-07-28 the SDK has already extracted from that `_meta` the reserved
+    // `io.modelcontextprotocol/*` keys (protocol version, client identity and
+    // capabilities): what we read here is the application-level `_meta`, the
+    // client's own.
     const payment = extractPayment(_meta)
 
     try {
       const outcome = await tool.run(client, args ?? {}, payment ? { payment } : undefined)
 
       if (outcome.kind === 'payment-required') {
-        // Étape 2 : `isError: true` + PaymentRequired dans les deux formats.
-        // Pourquoi pas MRTR (`resultType: "input_required"`) : voir `x402-mcp.ts`.
+        // Step 2: `isError: true` + the PaymentRequired in both formats.
+        // Why not MRTR (`resultType: "input_required"`): see `x402-mcp.ts`.
         return paymentRequiredResult(outcome.paymentRequired)
       }
 
-      // Étape 6 : le règlement revient dans `_meta["x402/payment-response"]`.
+      // Step 6: the settlement comes back in `_meta["x402/payment-response"]`.
       return withSettlement(
         dualFormat(outcome.data as Record<string, unknown>),
         outcome.settlement,

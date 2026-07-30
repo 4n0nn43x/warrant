@@ -4,14 +4,14 @@ pragma solidity ^0.8.24;
 import {IERC20} from "openzeppelin-contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @notice Le sous-ensemble d'EIP-3009 dont dépend le financement d'un mandat.
-/// @dev    `receiveWithAuthorization` et non `transferWithAuthorization` : la
-///         variante `receive` impose `to == msg.sender`. Sans elle, n'importe
-///         qui pourrait intercepter l'autorisation signée et la soumettre
-///         directement au token — les fonds arriveraient bien ici, mais le
-///         `nonce` serait consommé et l'`open` légitime révèrterait. On aurait
-///         remplacé un vol par un déni de service qui recrée le problème des
-///         fonds orphelins.
+/// @notice The subset of EIP-3009 that funding a warrant depends on.
+/// @dev    `receiveWithAuthorization` and not `transferWithAuthorization`: the
+///         `receive` variant enforces `to == msg.sender`. Without it, anyone
+///         could intercept the signed authorization and submit it straight to
+///         the token — the funds would still land here, but the `nonce` would
+///         be consumed and the legitimate `open` would revert. We would have
+///         traded a theft for a denial of service that recreates the very
+///         problem of orphaned funds.
 interface IERC3009 {
     function receiveWithAuthorization(
         address from,
@@ -26,10 +26,10 @@ interface IERC3009 {
     ) external;
 }
 
-/// @title WarrantEscrow — cautions pour actions d'agents exécutées via KeeperHub
-/// @notice Un mandat lie une caution à une post-condition onchain engagée avant exécution.
-/// @dev    Contrat unique, sans gouvernance, sans proxy, sans fonction de retrait d'urgence.
-///         Les fonds ne peuvent sortir que par `honor`, `slash` ou `reclaim`.
+/// @title WarrantEscrow — bonds for agent actions executed through KeeperHub
+/// @notice A warrant ties a bond to an onchain post-condition committed to before execution.
+/// @dev    A single contract: no governance, no proxy, no emergency withdrawal function.
+///         Funds can only leave through `honor`, `slash` or `reclaim`.
 contract WarrantEscrow {
     using SafeERC20 for IERC20;
 
@@ -41,43 +41,43 @@ contract WarrantEscrow {
         Reclaimed
     }
 
-    /// @notice Une autorisation EIP-3009 signée par l'agent, telle que la
-    ///         transporte déjà le schéma `exact` de x402.
+    /// @notice An EIP-3009 authorization signed by the agent, exactly as the
+    ///         `exact` scheme of x402 already carries it.
     struct Authorization {
-        address from; // l'agent — PROUVÉ par la signature, jamais déclaré
-        uint256 value; // doit valoir exactement `bond`
+        address from; // the agent — PROVEN by the signature, never declared
+        uint256 value; // must equal `bond` exactly
         uint256 validAfter;
         uint256 validBefore;
-        bytes32 nonce; // unicité garantie par le token lui-même
+        bytes32 nonce; // uniqueness guaranteed by the token itself
         uint8 v;
         bytes32 r;
         bytes32 s;
     }
 
     struct Warrant {
-        address agent; // payeur de la caution, destinataire du remboursement
-        address beneficiary; // destinataire en cas de saisie
-        uint256 bond; // montant en unités atomiques USDC
-        bytes32 conditionHash; // keccak256(JCS(conditionSpec)) — engagement immuable
+        address agent; // pays the bond, receives the refund
+        address beneficiary; // receives the funds if the bond is slashed
+        uint256 bond; // amount in atomic USDC units
+        bytes32 conditionHash; // keccak256(JCS(conditionSpec)) — immutable commitment
         bytes32 actionHash; // keccak256(JCS(actionSpec))
-        bytes32 fundingRef; // hash de la tx x402 qui a financé la caution
-        uint64 expiry; // au-delà : honor/slash fermés, reclaim ouvert à tous
+        bytes32 fundingRef; // hash of the x402 tx that funded the bond
+        uint64 expiry; // past it: honor/slash closed, reclaim open to anyone
         uint64 openedAt;
-        uint16 feeBpsAtOpen; // figé ici : les conditions économiques ne bougent plus
+        uint16 feeBpsAtOpen; // frozen here: the economic terms no longer move
         Status status;
     }
 
     IERC20 public immutable token;
-    address public immutable treasury; // reçoit les frais
-    address public opener; // seul autorisé à open — le Gateway
-    address public settler; // seul autorisé à honor/slash — le Settler
-    address public owner; // peut rotationner opener et settler
-    uint16 public feeBps; // frais prélevés au remboursement, ≤ MAX_FEE_BPS
+    address public immutable treasury; // receives the fees
+    address public opener; // the only address allowed to open — the Gateway
+    address public settler; // the only address allowed to honor/slash — the Settler
+    address public owner; // can rotate opener and settler
+    uint16 public feeBps; // fee taken on refund, ≤ MAX_FEE_BPS
 
-    uint256 public totalLocked; // somme des bonds en statut Open
+    uint256 public totalLocked; // sum of the bonds in Open status
 
-    uint16 public constant MAX_FEE_BPS = 500; // 5 % — plafond en dur
-    uint64 public constant MIN_DURATION = 15 minutes; // doit couvrir exécution + confirmations
+    uint16 public constant MAX_FEE_BPS = 500; // 5 % — hard-coded ceiling
+    uint64 public constant MIN_DURATION = 15 minutes; // must cover execution + confirmations
     uint64 public constant MAX_DURATION = 7 days;
 
     mapping(bytes32 => Warrant) public warrants;
@@ -124,20 +124,20 @@ contract WarrantEscrow {
         _;
     }
 
-    /// @param token_    USDC natif de la chaîne cible — figé, `immutable`.
-    /// @param treasury_ destinataire des frais prélevés sur les mandats honorés.
-    /// @param opener_   le Gateway : seule adresse autorisée à ouvrir un mandat.
-    /// @param settler_  le Settler : seule adresse autorisée à honorer ou saisir.
-    /// @param feeBps_   frais initiaux, plafonnés par `MAX_FEE_BPS`.
+    /// @param token_    the target chain's native USDC — frozen, `immutable`.
+    /// @param treasury_ recipient of the fees taken on honored warrants.
+    /// @param opener_   the Gateway: the only address allowed to open a warrant.
+    /// @param settler_  the Settler: the only address allowed to honor or slash.
+    /// @param feeBps_   initial fee, capped by `MAX_FEE_BPS`.
     constructor(address token_, address treasury_, address opener_, address settler_, uint16 feeBps_) {
         if (feeBps_ > MAX_FEE_BPS) revert BadFee();
-        // I10, imposé ici et non plus seulement dans le script de déploiement.
-        // Fusionnés, les deux rôles donnent à une seule clé le pouvoir d'ouvrir
-        // un mandat sur des fonds déjà versés puis de le saisir dans la foulée —
-        // sans frais, donc indiscernable d'une saisie légitime au regard de I6.
+        // I10, enforced here and no longer only in the deployment script.
+        // Merged, the two roles hand a single key the power to open a warrant
+        // against funds already paid in and then slash it in the same breath —
+        // with no fee, hence indistinguishable from a legitimate slash under I6.
         if (opener_ == settler_) revert RolesMustDiffer();
-        // Promus du script vers le contrat, pour la même raison que I10 :
-        // un déploiement direct contourne le script.
+        // Promoted from the script into the contract, for the same reason as
+        // I10: a direct deployment bypasses the script.
         if (token_ == address(0) || treasury_ == address(0)) revert ZeroAddress();
 
         token = IERC20(token_);
@@ -154,18 +154,18 @@ contract WarrantEscrow {
 
     // ── Mutations ─────────────────────────────────────────────────────────
 
-    /// @notice Ouvre un mandat, et **encaisse la caution dans la même transaction**.
-    /// @dev    L'`agent` n'est plus un paramètre : il est dérivé de la signature
-    ///         EIP-3009 de `auth`. C'est le cœur du correctif. Auparavant les
-    ///         fonds arrivaient par un virement anonyme et l'`opener` déclarait
-    ///         librement qui serait remboursé — or `agent` et `beneficiary` sont
-    ///         les destinataires des TROIS sorties du contrat. Un opener seul
-    ///         pouvait donc s'attribuer tout solde libre, sans le settler et
-    ///         sans l'owner.
+    /// @notice Opens a warrant, and **collects the bond in the same transaction**.
+    /// @dev    `agent` is no longer a parameter: it is derived from the EIP-3009
+    ///         signature carried by `auth`. This is the heart of the fix.
+    ///         Previously the funds arrived by an anonymous transfer and the
+    ///         `opener` freely declared who would be refunded — yet `agent` and
+    ///         `beneficiary` are the recipients of ALL THREE exits of the
+    ///         contract. An opener acting alone could therefore award itself any
+    ///         unattached balance, without the settler and without the owner.
     ///
-    ///         Financement et ouverture étant désormais atomiques, il n'existe
-    ///         plus ni fenêtre de solde libre à capter, ni règlement orphelin si
-    ///         l'ouverture échoue : tout révèrte ensemble.
+    ///         Funding and opening now being atomic, there is no longer either a
+    ///         window of unattached balance to capture, or an orphaned
+    ///         settlement should the opening fail: everything reverts together.
     function open(
         bytes32 id,
         address beneficiary,
@@ -180,43 +180,45 @@ contract WarrantEscrow {
         if (bond == 0) revert ZeroBond();
         if (duration < MIN_DURATION || duration > MAX_DURATION) revert BadDuration();
         if (beneficiary == address(0) || auth.from == address(0)) revert ZeroAddress();
-        // I6 vrai par construction : une saisie ne peut pas alimenter la
-        // trésorerie du protocole, même via une politique mal configurée.
+        // I6 true by construction: a slash cannot feed the protocol's own
+        // treasury, not even through a misconfigured policy.
         if (beneficiary == treasury) revert BeneficiaryIsTreasury();
-        // Deux bénéficiaires dégénérés, qui vident la caution de son sens :
-        //   - l'agent lui-même : une saisie rembourserait le fautif ;
-        //   - ce contrat : la caution disparaîtrait du passif sans en sortir,
-        //     devenant un excédent que rien ne peut plus récupérer.
+        // Two degenerate beneficiaries, both of which drain the bond of its
+        // meaning:
+        //   - the agent itself: a slash would refund the party at fault;
+        //   - this contract: the bond would vanish from the liabilities without
+        //     ever leaving, becoming a surplus nothing can recover any more.
         if (beneficiary == auth.from || beneficiary == address(this)) revert BadBeneficiary();
-        // Exactement la caution, ni plus ni moins : un excédent serait
-        // irrécupérable, le contrat n'ayant aucune fonction de balayage.
+        // Exactly the bond, no more and no less: an excess would be
+        // unrecoverable, the contract having no sweep function whatsoever.
         if (auth.value != bond) revert ValueMismatch();
-        // L'autorisation EIP-3009 prouve QUI paie ; elle ne dit rien de CE QUI a
-        // été accepté — son digest ne couvre que
-        // (from, to, value, validAfter, validBefore, nonce). Sans le contrôle
-        // ci-dessous, l'`opener` pourrait détourner une autorisation destinée à
-        // un mandat vers un mandat aux termes de son choix : autre bénéficiaire,
-        // autre post-condition, `duration` portée à MAX_DURATION.
+        // The EIP-3009 authorization proves WHO pays; it says nothing about WHAT
+        // was agreed to — its digest only covers
+        // (from, to, value, validAfter, validBefore, nonce). Without the check
+        // below, the `opener` could divert an authorization meant for one
+        // warrant towards a warrant on terms of its own choosing: another
+        // beneficiary, another post-condition, `duration` stretched to
+        // MAX_DURATION.
         //
-        // On exploite le fait que le `nonce` EST dans le digest signé : en le
-        // contraignant à valoir le hash des termes, signer l'autorisation revient
-        // à signer les termes. Une seule signature, liaison complète, et
-        // l'unicité du nonce reste assurée par `id`.
+        // We exploit the fact that the `nonce` IS part of the signed digest: by
+        // constraining it to equal the hash of the terms, signing the
+        // authorization amounts to signing the terms. A single signature, a
+        // complete binding, and nonce uniqueness is still assured by `id`.
         if (auth.nonce != termsHash(id, beneficiary, bond, conditionHash, actionHash, duration)) {
             revert TermsMismatch();
         }
 
-        // Le paiement est tiré ICI, contre la signature de l'agent. Si elle ne
-        // correspond pas à `auth.from`, le token révèrte et rien ne s'ouvre.
-        // `auth.from` est donc l'agent, prouvé cryptographiquement.
+        // The payment is pulled HERE, against the agent's signature. If it does
+        // not match `auth.from`, the token reverts and nothing opens.
+        // `auth.from` is therefore the agent, cryptographically proven.
         IERC3009(address(token)).receiveWithAuthorization(
             auth.from, address(this), auth.value, auth.validAfter, auth.validBefore, auth.nonce, auth.v, auth.r, auth.s
         );
 
-        // Addition volontairement *checked*. Le contrôle de solde qui suit est
-        // désormais redondant — on vient d'encaisser exactement `bond` — mais on
-        // le garde : I1 est un invariant déclaré, et une ligne de défense contre
-        // un token qui mentirait sur son propre transfert coûte peu.
+        // Addition deliberately left *checked*. The balance check that follows
+        // is now redundant — we just collected exactly `bond` — but we keep it:
+        // I1 is a declared invariant, and one more line of defence against a
+        // token that would lie about its own transfer costs little.
         totalLocked += bond;
         if (token.balanceOf(address(this)) < totalLocked) revert Underfunded();
 
@@ -228,8 +230,8 @@ contract WarrantEscrow {
             bond: bond,
             conditionHash: conditionHash,
             actionHash: actionHash,
-            // `fundingRef` cesse d'être décoratif : c'est le nonce EIP-3009,
-            // dont le token garantit lui-même qu'il ne sert qu'une fois.
+            // `fundingRef` stops being decorative: it is the EIP-3009 nonce,
+            // which the token itself guarantees can only ever be used once.
             fundingRef: auth.nonce,
             expiry: expiry,
             openedAt: uint64(block.timestamp),
@@ -240,50 +242,51 @@ contract WarrantEscrow {
         emit WarrantOpened(id, auth.from, beneficiary, bond, conditionHash, actionHash, auth.nonce, expiry);
     }
 
-    /// @notice Post-condition tenue : rembourse `bond - fee` à l'agent.
-    /// @dev    Fermé après `expiry` — voir invariant I9.
+    /// @notice Post-condition met: refunds `bond - fee` to the agent.
+    /// @dev    Closed after `expiry` — see invariant I9.
     function honor(bytes32 id, bytes32 execRef) external {
         if (msg.sender != settler) revert NotSettler();
         Warrant storage w = warrants[id];
         if (w.status != Status.Open) revert NotOpen();
-        if (block.timestamp > w.expiry) revert Expired(); // I9 — fenêtre de règlement close
+        if (block.timestamp > w.expiry) revert Expired(); // I9 — settlement window closed
 
-        w.status = Status.Honored; // effet avant interaction
-        // Le taux figé à l'ouverture, pas le taux courant : les conditions
-        // économiques d'un mandat ne bougent plus une fois l'agent engagé.
+        w.status = Status.Honored; // effect before interaction
+        // The rate frozen at open, not the current one: the economic terms of a
+        // warrant no longer move once the agent has committed.
         uint256 fee = (w.bond * w.feeBpsAtOpen) / 10_000;
         uint256 refunded = w.bond - fee;
         totalLocked -= w.bond;
 
-        // L'agent est payé AVANT la trésorerie. Entre les deux transferts,
-        // `totalLocked` a déjà perdu `bond` entier ; payer l'agent d'abord
-        // referme la fenêtre où le solde apparent excède le passif réel.
+        // The agent is paid BEFORE the treasury. Between the two transfers,
+        // `totalLocked` has already shed the whole `bond`; paying the agent
+        // first closes the window in which the apparent balance exceeds the
+        // actual liability.
         token.safeTransfer(w.agent, refunded);
         if (fee > 0) token.safeTransfer(treasury, fee);
 
         emit WarrantHonored(id, execRef, refunded, fee);
     }
 
-    /// @notice Post-condition violée : transfère l'intégralité de `bond` au bénéficiaire.
-    /// @dev    Fermé après `expiry` — voir invariant I9. Aucun frais n'est prélevé (I6).
+    /// @notice Post-condition breached: transfers the whole `bond` to the beneficiary.
+    /// @dev    Closed after `expiry` — see invariant I9. No fee is taken (I6).
     function slash(bytes32 id, bytes32 execRef, string calldata reason) external {
         if (msg.sender != settler) revert NotSettler();
         Warrant storage w = warrants[id];
         if (w.status != Status.Open) revert NotOpen();
-        if (block.timestamp > w.expiry) revert Expired(); // I9 — fenêtre de règlement close
+        if (block.timestamp > w.expiry) revert Expired(); // I9 — settlement window closed
 
         w.status = Status.Slashed;
         uint256 amount = w.bond;
         totalLocked -= amount;
 
-        token.safeTransfer(w.beneficiary, amount); // intégralité, aucun frais sur une saisie
+        token.safeTransfer(w.beneficiary, amount); // in full, no fee on a slash
         emit WarrantSlashed(id, execRef, amount, reason);
     }
 
-    /// @notice Après expiration, n'importe qui peut déclencher le remboursement intégral
-    ///         à l'agent. Empêche toute séquestration par un settler défaillant.
+    /// @notice Once expired, anyone may trigger the full refund to the agent.
+    ///         Stops a failing settler from holding the bond hostage.
     function reclaim(bytes32 id) external {
-        // volontairement sans permission
+        // deliberately permissionless
         Warrant storage w = warrants[id];
         if (w.status != Status.Open) revert NotOpen();
         if (block.timestamp <= w.expiry) revert NotExpired();
@@ -292,7 +295,7 @@ contract WarrantEscrow {
         uint256 amount = w.bond;
         totalLocked -= amount;
 
-        token.safeTransfer(w.agent, amount); // remboursement intégral, sans frais
+        token.safeTransfer(w.agent, amount); // refunded in full, no fee
         emit WarrantReclaimed(id, amount);
     }
 
@@ -316,11 +319,11 @@ contract WarrantEscrow {
         feeBps = next;
     }
 
-    // ── Vues ──────────────────────────────────────────────────────────────
+    // ── Views ─────────────────────────────────────────────────────────────
 
-    /// @notice Le nonce EIP-3009 qu'une autorisation doit porter pour ce mandat.
-    /// @dev    Exposé pour que le client dérive exactement ce que le contrat
-    ///         attend, plutôt que de réimplémenter la formule et de diverger.
+    /// @notice The EIP-3009 nonce an authorization must carry for this warrant.
+    /// @dev    Exposed so that the client derives exactly what the contract
+    ///         expects, rather than reimplementing the formula and diverging.
     function termsHash(
         bytes32 id,
         address beneficiary,
@@ -332,8 +335,8 @@ contract WarrantEscrow {
         return keccak256(abi.encode(id, beneficiary, bond, conditionHash, actionHash, duration));
     }
 
-    /// @notice Renvoie le mandat complet en une seule lecture (le getter public généré
-    ///         renvoie un tuple, malcommode côté indexeur et côté tests).
+    /// @notice Returns the whole warrant in a single read (the generated public getter
+    ///         returns a tuple, awkward both for indexers and for tests).
     function getWarrant(bytes32 id) external view returns (Warrant memory) {
         return warrants[id];
     }

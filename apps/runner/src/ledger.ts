@@ -1,40 +1,40 @@
 /**
- * Le journal comme source de vérité — et le compteur public qui en sort.
+ * The ledger as the source of truth — and the public counter that comes out of it.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi le runner n'a pas d'état propre
+ * Why the runner keeps no state of its own
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Un runner de volume doit pouvoir être tué et relancé sans rouvrir ce qu'il a
- * déjà ouvert. La tentation est un fichier d'état à lui — `runner.state.json`,
- * un compteur, une liste d'ids. C'est un second registre à réconcilier avec le
- * premier, et le jour où les deux divergent (SIGKILL entre l'ouverture et
- * l'écriture de l'état), c'est celui qui ment qu'on croira.
+ * A volume runner has to survive being killed and restarted without reopening
+ * what it already opened. The tempting answer is a state file of its own —
+ * `runner.state.json`, a counter, a list of ids. That is a second register to
+ * reconcile with the first, and the day the two diverge (SIGKILL between the
+ * opening and the state write), the one we believe is the one that lies.
  *
- * Le runner n'en a donc aucun. Il **réutilise** `WARRANT_JOURNAL_FILE`, celui
- * qu'`open-warrant.ts` écrit et que le Settler suit, et il y ajoute la seule
- * chose que ce journal ne porte pas encore : sous quel **scénario** un mandat a
- * été ouvert. Le journal est append-only et « la dernière ligne gagne au
- * rechargement » (voir `packages/server/src/journal.ts`) : réécrire un
- * enregistrement enrichi d'un champ `runner` est donc une opération légitime du
- * format, pas un détournement. Le Settler relit la ligne, n'y trouve rien de
- * changé dans les champs qu'il connaît, et continue.
+ * So the runner has none. It **reuses** `WARRANT_JOURNAL_FILE`, the one
+ * `open-warrant.ts` writes and the Settler follows, and it adds the one thing
+ * that ledger does not carry yet: under which **scenario** a warrant was opened.
+ * The ledger is append-only and "the last line wins on reload" (see
+ * `packages/server/src/journal.ts`): rewriting a record enriched with a `runner`
+ * field is therefore a legitimate operation of the format, not a hijacking. The
+ * Settler re-reads the line, finds nothing changed in the fields it knows about,
+ * and carries on.
  *
- * Ce que ce champ permet, et qu'aucune lecture onchain ne donnerait :
+ * What that field buys, and what no onchain read would give:
  *
- *   • **la reprise exacte du plan.** Le scénario n'est pas déductible de la
- *     chaîne ni du journal : `actionSpec.calldata` encode la destination
- *     *engagée*, jamais celle réellement servie. Sans étiquette, un runner
- *     relancé ne saurait pas combien de saisies il a déjà provoquées, et
- *     rouvrirait des saisies à 0,2 USDC pièce — le seul poste qui détruit du
- *     principal ;
- *   • **la séparation entre campagnes.** Les mandats ouverts à la main avant le
- *     runner comptent dans le compteur public (ce sont de vrais mandats) mais
- *     pas dans le budget de la campagne en cours.
+ *   • **exact resumption of the plan.** The scenario cannot be deduced from the
+ *     chain nor from the ledger: `actionSpec.calldata` encodes the *committed*
+ *     destination, never the one actually served. Without the tag, a restarted
+ *     runner would not know how many slashes it has already caused, and would
+ *     reopen slashes at 0.2 USDC apiece — the only line item that destroys
+ *     principal;
+ *   • **separation between campaigns.** Warrants opened by hand before the
+ *     runner count towards the public counter (they are real warrants) but not
+ *     towards the budget of the campaign under way.
  *
- * Et le budget, lui, ne croit jamais l'étiquette : le principal détruit est
- * calculé sur `status == Slashed` **lu onchain**. L'étiquette sert au plan, la
- * chaîne sert à la comptabilité.
+ * And the budget itself never believes the tag: destroyed principal is computed
+ * from `status == Slashed` **read onchain**. The tag serves the plan, the chain
+ * serves the accounting.
  */
 
 import { WarrantStatus, type Address, type Hex } from '@warrant/core'
@@ -45,15 +45,15 @@ import { readWarrants, type OnchainWarrant } from './chain.js'
 
 export type Scenario = 'honored' | 'diverted'
 
-/** Étiquette de campagne ajoutée par le runner à un enregistrement du journal. */
+/** Campaign tag the runner adds to a ledger record. */
 export interface RunnerTag {
-  /** Libellé de campagne — `RUNNER_CAMPAIGN`. Isole les budgets entre séries. */
+  /** Campaign label — `RUNNER_CAMPAIGN`. Isolates budgets between series. */
   campaign: string
-  /** Rang dans la campagne, à partir de 1. Diagnostic, jamais un identifiant. */
+  /** Rank within the campaign, from 1. Diagnostic, never an identifier. */
   seq: number
-  /** Scénario demandé à `open-warrant.ts`. Le seul champ non déductible. */
+  /** Scenario asked of `open-warrant.ts`. The only non-deducible field. */
   scenario: Scenario
-  /** Millisecondes epoch. Sert à mesurer le débit réellement obtenu. */
+  /** Epoch milliseconds. Used to measure the throughput actually achieved. */
   taggedAt: number
 }
 
@@ -61,27 +61,27 @@ export type TaggedRecord = WarrantRecord & { runner?: RunnerTag }
 
 export interface Ledger {
   readonly journal: WarrantJournal
-  /** Consomme les lignes ajoutées par les autres processus. */
+  /** Takes in the lines other processes appended. */
   refresh(): void
-  /** Tous les enregistrements, dernière version gagnante. */
+  /** Every record, last version wins. */
   all(): TaggedRecord[]
-  /** Ceux étiquetés de la campagne courante, par rang croissant. */
+  /** Those tagged with the current campaign, by ascending rank. */
   campaign(): (TaggedRecord & { runner: RunnerTag })[]
-  /** Réécrit un enregistrement enrichi de son étiquette. Idempotent. */
+  /** Rewrites a record enriched with its tag. Idempotent. */
   tag(id: Hex, tag: RunnerTag): void
-  /** Prochain rang libre de la campagne. */
+  /** Next free rank in the campaign. */
   nextSeq(): number
 }
 
 export function openLedger(path: string, campaign: string): Ledger {
   const journal = fileWarrantStore({
     path,
-    // Une ligne illisible n'interrompt rien, mais elle ne doit pas être
-    // silencieuse : c'est un mandat que le Settler ne réglera jamais, donc une
-    // caution qui n'attend plus que l'expiration.
+    // An unreadable line interrupts nothing, but it must not be silent: it is a
+    // warrant the Settler will never settle, hence a bond with nothing left to
+    // wait for but expiry.
     onDefect: (d) =>
       console.warn(
-        JSON.stringify({ msg: 'runner: ligne de journal illisible', line: d.line, error: d.error }),
+        JSON.stringify({ msg: 'runner: unreadable ledger line', line: d.line, error: d.error }),
       ),
   })
 
@@ -105,15 +105,15 @@ export function openLedger(path: string, campaign: string): Ledger {
       journal.refresh()
       const record = journal.get(id) as TaggedRecord | undefined
       if (!record) {
-        // L'enfant a ouvert le mandat mais le journal ne le porte pas : refuser
-        // d'inventer une ligne. Un enregistrement fabriqué ici aurait une
-        // `conditionSpec` que personne n'a signée, et le Settler recalculerait
-        // `conditionHash(spec) != conditionHash onchain` — donc un refus
-        // d'évaluer, donc une expiration. Mieux vaut le dire tout de suite.
+        // The child opened the warrant but the ledger does not carry it: refuse
+        // to invent a line. A record fabricated here would hold a
+        // `conditionSpec` nobody signed, and the Settler would recompute
+        // `conditionHash(spec) != conditionHash onchain` — hence a refusal to
+        // evaluate, hence an expiry. Better to say so right away.
         throw new Error(
-          `mandat ${id} absent du journal ${path} : il a été ouvert onchain mais ` +
-            "open-warrant.ts n'a pas écrit sa ligne. Le Settler ne pourra pas " +
-            "l'évaluer et la caution attendra reclaim().",
+          `warrant ${id} missing from ledger ${path}: it was opened onchain but ` +
+            'open-warrant.ts did not write its line. The Settler will not be able ' +
+            'to evaluate it and the bond will wait for reclaim().',
         )
       }
       journal.put({ ...record, runner: tag } as WarrantRecord)
@@ -129,54 +129,53 @@ export function openLedger(path: string, campaign: string): Ledger {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compteur public
+// Public counter
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Ce que le dashboard et le jury lisent.
+ * What the dashboard and the jury read.
  *
- * Clés ASCII et montants en chaînes décimales d'unités atomiques : un compteur
- * consommé par un autre processus ne doit ni dépendre d'un accent ni passer par
- * un `number` — 0,2 USDC vaut 200000, et une caution qui transite en flottant
- * perdrait des unités sans rien signaler. Les mêmes montants sont doublés en
- * représentation décimale `*_usdc` pour l'affichage, et seule celle-là est
- * destinée à être lue par un humain.
+ * ASCII keys and amounts as decimal strings of atomic units: a counter consumed
+ * by another process must neither depend on an accent nor pass through a
+ * `number` — 0.2 USDC is 200000, and a bond routed through a float would lose
+ * units without signalling anything. The same amounts are duplicated in `*_usdc`
+ * decimal form for display, and only that one is meant to be read by a human.
  */
 export interface Counters {
   campaign: string
-  /** ISO 8601, instant de calcul. Un compteur sans date ne se compare pas. */
+  /** ISO 8601, instant of computation. An undated counter cannot be compared. */
   at: string
   chainId: number
   escrow: Address
-  /** Sur l'ensemble du journal — l'histoire complète du déploiement. */
+  /** Over the whole ledger — the deployment's complete history. */
   total: Tally
-  /** Sur les seuls mandats étiquetés de la campagne courante. */
+  /** Over only the warrants tagged with the current campaign. */
   campaignTally: Tally
-  /** Mandats présents au journal mais introuvables onchain. Doit rester à 0. */
+  /** Warrants in the ledger but not found onchain. Must stay at 0. */
   unknown: number
 }
 
 export interface Tally {
-  /** Mandats existants onchain (statut ≠ None). C'est le volume revendiqué. */
+  /** Warrants existing onchain (status ≠ None). This is the claimed volume. */
   opened: number
   honored: number
   slashed: number
   reclaimed: number
-  /** Encore ouverts : le backlog que le Settler doit drainer. */
+  /** Still open: the backlog the Settler has to drain. */
   open: number
-  /** Σ caution des mandats ouverts — capital immobilisé, récupérable. */
+  /** Σ bond of open warrants — capital locked up, recoverable. */
   locked: string
   locked_usdc: string
-  /** Σ caution des mandats saisis — capital **détruit**, parti au bénéficiaire. */
+  /** Σ bond of slashed warrants — capital **destroyed**, gone to the beneficiary. */
   destroyed: string
   destroyed_usdc: string
-  /** Σ frais des mandats honorés — le vrai coût du recyclage. */
+  /** Σ fee of honored warrants — the real cost of recycling. */
   fees: string
   fees_usdc: string
-  /** Σ `bond − fee` rendu à l'agent sur les honorés. */
+  /** Σ `bond − fee` returned to the agent on the honored ones. */
   refunded: string
   refunded_usdc: string
-  /** saisis / (honorés + saisis), en points de base. Sans réglé : 0. */
+  /** slashed / (honored + slashed), in basis points. Nothing settled: 0. */
   slashRateBps: number
 }
 
@@ -206,15 +205,15 @@ function decimals6(atomic: bigint): string {
 }
 
 /**
- * Agrège une liste de mandats lus onchain.
+ * Aggregates a list of warrants read onchain.
  *
- * `fee` est dérivée de `bond × feeBpsAtOpen / 10000` et non lue dans
- * `WarrantHonored` : les logs de cet escrow ne sont pas interrogeables sur une
- * fenêtre large avec le RPC public de Base Sepolia, qui refuse tout
- * `eth_getLogs` de plus de 2000 blocs. `feeBpsAtOpen` est figée à l'ouverture
- * par le contrat précisément pour que ce calcul soit exact même si le taux
- * change ensuite — le dériver est donc aussi juste que le lire, et ne coûte
- * aucune requête.
+ * `fee` is derived from `bond × feeBpsAtOpen / 10000` rather than read from
+ * `WarrantHonored`: this escrow's logs cannot be queried over a wide window with
+ * Base Sepolia's public RPC, which refuses any `eth_getLogs` spanning more than
+ * 2000 blocks. `feeBpsAtOpen` is frozen at opening time by the contract
+ * precisely so that this computation stays exact even if the rate changes
+ * afterwards — deriving it is therefore just as correct as reading it, and costs
+ * no request at all.
  */
 export function tally(warrants: Iterable<OnchainWarrant>): Tally {
   const t = emptyTally()
@@ -267,7 +266,7 @@ export interface CountersInput {
   campaign: string
 }
 
-/** Recalcule le compteur public : journal pour la liste, chaîne pour le statut. */
+/** Recomputes the public counter: ledger for the list, chain for the status. */
 export async function computeCounters(input: CountersInput): Promise<Counters> {
   input.ledger.refresh()
   const records = input.ledger.all()

@@ -1,13 +1,14 @@
 /**
- * Tests bâtis sur une transaction sponsorisée **réelle**.
+ * Tests built on a **real** sponsored transaction.
  *
- * Base Sepolia, bloc 44736245 :
+ * Base Sepolia, block 44736245:
  * `0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315`
  *
- * C'est le premier appel exécuté via KeeperHub par ce projet, et il a révélé
- * que `tx.to` désigne un forwarder et non le contrat cible dès que le gas est
- * sponsorisé. Figer ces octets ici garantit qu'une régression sur la
- * décapsulation se voit immédiatement, sans dépendre du réseau.
+ * This is the first call this project executed through KeeperHub, and it is what
+ * revealed that `tx.to` designates a forwarder rather than the target contract
+ * as soon as the gas is sponsored. Freezing these bytes here guarantees that a
+ * regression in the unwrapping shows up immediately, without depending on the
+ * network.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -18,14 +19,14 @@ import {
   unwrapForwarder,
 } from './forwarder.js'
 
-/** Calldata top-level réel de la transaction sponsorisée. */
+/** Real top-level calldata of the sponsored transaction. */
 const REAL_FORWARDER_INPUT =
   '0x9aefaff8' +
-  '0000000000000000000000001f854780eaea8ec169c6cf96597934da2573bfa1' + // wallet org
-  '000000000000000000000000036cbd53842c5426634e7929541ec2318f3dcf7e' + // USDC cible
+  '0000000000000000000000001f854780eaea8ec169c6cf96597934da2573bfa1' + // org wallet
+  '000000000000000000000000036cbd53842c5426634e7929541ec2318f3dcf7e' + // USDC target
   '0000000000000000000000000000000000000000000000000000000000000000' + // value
   '0000000000000000000000000000000000000000000000000000000000000080' + // offset bytes
-  '0000000000000000000000000000000000000000000000000000000000000099' + // longueur 153
+  '0000000000000000000000000000000000000000000000000000000000000099' + // length 153
   '5f14e21922e4e2a9f606e6ca773ac116d193af5daaf3946c547943208418014855d80bd52c66b74bcde87e62045df4c9870b8d001942b2fe310d60272c10f0141c000000000000000000000000000000006a68aad8095ea7b3000000000000000000000000000000000000000000000000000000000000dead0000000000000000000000000000000000000000000000000000000000000000' +
   '00000000000000'
 
@@ -33,41 +34,41 @@ const FORWARDER = '0x5aF5194B4b0909eB978e3Cf1e25333852277f07D'
 const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
 const ORG_WALLET = '0x1F854780EAEA8ec169c6cF96597934Da2573bfA1'
 
-describe('unwrapForwarder — transaction sponsorisée réelle', () => {
+describe('unwrapForwarder — real sponsored transaction', () => {
   const call = unwrapForwarder({
     to: FORWARDER,
     value: 0n,
     input: REAL_FORWARDER_INPUT as Hex,
   })
 
-  it('reconnaît l’enveloppe de sponsoring', () => {
+  it('recognises the sponsoring envelope', () => {
     expect(call.viaForwarder).toBe(true)
   })
 
-  it('retrouve le contrat cible, pas le forwarder', () => {
+  it('recovers the target contract, not the forwarder', () => {
     expect(call.target.toLowerCase()).toBe(USDC_BASE_SEPOLIA.toLowerCase())
     expect(call.target.toLowerCase()).not.toBe(FORWARDER.toLowerCase())
   })
 
-  it('retrouve le wallet pour le compte duquel le forwarder agit', () => {
+  it('recovers the wallet on whose behalf the forwarder acts', () => {
     expect(call.wallet?.toLowerCase()).toBe(ORG_WALLET.toLowerCase())
   })
 
-  it('extrait un calldata `approve` bien formé', () => {
-    // 4 octets de sélecteur + 2 mots de 32 octets.
+  it('extracts a well-formed `approve` calldata', () => {
+    // 4 selector bytes + 2 words of 32 bytes.
     expect(call.calldata.slice(0, 10)).toBe('0x095ea7b3')
     expect((call.calldata.length - 2) / 2).toBe(68)
   })
 
-  it('décode les arguments engagés — spender et montant', () => {
+  it('decodes the committed arguments — spender and amount', () => {
     const args = call.calldata.slice(10)
     expect(args.slice(0, 64).endsWith('dead')).toBe(true)
     expect(BigInt(`0x${args.slice(64, 128)}`)).toBe(0n)
   })
 })
 
-describe('unwrapForwarder — le cas direct reste intact', () => {
-  it('rend la transaction telle quelle hors sponsoring', () => {
+describe('unwrapForwarder — the direct case stays untouched', () => {
+  it('returns the transaction as-is when there is no sponsoring', () => {
     const direct = unwrapForwarder({
       to: USDC_BASE_SEPOLIA,
       value: 0n,
@@ -78,26 +79,26 @@ describe('unwrapForwarder — le cas direct reste intact', () => {
     expect(direct.calldata).toBe('0x095ea7b3')
   })
 
-  it('traite une création de contrat sans lever', () => {
+  it('handles a contract creation without throwing', () => {
     const created = unwrapForwarder({ to: null, value: 0n, input: '0x6080' as Hex })
     expect(created.viaForwarder).toBe(false)
     expect(created.target).toBe('0x0000000000000000000000000000000000000000')
   })
 })
 
-describe('unwrapForwarder — conservateur en cas de doute', () => {
-  it('ne devine rien si le sélecteur coïncide mais la forme ne suit pas', () => {
+describe('unwrapForwarder — conservative when in doubt', () => {
+  it('guesses nothing when the selector matches but the shape does not follow', () => {
     const bogus = unwrapForwarder({
       to: FORWARDER,
       value: 0n,
       input: `${FORWARDER_EXECUTE_SELECTOR}deadbeef` as Hex,
     })
-    // Retombe sur la transaction brute : le check échouera, ce qui est correct.
+    // Falls back to the raw transaction: the check will fail, which is correct.
     expect(bogus.viaForwarder).toBe(false)
     expect(bogus.target).toBe(FORWARDER)
   })
 
-  it('n’altère pas un calldata dont le sélecteur diffère', () => {
+  it('leaves a calldata with a different selector untouched', () => {
     const other = unwrapForwarder({
       to: USDC_BASE_SEPOLIA,
       value: 0n,
@@ -109,11 +110,11 @@ describe('unwrapForwarder — conservateur en cas de doute', () => {
 })
 
 describe('extractInnerCalldata', () => {
-  it('refuse un payload trop court pour contenir signature + sélecteur', () => {
+  it('rejects a payload too short to hold signature + selector', () => {
     expect(extractInnerCalldata(`0x${'00'.repeat(68)}` as Hex)).toBeUndefined()
   })
 
-  it('rend un calldata de longueur ABI valide — 4 + 32·n octets', () => {
+  it('returns a calldata of valid ABI length — 4 + 32·n bytes', () => {
     const inner = extractInnerCalldata(
       `0x${'11'.repeat(65)}${'22'.repeat(8)}095ea7b3${'33'.repeat(64)}` as Hex,
     )

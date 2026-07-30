@@ -1,27 +1,27 @@
 /**
- * Engagements : `conditionHash` et `actionHash` (docs/07 § 4).
+ * Commitments: `conditionHash` and `actionHash` (docs/07 § 4).
  *
  *   hash = keccak256(utf8(canonicalize(normalize(spec))))
  *
- * La normalisation est appliquee **avant** la canonicalisation et applique les
- * quatre regles non negociables de docs/07 § 4 :
+ * Normalization runs **before** canonicalization and applies the four
+ * non-negotiable rules of docs/07 § 4:
  *
- *   1. JCS (RFC 8785) — delegue a `canonical.ts`.
- *   2. Adresses en minuscules, sans checksum EIP-55 : une meme adresse ne doit
- *      jamais produire deux hashs.
- *   3. Nombres en chaines decimales, jamais en `number` JavaScript — les
- *      `uint256` depassent `Number.MAX_SAFE_INTEGER`. Un `number` ou un
- *      `bigint` fourni pour un champ montant est converti sans perte, et un
- *      `number` non entier ou non sur est refuse plutot qu'arrondi.
- *   4. Aucun champ optionnel absent : les valeurs par defaut sont injectees.
+ *   1. JCS (RFC 8785) — delegated to `canonical.ts`.
+ *   2. Lowercase addresses, no EIP-55 checksum: one and the same address must
+ *      never produce two hashes.
+ *   3. Numbers as decimal strings, never as JavaScript `number` — `uint256`
+ *      values exceed `Number.MAX_SAFE_INTEGER`. A `number` or a `bigint`
+ *      supplied for an amount field is converted losslessly, and a fractional
+ *      or unsafe `number` is refused rather than rounded.
+ *   4. No optional field left out: default values are injected.
  *
- * La normalisation reconstruit des objets neufs a partir d'une liste blanche de
- * champs : rien d'inattendu ne peut se glisser dans l'objet hache.
+ * Normalization rebuilds fresh objects from a whitelist of fields: nothing
+ * unexpected can slip into the hashed object.
  *
- * Ce qui n'est **pas** fait, volontairement : l'ordre des `checks` et celui de
- * `no_new_approvals.tokens` sont preserves tels quels. JCS ne reordonne jamais
- * les tableaux ; introduire un tri maison serait une regle supplementaire a
- * reimplementer a l'identique en Python et en Go.
+ * What is deliberately **not** done: the order of `checks` and of
+ * `no_new_approvals.tokens` is preserved as is. JCS never reorders arrays;
+ * introducing a homegrown sort would be one more rule to reimplement
+ * identically in Python and in Go.
  */
 
 import { keccak256, stringToBytes } from 'viem'
@@ -50,7 +50,7 @@ import type {
   Op,
 } from './types.js'
 
-/** Erreur de normalisation. Porte le chemin du champ fautif. */
+/** Normalization error. Carries the path of the offending field. */
 export class NormalizationError extends Error {
   readonly path: string
 
@@ -83,7 +83,7 @@ function asRecord(value: unknown, path: string, what: string): Record<string, un
   return value as Record<string, unknown>
 }
 
-/** Regle 2 : minuscules, sans checksum EIP-55. */
+/** Rule 2: lowercase, no EIP-55 checksum. */
 function normAddress(value: unknown, path: string): Address {
   if (!isAddress(value)) {
     fail(path, `expected a 20-byte hex address, got ${show(value)}`)
@@ -109,11 +109,11 @@ function normHexData(value: unknown, path: string): Hex {
 }
 
 /**
- * Regle 3 : montants en chaine decimale canonique.
+ * Rule 3: amounts as canonical decimal strings.
  *
- * Accepte `string`, `bigint` et `number` entier sur, refuse tout le reste. Les
- * formes equivalentes (`"007"`, `"+7"`, `"-0"`) sont ramenees a leur forme
- * canonique pour qu'elles ne produisent pas deux hashs differents.
+ * Accepts `string`, `bigint` and safe integer `number`, refuses everything
+ * else. Equivalent spellings (`"007"`, `"+7"`, `"-0"`) are collapsed to their
+ * canonical form so that they do not produce two different hashes.
  */
 function normDecimal(
   value: unknown,
@@ -280,7 +280,7 @@ function normalizeCheck(raw: unknown, path: string): Check {
         kind: 'event_emitted',
         address: normAddress(c['address'], `${path}.address`),
         topic0: normHexBytes(c['topic0'], 32, `${path}.topic0`),
-        // Regle 4 : `minCount` est le seul champ de check reellement optionnel.
+        // Rule 4: `minCount` is the only truly optional field of any check.
         minCount: normInteger(c['minCount'], `${path}.minCount`, {
           min: 1,
           fallback: 1,
@@ -330,22 +330,21 @@ function normalizeEvaluateAt(value: unknown, path: string): EvaluateAt {
 }
 
 /**
- * Confirmations par defaut : L1 (chainId 1) attend 12 blocs, tout le reste 3
- * (docs/07 § 1). Le defaut est fige ici pour que deux implementations qui
- * omettent le champ produisent le meme hash.
+ * Default confirmations: L1 (chainId 1) waits 12 blocks, everything else 3
+ * (docs/07 § 1). The default is pinned here so that two implementations that
+ * omit the field produce the same hash.
  */
 export function defaultConfirmations(chainId: number): number {
   return chainId === 1 ? DEFAULT_CONFIRMATIONS.l1 : DEFAULT_CONFIRMATIONS.l2
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Normalisation des specs
+// Spec normalization
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Normalise une `ConditionSpec` avant hachage : adresses en minuscules,
- * montants en chaines decimales canoniques, defauts injectes, champs inconnus
- * ecartes.
+ * Normalizes a `ConditionSpec` before hashing: lowercase addresses, amounts as
+ * canonical decimal strings, defaults injected, unknown fields dropped.
  *
  * @throws {NormalizationError}
  */
@@ -377,7 +376,7 @@ export function normalizeConditionSpec(spec: unknown): ConditionSpec {
 }
 
 /**
- * Normalise une `ActionSpec` avant hachage.
+ * Normalizes an `ActionSpec` before hashing.
  *
  * @throws {NormalizationError}
  */
@@ -393,7 +392,7 @@ export function normalizeActionSpec(spec: unknown): ActionSpec {
     version: 1,
     chainId: normInteger(s['chainId'], '$.chainId', { min: 1 }),
     target: normAddress(s['target'], '$.target'),
-    // Regle 4 : une action sans valeur native est "0", jamais absente.
+    // Rule 4: an action with no native value is "0", never absent.
     value: normDecimal(s['value'] === undefined ? '0' : s['value'], '$.value', UNSIGNED),
     calldata: normHexData(s['calldata'] === undefined ? '0x' : s['calldata'], '$.calldata'),
     registryRef: normHexBytes(s['registryRef'], 32, '$.registryRef'),
@@ -401,10 +400,10 @@ export function normalizeActionSpec(spec: unknown): ActionSpec {
 }
 
 /**
- * Normalisation generique : reconnait une `ConditionSpec` (elle porte `checks`)
- * d'une `ActionSpec` (elle porte `calldata`).
+ * Generic normalization: tells a `ConditionSpec` (it carries `checks`) from an
+ * `ActionSpec` (it carries `calldata`).
  *
- * @throws {NormalizationError} si la forme n'est ni l'une ni l'autre.
+ * @throws {NormalizationError} if the shape is neither one nor the other.
  */
 export function normalize(spec: unknown): ConditionSpec | ActionSpec {
   const s = asRecord(spec, '$', 'a ConditionSpec or an ActionSpec')
@@ -419,34 +418,34 @@ export function normalize(spec: unknown): ConditionSpec | ActionSpec {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hachage
+// Hashing
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `keccak256(utf8(canonical))`. Le point d'entree bas niveau.
+ * `keccak256(utf8(canonical))`. The low-level entry point.
  *
- * On appelle `stringToBytes` et non le `toBytes` de docs/07 § 4 : `toBytes`
- * bascule en mode hexadecimal si la chaine commence par `0x`, ce qui hacherait
- * des octets differents. Les deux sont equivalents sur une sortie JCS, qui
- * commence toujours par `{`, `[` ou `"` — mais l'ambiguite n'a pas sa place
- * dans la fonction qui produit l'engagement onchain.
+ * We call `stringToBytes` rather than the `toBytes` of docs/07 § 4: `toBytes`
+ * switches to hex mode when the string starts with `0x`, which would hash
+ * different bytes. The two are equivalent on JCS output, which always starts
+ * with `{`, `[` or `"` — but ambiguity has no place in the function that
+ * produces the onchain commitment.
  */
 export function hashCanonical(canonical: string): Hex {
   return keccak256(stringToBytes(canonical))
 }
 
-/** Forme canonique JCS d'une `ConditionSpec`, apres normalisation. */
+/** JCS canonical form of a `ConditionSpec`, after normalization. */
 export function canonicalConditionSpec(spec: unknown): string {
   return canonicalize(normalizeConditionSpec(spec))
 }
 
-/** Forme canonique JCS d'une `ActionSpec`, apres normalisation. */
+/** JCS canonical form of an `ActionSpec`, after normalization. */
 export function canonicalActionSpec(spec: unknown): string {
   return canonicalize(normalizeActionSpec(spec))
 }
 
 /**
- * `conditionHash` engage onchain (docs/07 § 4).
+ * `conditionHash` committed onchain (docs/07 § 4).
  *
  * ```ts
  * keccak256(toBytes(canonicalize(normalize(spec))))
@@ -456,7 +455,7 @@ export function conditionHash(spec: unknown): Hex {
   return hashCanonical(canonicalConditionSpec(spec))
 }
 
-/** `actionHash` engage onchain — meme traitement que `conditionHash`. */
+/** `actionHash` committed onchain — same treatment as `conditionHash`. */
 export function actionHash(spec: unknown): Hex {
   return hashCanonical(canonicalActionSpec(spec))
 }

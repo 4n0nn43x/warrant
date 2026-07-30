@@ -25,13 +25,13 @@ from mock_gateway import BENEFICIARY, USDC, serve  # noqa: E402
 
 from warrant_sdk.langchain import warrant_tools  # noqa: E402
 
-#: Compte 1 d'Anvil. Publique, sans valeur, et c'est le point : le mock vérifie la
-#: signature, il ne déplace rien. Ne jamais réutiliser une clé de démo sur un
-#: réseau où elle détient quoi que ce soit.
+#: Anvil account 1. Public, worthless, and that is the point: the mock verifies
+#: the signature, it moves nothing. Never reuse a demo key on a network where it
+#: holds anything at all.
 DEMO_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 
-#: `transfer(0x…dEaD, 1_000_000)` — 1 USDC, six décimales.
-#: La catégorie et le notionnel sortiront de ce calldata, et de rien d'autre.
+#: `transfer(0x…dEaD, 1_000_000)` — 1 USDC, six decimals.
+#: The category and the notional will come out of this calldata, and nothing else.
 CALLDATA = (
     "0xa9059cbb"
     "000000000000000000000000000000000000000000000000000000000000dead"

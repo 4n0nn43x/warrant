@@ -5,23 +5,23 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {WarrantEscrow} from "../src/WarrantEscrow.sol";
 
-/// @title Deploy — déploiement de `WarrantEscrow`
-/// @notice Usage :
+/// @title Deploy — deployment of `WarrantEscrow`
+/// @notice Usage:
 ///   forge script script/Deploy.s.sol --rpc-url $BASE_RPC --broadcast --verify \
 ///     --sig "run(address,address,address,address,uint16)" \
 ///     0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 $TREASURY $OPENER $SETTLER 250
-/// @dev `opener` et `settler` DOIVENT être deux clés distinctes, sur deux machines
-///      distinctes : les réunir annule l'invariant I10 et rend faux tout le tableau de
-///      sécurité de `06-contrat-escrow.md` § 4. Le script refuse donc de déployer.
+/// @dev `opener` and `settler` MUST be two distinct keys, on two distinct machines:
+///      merging them voids invariant I10 and falsifies the whole security table of
+///      `06-contrat-escrow.md` § 4. The script therefore refuses to deploy.
 ///
-///      Depuis l'audit, `WarrantEscrow` impose lui-même cette contrainte dans son
-///      constructeur (`RolesMustDiffer`). Le contrôle ci-dessous est donc redondant,
-///      et on le conserve à ce titre : défense en profondeur, et surtout message
-///      d'erreur explicite au moment où l'opérateur peut encore corriger sa
-///      configuration. C'est le contrat qui est la garantie ; le script n'est qu'une
-///      commodité — un déployeur qui ne l'utilise pas se heurte au constructeur.
+///      Since the audit, `WarrantEscrow` enforces that constraint itself in its
+///      constructor (`RolesMustDiffer`). The check below is therefore redundant, and
+///      that is exactly why it is kept: defence in depth, and above all an explicit
+///      error message at the moment the operator can still fix their configuration.
+///      The contract is what guarantees the property; the script is only a
+///      convenience — a deployer who skips it runs into the constructor instead.
 contract Deploy is Script {
-    /// @notice L'opener et le settler ne peuvent pas être la même adresse (I10).
+    /// @notice The opener and the settler cannot be the same address (I10).
     error RolesMustBeDistinct();
     error ZeroAddress();
     error FeeTooHigh();
@@ -30,9 +30,9 @@ contract Deploy is Script {
         external
         returns (WarrantEscrow escrow)
     {
-        // I10 — garde-fou de déploiement. Contournable en tant que tel : rien
-        // n'oblige personne à passer par ce script. Il double désormais la garde du
-        // constructeur, qui est, elle, la garantie réelle.
+        // I10 — a deployment guardrail. Bypassable as such: nothing forces anyone
+        // to go through this script. It now doubles the constructor's own guard,
+        // which is where the real guarantee lives.
         if (opener == settler) revert RolesMustBeDistinct();
         if (token == address(0) || treasury == address(0)) revert ZeroAddress();
         if (opener == address(0) || settler == address(0)) revert ZeroAddress();

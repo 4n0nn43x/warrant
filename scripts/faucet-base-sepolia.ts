@@ -1,44 +1,44 @@
 #!/usr/bin/env node
 /**
- * Réclamation du faucet Base Sepolia par l'API Coinbase Developer Platform.
+ * Claims the Base Sepolia faucet through the Coinbase Developer Platform API.
  *
- * Pourquoi un script et pas un clic dans le portail : les trois adresses à
- * alimenter le sont pour des raisons différentes (gas de déploiement, gas de
- * règlement, capital de caution), et il faudra recommencer — le faucet est
- * plafonné par 24 h et une campagne de volume consomme du gas. Un script rend
- * l'opération répétable et journalisée.
+ * Why a script rather than a click in the portal: the three addresses being
+ * funded are funded for different reasons (deployment gas, settlement gas, bond
+ * capital), and it will have to be done again — the faucet is rate-limited per
+ * 24 h and a volume campaign burns gas. A script makes the operation repeatable
+ * and logged.
  *
- * Le même compte CDP sert ensuite au facilitateur x402 **mainnet** : le
- * facilitateur public `x402.org` ne couvre que Base Sepolia, donc toute cible
- * mainnet passe par CDP. Ce n'est pas une dépendance de confort.
+ * The same CDP account later serves the **mainnet** x402 facilitator: the public
+ * `x402.org` facilitator covers Base Sepolia only, so any mainnet target goes
+ * through CDP. This is not a convenience dependency.
  *
- * Usage :
+ * Usage:
  *   CDP_API_KEY_ID=… CDP_API_KEY_SECRET=… pnpm faucet
  */
 
 import { CdpClient } from '@coinbase/cdp-sdk'
 
-/** Ce qu'il faut, et pour quoi faire. */
+/** What is needed, and what for. */
 const REQUESTS = [
   {
     address: '0xE9D3d40A1e80F1C20A318EDFC70869D61F971567',
     token: 'eth',
-    why: 'gas de déploiement (opener, et déployeur donc owner)',
+    why: 'deployment gas (opener, and deployer hence owner)',
   },
   {
     address: '0xE9D3d40A1e80F1C20A318EDFC70869D61F971567',
     token: 'usdc',
-    why: "capital de caution — c'est cette adresse qui signe les autorisations EIP-3009",
+    why: 'bond capital — this is the address that signs the EIP-3009 authorizations',
   },
   {
     address: '0x3e7f79962eD7C93BDf4A88Ce35Fb1061048136Ec',
     token: 'eth',
-    why: 'gas de règlement (settler) — honor et slash ne sont pas sponsorisés',
+    why: 'settlement gas (settler) — honor and slash are not sponsored',
   },
   {
     address: '0x1F854780EAEA8ec169c6cF96597934Da2573bfA1',
     token: 'usdc',
-    why: "wallet d'execution KeeperHub — il emet l'action engagee, et un USDC reel ne se minte pas",
+    why: 'KeeperHub execution wallet — it emits the committed action, and real USDC cannot be minted',
   },
 ] as const
 
@@ -46,7 +46,7 @@ function required(name: string): string {
   const v = process.env[name]
   if (!v || v.trim() === '') {
     throw new Error(
-      `variable d'environnement manquante: ${name} — à créer sur portal.cdp.coinbase.com`,
+      `missing environment variable: ${name} — create it at portal.cdp.coinbase.com`,
     )
   }
   return v.trim()
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
       })
       console.log(
         JSON.stringify({
-          msg: 'faucet réclamé',
+          msg: 'faucet claimed',
           address: req.address,
           token: req.token,
           why: req.why,
@@ -75,11 +75,11 @@ async function main(): Promise<void> {
         }),
       )
     } catch (err) {
-      // Un plafond atteint n'est pas un échec du script : les autres demandes
-      // doivent aboutir, et l'opérateur a besoin de savoir laquelle a manqué.
+      // Hitting a rate limit is not a failure of the script: the other requests
+      // must still go through, and the operator needs to know which one missed.
       console.error(
         JSON.stringify({
-          msg: 'faucet refusé',
+          msg: 'faucet refused',
           address: req.address,
           token: req.token,
           error: err instanceof Error ? err.message : String(err),

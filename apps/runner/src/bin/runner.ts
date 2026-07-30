@@ -1,18 +1,18 @@
 /**
- * Point d'entrée du runner de volume.
+ * Volume runner entry point.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/runner runner
  *
- *   # une série courte, sans toucher au Settler déjà lancé
+ *   # a short series, without disturbing the Settler already running
  *   RUNNER_TARGET=6 RUNNER_SLASH_TARGET=1 pnpm --filter @warrant/runner runner
  *
- *   # reprendre une campagne interrompue : rien de spécial, le journal fait foi
+ *   # resume an interrupted campaign: nothing special, the ledger is authoritative
  *   RUNNER_CAMPAIGN=hackathon pnpm --filter @warrant/runner runner
  *
- * Le processus est **interruptible** : SIGINT arrête les ouvertures, laisse les
- * mandats en vol se régler, publie le compteur final, puis rend la main. Un
- * second SIGINT sort immédiatement.
+ * The process is **interruptible**: SIGINT stops the openings, lets the warrants
+ * in flight settle, publishes the final counter, then hands back control. A
+ * second SIGINT exits immediately.
  */
 
 import { loadEnv, run } from '../runner.js'
@@ -22,7 +22,7 @@ loadEnv()
 run().catch((e: unknown) => {
   console.error(
     JSON.stringify({
-      msg: 'runner: démarrage impossible',
+      msg: 'runner: cannot start',
       error: e instanceof Error ? e.message : String(e),
     }),
   )

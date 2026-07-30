@@ -1,75 +1,75 @@
 /**
- * Le transport MCP de x402 v2.
+ * The MCP transport of x402 v2.
  *
- * Spécification : docs/05-specs-protocoles.md § 1.7, docs/09 § 3. Le flux tient
- * en quatre temps :
+ * Specification: docs/05-specs-protocoles.md § 1.7, docs/09 § 3. The flow comes
+ * in four beats:
  *
- * 1. outil payant appelé sans paiement → résultat avec `isError: true` portant
- *    le `PaymentRequired` ;
- * 2. le client en extrait les exigences et construit un `PaymentPayload` ;
- * 3. il rejoue avec le paiement dans `_meta["x402/payment"]` ;
- * 4. le serveur règle et retourne le règlement dans
+ * 1. a paid tool called without payment → a result with `isError: true` carrying
+ *    the `PaymentRequired`;
+ * 2. the client extracts the requirements from it and builds a `PaymentPayload`;
+ * 3. it replays with the payment in `_meta["x402/payment"]`;
+ * 4. the server settles and returns the settlement in
  *    `_meta["x402/payment-response"]`.
  *
- * L'exigence à ne pas manquer est celle du **double format**. La spec impose de
- * fournir le `PaymentRequired` à la fois en `structuredContent` et en
- * `content[0].text`, ce dernier étant exactement `JSON.stringify` du premier —
- * les clients qui ne savent pas lire le contenu structuré doivent pouvoir
- * parser le texte et obtenir le même objet.
+ * The requirement not to be missed is that of the **dual format**. The spec
+ * mandates supplying the `PaymentRequired` both as `structuredContent` and as
+ * `content[0].text`, the latter being exactly `JSON.stringify` of the former —
+ * clients that cannot read structured content must be able to parse the text and
+ * obtain the same object.
  *
- * `dualFormat()` ci-dessous est la seule fabrique de résultats du serveur. Elle
- * sérialise **l'objet même** qu'elle place dans `structuredContent`, si bien
- * qu'une divergence entre les deux formats n'est pas seulement improbable :
- * elle est inexprimable.
+ * `dualFormat()` below is the server's only factory of results. It serialises
+ * **the very object** it places in `structuredContent`, so that a divergence
+ * between the two formats is not merely improbable: it is inexpressible.
  *
- * ## Pourquoi le challenge ne passe pas par MRTR
+ * ## Why the challenge does not go through MRTR
  *
- * La révision 2026-07-28 introduit les requêtes multi-aller-retour (MRTR) :
- * un serveur qui a besoin de quelque chose de plus répond
- * `resultType: "input_required"` et le client rejoue la requête. C'est
- * exactement la forme d'un 402, et la tentation est forte — d'autant que les
- * exigences de sécurité que la spec impose au `requestState` (intégrité
- * HMAC/AEAD, TTL court, liaison au principal, empreinte de la requête
- * d'origine) sont mot pour mot ce qu'il faut pour lier un devis à son paiement.
+ * The 2026-07-28 revision introduces multi-round-trip requests (MRTR): a server
+ * that needs something more answers `resultType: "input_required"` and the
+ * client replays the request. That is exactly the shape of a 402, and the
+ * temptation is strong — all the more so since the security requirements the
+ * spec imposes on `requestState` (HMAC/AEAD integrity, short TTL, binding to the
+ * principal, fingerprint of the original request) are word for word what is
+ * needed to bind a quote to its payment.
  *
- * On ne le fait pas, et la raison est structurelle plutôt que prudentielle :
- * **`InputRequiredResult` n'a pas de `content` ni de `structuredContent`.** Ses
- * seuls champs sont `resultType`, `inputRequests` et `requestState`
- * (basic/patterns/mrtr § InputRequiredResult, et le type du SDK v2 le confirme).
- * Or il n'existe aucun de ces trois emplacements où loger un `PaymentRequired` :
+ * We do not do it, and the reason is structural rather than prudential:
+ * **`InputRequiredResult` has neither `content` nor `structuredContent`.** Its
+ * only fields are `resultType`, `inputRequests` and `requestState`
+ * (basic/patterns/mrtr § InputRequiredResult, and the v2 SDK type confirms it).
+ * And none of those three slots is a place to lodge a `PaymentRequired`:
  *
- * - `inputRequests` est un type fermé — ses valeurs **doivent** être un
- *   `ElicitRequest`, un `CreateMessageRequest` ou un `ListRootsRequest`. Il n'y
- *   a pas de requête « paiement », et détourner une élicitation reviendrait à
- *   demander à un humain de saisir à la main ce que le wallet de l'agent est
- *   censé signer tout seul — c'est la négation du principe de x402.
- * - `requestState` est opaque par contrat : « Clients **MUST NOT** inspect,
- *   parse, modify, or make any assumptions about its contents ». Un client
- *   conforme ne peut donc pas y lire le montant à payer.
- * - resterait `_meta`, seul champ libre hérité de `Result`. Mais y mettre le
- *   `PaymentRequired` détruit précisément l'invariant que ce fichier existe pour
- *   tenir : plus de `content[0].text`, donc plus de double format, donc un
- *   client qui ne lit que le texte n'apprend plus rien du tout.
+ * - `inputRequests` is a closed type — its values **must** be an
+ *   `ElicitRequest`, a `CreateMessageRequest` or a `ListRootsRequest`. There is
+ *   no "payment" request, and hijacking an elicitation would amount to asking a
+ *   human to type in by hand what the agent's wallet is supposed to sign on its
+ *   own — the negation of the very principle of x402.
+ * - `requestState` is opaque by contract: "Clients **MUST NOT** inspect, parse,
+ *   modify, or make any assumptions about its contents". A conforming client
+ *   therefore cannot read the amount to pay out of it.
+ * - that would leave `_meta`, the only free field inherited from `Result`. But
+ *   putting the `PaymentRequired` there destroys precisely the invariant this
+ *   file exists to uphold: no more `content[0].text`, hence no more dual format,
+ *   hence a client that only reads the text learns nothing at all.
  *
- * S'ajoute un défaut de comportement observable. La spec dit qu'un client qui
- * reçoit un `input_required` **sans** `inputRequests` « **MAY** retry the
- * original request immediately ». Un agent rejouerait donc immédiatement, sans
- * paiement, recevrait le même `input_required`, et boucherait — sans jamais
- * qu'aucun texte ne lui explique qu'il doit payer. Le chemin `isError`, lui,
- * met l'objet payable sous les yeux du modèle dans les deux formats.
+ * On top of that comes a defect in observable behaviour. The spec says that a
+ * client receiving an `input_required` **without** `inputRequests` "**MAY** retry
+ * the original request immediately". An agent would therefore replay
+ * immediately, without payment, receive the same `input_required`, and loop —
+ * without any text ever explaining to it that it must pay. The `isError` path,
+ * by contrast, puts the payable object in front of the model's eyes in both
+ * formats.
  *
- * Enfin, la compatibilité : un `input_required` servi à un client 2025 est
- * rattrapé par la « legacy shim » du SDK, qui tente de satisfaire les
- * `inputRequests` par de vraies requêtes serveur→client. Sans `inputRequests`,
- * il n'y a rien à satisfaire. Le jour où cette page est écrite, la révision a un
- * jour d'âge et la quasi-totalité des clients x402 sont encore 2025.
+ * Finally, compatibility: an `input_required` served to a 2025 client is caught
+ * by the SDK's "legacy shim", which tries to satisfy the `inputRequests` with
+ * real server→client requests. With no `inputRequests`, there is nothing to
+ * satisfy. On the day this page is written the revision is one day old and
+ * virtually every x402 client is still on 2025.
  *
- * On garde donc `isError: true`. Ce n'est pas un renoncement à MRTR : c'est le
- * constat que MRTR transporte des *demandes d'entrée typées*, pas des données
- * applicatives, et qu'un challenge de paiement est une donnée applicative. Le
- * jour où la spec définira un `PaymentRequest` dans `inputRequests` — ou
- * autorisera `content` sur un `InputRequiredResult` — la bascule sera de
- * quelques lignes, et `dualFormat()` restera le point de passage obligé.
+ * So we keep `isError: true`. This is not a renunciation of MRTR: it is the
+ * observation that MRTR carries *typed input requests*, not application data,
+ * and that a payment challenge is application data. The day the spec defines a
+ * `PaymentRequest` in `inputRequests` — or allows `content` on an
+ * `InputRequiredResult` — the switch will be a few lines, and `dualFormat()`
+ * will remain the mandatory point of passage.
  */
 
 import type { CallToolResult } from '@modelcontextprotocol/server'
@@ -84,15 +84,14 @@ import {
 
 export { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY }
 
-/** Objet JSON quelconque — tout ce que `structuredContent` accepte. */
+/** Any JSON object — all that `structuredContent` accepts. */
 type JsonObject = Record<string, unknown>
 
 /**
- * Construit un résultat d'outil dans les deux formats exigés.
+ * Builds a tool result in both required formats.
  *
- * Ne jamais construire un `CallToolResult` autrement dans ce paquet : c'est
- * l'unique garantie que `content[0].text` et `structuredContent` ne peuvent pas
- * diverger.
+ * Never build a `CallToolResult` any other way in this package: this is the sole
+ * guarantee that `content[0].text` and `structuredContent` cannot diverge.
  */
 export function dualFormat(payload: JsonObject, isError = false): CallToolResult {
   const result: CallToolResult = {
@@ -104,19 +103,19 @@ export function dualFormat(payload: JsonObject, isError = false): CallToolResult
 }
 
 /**
- * Le résultat d'un outil payant appelé sans paiement.
+ * The result of a paid tool called without payment.
  *
- * `isError: true` est contre-intuitif — rien n'a échoué — mais c'est ce que la
- * spec impose : MCP n'a pas de canal « 402 », et le résultat en erreur est le
- * seul par lequel un client peut recevoir des données exploitables plutôt
- * qu'une erreur de protocole. La révision 2026-07-28 ne change pas ce constat ;
- * l'analyse du cas MRTR est en tête de fichier.
+ * `isError: true` is counter-intuitive — nothing failed — but it is what the
+ * spec mandates: MCP has no "402" channel, and the erroring result is the only
+ * one through which a client can receive usable data rather than a protocol
+ * error. The 2026-07-28 revision does not change that; the analysis of the MRTR
+ * case is at the head of this file.
  */
 export function paymentRequiredResult(paymentRequired: PaymentRequired): CallToolResult {
   return dualFormat(paymentRequired as unknown as JsonObject, true)
 }
 
-/** Attache le règlement au résultat — étape 6 du flux. */
+/** Attaches the settlement to the result — step 6 of the flow. */
 export function withSettlement(
   result: CallToolResult,
   settlement: SettlementResponse | undefined,
@@ -129,12 +128,12 @@ export function withSettlement(
 }
 
 /**
- * Extrait le paiement de `_meta` — étape 4 du flux.
+ * Extracts the payment from `_meta` — step 4 of the flow.
  *
- * Un `_meta["x402/payment"]` présent mais malformé est traité comme absent : on
- * répond alors par un nouveau `PaymentRequired`, ce qui donne au client une
- * chance de se corriger. Lever une erreur de protocole le laisserait sans
- * information sur ce qu'il faut payer.
+ * A `_meta["x402/payment"]` that is present but malformed is treated as absent:
+ * we then answer with a fresh `PaymentRequired`, which gives the client a chance
+ * to correct itself. Throwing a protocol error would leave it with no
+ * information about what to pay.
  */
 export function extractPayment(meta: unknown): PaymentPayload | undefined {
   if (typeof meta !== 'object' || meta === null) return undefined

@@ -1,13 +1,13 @@
 /**
- * Erreurs actionnables.
+ * Actionable errors.
  *
- * Règle de la checklist DX (docs/09 § 8) : *chaque erreur porte un `hint` et un
- * lien de doc*. Un agent qui reçoit « invalid input » ne peut rien corriger ;
- * un agent qui reçoit « `$.checks[0].token`: adresse invalide — utilise une
- * adresse 20 octets en minuscules » se corrige tout seul au tour suivant.
+ * Rule from the DX checklist (docs/09 § 8): *every error carries a `hint` and a
+ * documentation link*. An agent that receives "invalid input" cannot fix
+ * anything; an agent that receives "`$.checks[0].token`: invalid address — use a
+ * lowercase 20-byte address" fixes itself on the next turn.
  *
- * `hint` n'est donc pas décoratif : c'est la partie de l'erreur que le modèle
- * lit réellement.
+ * `hint` is therefore not decorative: it is the part of the error the model
+ * actually reads.
  */
 
 export type WarrantErrorCode =
@@ -22,7 +22,7 @@ export type WarrantErrorCode =
 
 const DOCS_BASE = 'https://warrant.sh/docs'
 
-/** Un lien par code : l'agent — ou le builder — sait où lire la suite. */
+/** One link per code: the agent — or the builder — knows where to read on. */
 const DOCS: Record<WarrantErrorCode, string> = {
   invalid_input: `${DOCS_BASE}/tools`,
   invalid_action_spec: `${DOCS_BASE}/action-spec`,
@@ -34,33 +34,33 @@ const DOCS: Record<WarrantErrorCode, string> = {
   gateway_error: `${DOCS_BASE}/troubleshooting#gateway`,
 }
 
-/** Repli : un hint générique vaut mieux qu'un champ absent. */
+/** Fallback: a generic hint is better than a missing field. */
 const DEFAULT_HINTS: Record<WarrantErrorCode, string> = {
   invalid_input:
-    "Vérifie les champs de l'outil contre son inputSchema, puis rappelle-le.",
+    "Check the tool's fields against its inputSchema, then call it again.",
   invalid_action_spec:
-    "L'actionSpec doit porter version, chainId, target, value, calldata et registryRef. Aucune catégorie ni notionnel : ils sont dérivés du calldata.",
+    'The actionSpec must carry version, chainId, target, value, calldata and registryRef. No category and no notional: both are derived from the calldata.',
   invalid_condition_spec:
-    'Corrige le champ nommé dans `field` puis rouvre le mandat : une post-condition est immuable une fois engagée.',
+    'Fix the field named in `field` then open the warrant again: a post-condition is immutable once committed.',
   classification_failed:
-    "Le couple (target, selector) est absent du registre. Appelle quote_risk d'abord : une action inconnue reste finançable, au tarif le plus strict.",
+    'The (target, selector) pair is absent from the registry. Call quote_risk first: an unknown action remains fundable, at the strictest rate.',
   payment_invalid:
-    'Reconstruis le PaymentPayload à partir du PaymentRequired renvoyé, sans modifier `accepted`, et rejoue avec _meta["x402/payment"].',
+    'Rebuild the PaymentPayload from the PaymentRequired that was returned, without modifying `accepted`, and replay with _meta["x402/payment"].',
   warrant_not_found:
-    'Vérifie le warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) énumère les mandats connus.',
+    'Check the warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) lists the known warrants.',
   gateway_unreachable:
-    'Le Gateway Warrant est injoignable. Réessaie ; aucun mandat ni paiement n\'a été engagé.',
-  gateway_error: 'Réessaie ; si cela persiste, le détail est dans `details`.',
+    'The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.',
+  gateway_error: 'Retry; if it persists, the detail is in `details`.',
 }
 
 export interface WarrantErrorJSON {
   error: {
     code: WarrantErrorCode
     message: string
-    /** Ce qu'il faut faire ensuite. Rédigé pour être lu par un agent. */
+    /** What to do next. Written to be read by an agent. */
     hint: string
     docs: string
-    /** Chemin du champ fautif, quand il y en a un — docs/09 § 8. */
+    /** Path of the offending field, when there is one — docs/09 § 8. */
     field?: string
     details?: unknown
   }
@@ -104,16 +104,16 @@ export class WarrantError extends Error {
 }
 
 /**
- * Normalise n'importe quoi en `WarrantError`.
+ * Normalises anything into a `WarrantError`.
  *
- * Aucune frontière du produit ne doit laisser fuir une erreur nue : une
- * exception sans `hint` est une impasse pour l'agent qui la reçoit.
+ * No boundary of the product may let a bare error escape: an exception without a
+ * `hint` is a dead end for the agent that receives it.
  */
 export function toWarrantError(err: unknown): WarrantError {
   if (err instanceof WarrantError) return err
 
-  // DslError de @warrant/core : il porte déjà le chemin du champ fautif,
-  // c'est exactement ce que la checklist DX demande de faire remonter.
+  // DslError from @warrant/core: it already carries the path of the offending
+  // field, which is exactly what the DX checklist asks us to surface.
   if (
     typeof err === 'object' &&
     err !== null &&

@@ -1,14 +1,14 @@
 /**
- * `@warrant/sdk` — la source unique.
+ * `@warrant/sdk` — the single source.
  *
- * Ce paquet contient tout ce qui définit les quatre outils de Warrant : leurs
- * schémas, leurs descriptions, leur exécution, la boucle de paiement x402 et
- * l'interface du Gateway. Les surfaces d'intégration — serveur MCP, Vercel AI
- * SDK, LangChain, CrewAI, skill OpenClaw — ne sont que des projections de ce
- * qui est ici (docs/09 § intro et § 5).
+ * This package contains everything that defines Warrant's four tools: their
+ * schemas, their descriptions, their execution, the x402 payment loop and the
+ * Gateway interface. The integration surfaces — MCP server, Vercel AI SDK,
+ * LangChain, CrewAI, OpenClaw skill — are nothing but projections of what lives
+ * here (docs/09 § intro and § 5).
  *
- * La règle qui gouverne tout le paquet : **rien n'est déclaré, tout est
- * dérivé**. Aucun outil n'accepte de `category` ni de `notional`.
+ * The rule that governs the whole package: **nothing is declared, everything is
+ * derived**. No tool accepts a `category` or a `notional`.
  */
 
 export * from './x402.js'

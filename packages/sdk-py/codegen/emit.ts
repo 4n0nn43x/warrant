@@ -1,47 +1,47 @@
 /**
- * Générateur du SDK Python et de la skill OpenClaw.
+ * Generator for the Python SDK and the OpenClaw skill.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Génération, et non lecture à l'exécution : le raisonnement
+ * Generation, not runtime reading: the reasoning
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Les schémas des quatre outils vivent en TypeScript. Trois voies s'offraient
- * pour les faire arriver en Python sans les retaper.
+ * The four tools' schemas live in TypeScript. Three routes were available to get
+ * them into Python without retyping them.
  *
- * 1. **Lire `/openapi.json` à l'exécution.** Écartée pour deux raisons, dont la
- *    première est décisive : le document décrit la surface **HTTP**, pas la
- *    surface **outils**. Il n'y a dedans ni nom d'outil, ni description d'outil,
- *    et son `WarrantRequest` ne porte même pas `beneficiary`. Il faudrait donc
- *    réécrire les descriptions en Python — précisément le bug qu'on refuse. La
- *    seconde raison est opérationnelle : construire un agent LangChain
- *    deviendrait un appel réseau. Un Gateway momentanément muet ne donnerait pas
- *    une erreur, il donnerait un agent **sans outils**, ce qui se diagnostique
- *    très mal depuis une trace de modèle.
+ * 1. **Read `/openapi.json` at runtime.** Ruled out for two reasons, the first of
+ *    which is decisive: that document describes the **HTTP** surface, not the
+ *    **tool** surface. It contains neither tool names nor tool descriptions, and
+ *    its `WarrantRequest` does not even carry `beneficiary`. We would therefore
+ *    have to rewrite the descriptions in Python — precisely the bug we refuse.
+ *    The second reason is operational: building a LangChain agent would become a
+ *    network call. A momentarily silent Gateway would not yield an error, it
+ *    would yield an agent **with no tools**, which is very hard to diagnose from
+ *    a model trace.
  *
- * 2. **Générer depuis `/openapi.json`.** Même déficit d'information, avec un
- *    défaut de plus : on dériverait d'une projection sœur au lieu de la source.
- *    Toute erreur de l'OpenAPI se propagerait au Python en ayant l'air d'une
- *    vérité.
+ * 2. **Generate from `/openapi.json`.** The same information deficit, with one
+ *    more defect: we would be deriving from a sibling projection instead of from
+ *    the source. Any error in the OpenAPI would propagate into the Python while
+ *    looking like a truth.
  *
- * 3. **Générer depuis la source, et vérifier la sortie en CI.** Retenue. Le
- *    manifeste (`packages/sdk-ts/src/manifest.ts`) sérialise `WARRANT_TOOLS`
- *    sans rien reformuler ; ce fichier le traduit en Python. Aucune chaîne
- *    destinée à un agent n'est écrite ici : elles traversent, verbatim.
+ * 3. **Generate from the source, and verify the output in CI.** Chosen. The
+ *    manifest (`packages/sdk-ts/src/manifest.ts`) serialises `WARRANT_TOOLS`
+ *    without rephrasing anything; this file translates it into Python. No string
+ *    destined for an agent is written here: they pass through, verbatim.
  *
- * Ce que la génération coûte, et comment on le paie : un artefact généré peut
- * dormir pendant qu'on modifie la source. D'où `--check`, qui régénère en
- * mémoire et compare octet par octet — `tests/test_codegen_drift.py` échoue si
- * quoi que ce soit a bougé. La dérive devient donc une CI rouge, pas une
- * surprise en production.
+ * What generation costs, and how we pay for it: a generated artifact can sleep
+ * while the source is being modified. Hence `--check`, which regenerates in
+ * memory and compares byte for byte — `tests/test_codegen_drift.py` fails if
+ * anything has moved. Drift therefore becomes a red CI, not a surprise in
+ * production.
  *
- * L'OpenAPI n'est pas pour autant ignoré : on en fige un instantané
- * (`tests/fixtures/openapi.json`) et `test_openapi_conformance.py` vérifie que
- * les deux projections décrivent le même `ActionSpec`. C'est le seul usage
- * honnête d'une projection sœur : un contrôle croisé, pas une source.
+ * The OpenAPI is not ignored for all that: we freeze a snapshot of it
+ * (`tests/fixtures/openapi.json`) and `test_openapi_conformance.py` verifies that
+ * both projections describe the same `ActionSpec`. That is the only honest use of
+ * a sibling projection: a cross-check, not a source.
  *
- * Usage :
- *   pnpm tsx packages/sdk-py/codegen/emit.ts           # écrit
- *   pnpm tsx packages/sdk-py/codegen/emit.ts --check   # vérifie, sort 1 si dérive
+ * Usage:
+ *   pnpm tsx packages/sdk-py/codegen/emit.ts           # writes
+ *   pnpm tsx packages/sdk-py/codegen/emit.ts --check   # verifies, exits 1 on drift
  */
 
 import { createHash } from 'node:crypto'
@@ -59,12 +59,12 @@ const PKG = join(HERE, '..')
 const REPO = join(PKG, '..', '..')
 
 /**
- * Le déploiement figé dans l'instantané OpenAPI.
+ * The deployment frozen into the OpenAPI snapshot.
  *
- * Ce sont les valeurs réelles de Base Sepolia — la seule chaîne EVM que le
- * facilitateur public x402 sert (voir le README racine). Les inscrire ici plutôt
- * que d'inventer des adresses de test fait que l'instantané documente le
- * déploiement en même temps qu'il sert de référence au contrôle croisé.
+ * These are the real Base Sepolia values — the only EVM chain the public x402
+ * facilitator serves (see the root README). Writing them here rather than
+ * inventing test addresses means the snapshot documents the deployment at the
+ * same time as it serves as the cross-check's reference.
  */
 const SNAPSHOT_DEPLOYMENT = {
   baseUrl: 'http://127.0.0.1:8402',
@@ -75,10 +75,10 @@ const SNAPSHOT_DEPLOYMENT = {
 } as const
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Littéraux Python
+// Python literals
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** JSON → littéral Python. `true`/`false`/`null` sont les seules divergences. */
+/** JSON → Python literal. `true`/`false`/`null` are the only divergences. */
 function pyLiteral(value: unknown, indent: string): string {
   if (value === null) return 'None'
   if (typeof value === 'boolean') return value ? 'True' : 'False'
@@ -118,24 +118,24 @@ function emitPython(manifest: WarrantToolManifest, digest: string): string {
   }))
 
   const head = `# ═══════════════════════════════════════════════════════════════════════════
-# FICHIER GÉNÉRÉ — NE PAS ÉDITER À LA MAIN.
+# GENERATED FILE — DO NOT EDIT BY HAND.
 #
-# Source : packages/sdk-ts/src/tools.ts et schemas.ts, sérialisés par
-#          packages/sdk-ts/src/manifest.ts.
-# Régénérer : pnpm tsx packages/sdk-py/codegen/emit.ts
-# Vérifier   : pnpm tsx packages/sdk-py/codegen/emit.ts --check
+# Source:     packages/sdk-ts/src/tools.ts and schemas.ts, serialised by
+#             packages/sdk-ts/src/manifest.ts.
+# Regenerate: pnpm tsx packages/sdk-py/codegen/emit.ts
+# Verify:     pnpm tsx packages/sdk-py/codegen/emit.ts --check
 #
-# Toute modification manuelle sera écrasée, et \`tests/test_codegen_drift.py\`
-# échouera avant : c'est ce qui garantit que le Python ne peut pas diverger du
-# TypeScript. Les descriptions ci-dessous sont recopiées verbatim depuis la
-# source unique — les corriger ici les ferait mentir, pas les améliorer.
+# Any manual edit will be overwritten, and \`tests/test_codegen_drift.py\` will
+# fail before that happens: this is what guarantees the Python cannot diverge
+# from the TypeScript. The descriptions below are copied verbatim from the single
+# source of truth — correcting them here would make them lie, not improve them.
 # ═══════════════════════════════════════════════════════════════════════════
-"""Modèles et manifeste générés depuis la source unique TypeScript.
+"""Models and manifest generated from the TypeScript single source of truth.
 
-Rien ici n'est écrit à la main. Les modèles Pydantic portent \`extra="ignore"\`,
-ce qui reproduit le nettoyage des clés inconnues fait par Zod : un champ
-\`category\` ou \`notional\` glissé dans les arguments est **retiré** avant
-l'appel, donc il n'atteint ni le Classifieur, ni l'\`actionHash\`.
+Nothing here is written by hand. The Pydantic models carry \`extra="ignore"\`,
+which reproduces the unknown-key stripping that Zod performs: a \`category\` or
+\`notional\` field slipped into the arguments is **removed** before the call, so
+it reaches neither the Classifier nor the \`actionHash\`.
 """
 
 from __future__ import annotations
@@ -147,9 +147,9 @@ from pydantic import BaseModel, ConfigDict, Field
 MANIFEST_VERSION = ${manifest.manifestVersion}
 JSON_SCHEMA_DIALECT = ${JSON.stringify(manifest.jsonSchemaDialect)}
 
-#: sha256 de la forme canonique du manifeste. Identifie la révision de la source
-#: unique dont ce fichier est issu ; publié par \`warrant tools\` et par la skill
-#: OpenClaw pour qu'un artefact périmé se repère sans lire le code.
+#: sha256 of the manifest's canonical form. Identifies the revision of the single
+#: source of truth this file came from; published by \`warrant tools\` and by the
+#: OpenClaw skill so that a stale artifact can be spotted without reading code.
 MANIFEST_SHA256 = ${JSON.stringify(digest)}
 `
 
@@ -181,17 +181,17 @@ MANIFEST_SHA256 = ${JSON.stringify(digest)}
     )
     .join('\n')
 
-  const tail = `#: Le catalogue d'erreurs, tel que \`errors.ts\` le pose. Un \`hint\` est lu par un
-#: agent : le réécrire en Python ferait dire deux choses différentes au même code
-#: selon le langage de l'adaptateur.
+  const tail = `#: The error catalogue, exactly as \`errors.ts\` lays it out. A \`hint\` is read by
+#: an agent: rewriting it in Python would make the same code say two different
+#: things depending on the adapter's language.
 ERROR_CATALOG: dict[str, dict[str, str]] = {
 ${errors}
 }
 
 
-#: Les quatre outils, dans l'ordre de la source : devis, mandat, lecture,
-#: historique. \`input_model\` est le modèle Pydantic ci-dessus ; \`input_schema\`
-#: est le JSON Schema draft-7 publié tel quel par \`tools/list\` côté MCP.
+#: The four tools, in source order: quote, warrant, read, history. \`input_model\`
+#: is the Pydantic model above; \`input_schema\` is the draft-7 JSON Schema
+#: published as-is by \`tools/list\` on the MCP side.
 TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
 ${specs}
 )
@@ -220,13 +220,13 @@ const BEGIN = '<!-- BEGIN GENERATED: tools -->'
 const END = '<!-- END GENERATED: tools -->'
 
 /**
- * Le bloc d'outils de la skill, dérivé du manifeste.
+ * The skill's tool block, derived from the manifest.
  *
- * La prose du runbook est écrite à la main (`codegen/skill-template.md`) : elle
- * dit *quand* appeler et *comment* échouer, ce qu'aucun schéma ne contient. Mais
- * la liste des outils, leurs descriptions et leurs arguments sont générés — un
- * SKILL.md qui reformule une description d'outil est un SKILL.md qui mentira au
- * premier changement de la source.
+ * The runbook prose is written by hand (`codegen/skill-template.md`): it says
+ * *when* to call and *how* to fail, which no schema contains. But the list of
+ * tools, their descriptions and their arguments are generated — a SKILL.md that
+ * rephrases a tool description is a SKILL.md that will lie at the first change
+ * to the source.
  */
 function emitSkillTools(manifest: WarrantToolManifest): string {
   const blocks = manifest.tools.map((tool) => {
@@ -262,9 +262,9 @@ function emitSkill(manifest: WarrantToolManifest, digest: string): string {
   const start = template.indexOf(BEGIN)
   const end = template.indexOf(END)
   if (start === -1 || end === -1) {
-    throw new Error(`skill-template.md : bornes ${BEGIN} / ${END} introuvables`)
+    throw new Error(`skill-template.md: markers ${BEGIN} / ${END} not found`)
   }
-  const generated = `${BEGIN}\n<!-- Généré depuis le manifeste. Éditer codegen/skill-template.md, pas ce bloc. -->\n\n${emitSkillTools(manifest)}${END}`
+  const generated = `${BEGIN}\n<!-- Generated from the manifest. Edit codegen/skill-template.md, not this block. -->\n\n${emitSkillTools(manifest)}${END}`
   return (
     template.slice(0, start) +
     generated +
@@ -281,8 +281,8 @@ interface Artifact {
 
 function artifacts(): Artifact[] {
   const manifest = warrantToolManifest()
-  // Forme canonique : clés dans l'ordre d'insertion du manifeste, indentation
-  // fixe. C'est ce hash que la skill et la CLI publient.
+  // Canonical form: keys in the manifest's insertion order, fixed indentation.
+  // This is the hash the skill and the CLI publish.
   const canonical = JSON.stringify(manifest)
   const digest = `sha256:${createHash('sha256').update(canonical).digest('hex')}`
 
@@ -321,42 +321,42 @@ function main(): void {
         current = undefined
       }
       if (current === undefined) {
-        drifted.push(`${rel} : absent`)
+        drifted.push(`${rel}: missing`)
         continue
       }
       if (current !== artifact.content) {
-        drifted.push(`${rel} : ${firstDifference(current, artifact.content)}`)
+        drifted.push(`${rel}: ${firstDifference(current, artifact.content)}`)
       }
       continue
     }
     mkdirSync(dirname(artifact.path), { recursive: true })
     writeFileSync(artifact.path, artifact.content, 'utf8')
-    console.log(`écrit ${rel} (${artifact.content.length} octets)`)
+    console.log(`wrote ${rel} (${artifact.content.length} bytes)`)
   }
 
   if (!check) return
 
   if (drifted.length > 0) {
     console.error(
-      'Les artefacts générés ne correspondent plus à la source unique :\n' +
+      'The generated artifacts no longer match the single source of truth:\n' +
         drifted.map((d) => `  • ${d}`).join('\n') +
-        '\n\nRégénérer : pnpm tsx packages/sdk-py/codegen/emit.ts',
+        '\n\nRegenerate: pnpm tsx packages/sdk-py/codegen/emit.ts',
     )
     process.exit(1)
   }
-  console.log(`${built.length} artefacts conformes à la source unique.`)
+  console.log(`${built.length} artifacts match the single source of truth.`)
 }
 
-/** Localise la première ligne divergente — un diff complet noierait le signal. */
+/** Locates the first diverging line — a full diff would drown the signal. */
 function firstDifference(current: string, expected: string): string {
   const a = current.split('\n')
   const b = expected.split('\n')
   for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
     if (a[i] !== b[i]) {
-      return `ligne ${i + 1}\n      sur disque : ${JSON.stringify(a[i] ?? '<fin de fichier>')}\n      attendu    : ${JSON.stringify(b[i] ?? '<fin de fichier>')}`
+      return `line ${i + 1}\n      on disk:  ${JSON.stringify(a[i] ?? '<end of file>')}\n      expected: ${JSON.stringify(b[i] ?? '<end of file>')}`
     }
   }
-  return 'longueurs différentes sans ligne divergente'
+  return 'differing lengths with no diverging line'
 }
 
 main()

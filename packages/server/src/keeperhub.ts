@@ -1,27 +1,27 @@
 /**
- * Client KeeperHub — exécution directe et audit trail.
+ * KeeperHub client — direct execution and audit trail.
  *
- * Routes vérifiées contre `docs.keeperhub.com/api/*` le 28/07/2026. Elles ne
- * figurent PAS dans l'OpenAPI live (`/api/openapi`), qui ne couvre que la
- * marketplace `/api/mcp/workflows/{slug}/call`. C'est la friction n°1 du
- * teardown d'onboarding.
+ * Routes verified against `docs.keeperhub.com/api/*` on 2026-07-28. They do NOT
+ * appear in the live OpenAPI document (`/api/openapi`), which covers only the
+ * `/api/mcp/workflows/{slug}/call` marketplace. This is friction #1 of the
+ * onboarding teardown.
  *
- * Division du travail, à ne jamais inverser : l'audit trail **localise et
- * date** une exécution ; la décision de verdict est une lecture onchain
- * indépendante faite par l'évaluateur sur un RPC tiers. Utiliser KeeperHub
- * pour exécuter *et* pour juger réintroduirait une circularité.
- * Voir docs/08-integration-keeperhub.md § 4.
+ * Division of labour, never to be inverted: the audit trail **locates and
+ * timestamps** an execution; the verdict decision is an independent onchain read
+ * performed by the evaluator against a third-party RPC. Using KeeperHub both to
+ * execute *and* to judge would reintroduce a circularity.
+ * See docs/08-integration-keeperhub.md § 4.
  */
 
 import type { Address, Hex } from '@warrant/core'
 
 export interface KeeperHubConfig {
   /**
-   * Clé API **d'organisation**, préfixe `kh_`.
+   * **Organisation** API key, `kh_` prefix.
    *
-   * Une clé `wfb_` est une clé *utilisateur* et n'est acceptée que par
-   * `POST /api/workflows/{id}/webhook` — elle est rejetée en 401 partout
-   * ailleurs, y compris sur le serveur MCP.
+   * A `wfb_` key is a *user* key and is accepted only by
+   * `POST /api/workflows/{id}/webhook` — everywhere else it is rejected with a
+   * 401, the MCP server included.
    */
   apiKey: string
   baseUrl?: string
@@ -54,7 +54,7 @@ export class KeeperHubError extends Error {
   }
 }
 
-/** Le cap journalier du wallet d'exécution est dépassé (HTTP 403). */
+/** The execution wallet's daily cap has been exceeded (HTTP 403). */
 export class SpendCapExceededError extends KeeperHubError {
   constructor(body: KeeperHubErrorBody) {
     super(403, body)
@@ -78,17 +78,17 @@ export interface TransactionRef {
 }
 
 /**
- * Record d'exécution normalisé.
+ * Normalised execution record.
  *
- * ⚠ `blockNumber` n'est **pas** exposé par l'API KeeperHub, sur aucune route.
- * Il doit être dérivé du `txHash` via un RPC — ce que fait le Settler, qui
- * attend de toute façon les confirmations sur un RPC indépendant.
+ * ⚠ `blockNumber` is **not** exposed by the KeeperHub API, on any route. It has
+ * to be derived from the `txHash` through an RPC — which is what the Settler
+ * does, since it waits for confirmations on an independent RPC anyway.
  *
- * ⚠ Le résultat de simulation n'apparaît pas non plus dans l'audit trail :
- * `simulate: true` ne crée aucune ligne d'exécution. Il n'existe que dans la
- * réponse HTTP synchrone de l'appel de simulation.
+ * ⚠ The simulation result does not appear in the audit trail either:
+ * `simulate: true` creates no execution row at all. It exists only in the
+ * synchronous HTTP response of the simulation call.
  */
-/** L'appel tel que KeeperHub le rapporte avoir exécuté. */
+/** The call as KeeperHub reports having executed it. */
 export interface ExecutedCall {
   contractAddress?: Address
   functionName?: string
@@ -97,11 +97,11 @@ export interface ExecutedCall {
   reverted?: boolean
   sponsored?: boolean
   /**
-   * Destinataire de la transaction top-level.
+   * Recipient of the top-level transaction.
    *
-   * Diffère de `contractAddress` quand le gas est sponsorisé : c'est alors
-   * l'adresse du **forwarder**, pas celle du contrat cible. C'est le champ qui
-   * révèle qu'une décapsulation sera nécessaire côté évaluateur.
+   * Differs from `contractAddress` when the gas is sponsored: it is then the
+   * **forwarder**'s address, not the target contract's. This is the field that
+   * reveals an unwrapping will be needed on the evaluator's side.
    */
   topLevelTo?: Address
 }
@@ -118,14 +118,14 @@ export interface Execution {
   completedAt?: string
   /** `contract-call`, `transfer`, … */
   type?: string
-  /** Réseau rapporté sous forme de chaîne par l'API. */
+  /** Network, reported as a string by the API. */
   chainId?: number
-  /** Nombre de tentatives. Alimente la métrique de fiabilité du dashboard. */
+  /** Number of attempts. Feeds the dashboard's reliability metric. */
   retryCount?: number
-  /** Vrai si KeeperHub a payé le gas — implique un passage par forwarder. */
+  /** True if KeeperHub paid the gas — which implies going through a forwarder. */
   sponsored?: boolean
   executedCall?: ExecutedCall
-  /** Lien d'explorateur fourni par l'API, réutilisé tel quel dans les verdicts. */
+  /** Explorer link supplied by the API, reused as-is in the verdicts. */
   transactionLink?: string
   raw: unknown
 }
@@ -157,39 +157,39 @@ export interface SpendCap {
 }
 
 /**
- * Un appel de contrat tel que l'API KeeperHub l'accepte réellement.
+ * A contract call as the KeeperHub API actually accepts it.
  *
- * ⚠ **Il n'existe aucun moyen de passer un calldata pré-encodé.** Les champs
- * `data`, `callData` et `calldata` sont ignorés, et l'erreur renvoyée parle
- * seulement de `functionName` sans jamais le dire. L'API résout l'ABI du
- * contrat elle-même à partir du nom de fonction.
+ * ⚠ **There is no way to pass a pre-encoded calldata.** The `data`, `callData`
+ * and `calldata` fields are ignored, and the error that comes back only mentions
+ * `functionName` without ever saying so. The API resolves the contract's ABI
+ * itself from the function name.
  *
- * Conséquence pour Warrant : le Gateway encode le calldata de son côté pour
- * l'engager dans `actionHash`, puis transmet ici la forme nommée. Le
- * vérificateur `calldata_matches_commitment` referme la boucle en comparant ce
- * qui est réellement parti sur la chaîne à ce qui avait été engagé.
+ * Consequence for Warrant: the Gateway encodes the calldata on its own side in
+ * order to commit to it in `actionHash`, then sends the named form here. The
+ * `calldata_matches_commitment` check closes the loop by comparing what actually
+ * went out on the chain against what had been committed to.
  */
 export interface ContractCallRequest {
   chainId: number
   contractAddress: Address
   functionName: string
   /**
-   * Arguments de la fonction, dans l'ordre de l'ABI.
+   * The function's arguments, in ABI order.
    *
-   * Sérialisés en **chaîne JSON** au moment de l'envoi : l'API rejette un
-   * tableau avec « functionArgs must be a JSON string when provided ».
+   * Serialised to a **JSON string** at send time: the API rejects an array with
+   * "functionArgs must be a JSON string when provided".
    */
   functionArgs: readonly unknown[]
   /**
-   * ABI du contrat, obligatoire dès qu'il n'est **pas vérifié** sur
-   * l'explorateur — ce qui est le cas de `WarrantEscrow` sur Sepolia.
+   * The contract's ABI, mandatory as soon as the contract is **not verified** on
+   * the explorer — which is the case for `WarrantEscrow` on Sepolia.
    *
-   * Sérialisée en **chaîne JSON** à l'envoi, exactement comme `functionArgs`.
-   * Le piège est que passer un tableau produit le message d'une ABI *absente*
-   * (« ABI is required. Could not auto-fetch ABI… ») et non celui d'un mauvais
-   * type : on croit le champ non supporté et on cherche ailleurs
-   * (docs/onboarding-teardown.md, 15:20). D'où le typage fort ici : l'appelant
-   * passe un tableau, la sérialisation est faite en un seul endroit.
+   * Serialised to a **JSON string** at send time, exactly like `functionArgs`.
+   * The trap is that passing an array produces the message for a *missing* ABI
+   * ("ABI is required. Could not auto-fetch ABI…") rather than the one for a
+   * wrong type: you conclude the field is unsupported and go looking elsewhere
+   * (docs/onboarding-teardown.md, 15:20). Hence the strong typing here: the
+   * caller passes an array, and serialisation happens in exactly one place.
    */
   abi?: readonly unknown[]
   value?: string
@@ -202,16 +202,16 @@ export class KeeperHubClient {
   private readonly maxRetries: number
   private readonly fetchImpl: typeof fetch
 
-  /** Journal des `request_id`, pour remonter un incident en office hours. */
+  /** Log of the `request_id` values, to raise an incident during office hours. */
   readonly requestIds: string[] = []
 
   constructor(cfg: KeeperHubConfig) {
-    if (!cfg.apiKey) throw new Error('KeeperHubClient: apiKey manquante')
+    if (!cfg.apiKey) throw new Error('KeeperHubClient: apiKey is missing')
     if (cfg.apiKey.startsWith('wfb_')) {
       throw new Error(
-        'KeeperHubClient: une clé `wfb_` est une clé webhook utilisateur, ' +
-          "acceptée uniquement par POST /api/workflows/{id}/webhook. Il faut une clé d'organisation `kh_` " +
-          '(Settings → API Keys → onglet Organisation, ou `kh auth login`).',
+        'KeeperHubClient: a `wfb_` key is a user webhook key, accepted only by ' +
+          'POST /api/workflows/{id}/webhook. An organisation key `kh_` is required ' +
+          '(Settings → API Keys → Organisation tab, or `kh auth login`).',
       )
     }
     this.apiKey = cfg.apiKey
@@ -252,7 +252,7 @@ export class KeeperHubClient {
       const requestId = res.headers.get('x-request-id')
       if (requestId) this.requestIds.push(requestId)
 
-      // La limite documentée est de 60 req/min par clé sur l'exécution directe.
+      // The documented limit is 60 req/min per key on direct execution.
       if (res.status === 429 || res.status >= 500) {
         if (attempt === this.maxRetries) {
           throw new KeeperHubError(res.status, await safeErrorBody(res))
@@ -269,7 +269,7 @@ export class KeeperHubClient {
       if (!res.ok) {
         const errBody = await safeErrorBody(res)
         if (errBody.request_id) this.requestIds.push(errBody.request_id)
-        // Le cap journalier n'est pas une erreur transitoire : ne pas réessayer.
+        // The daily cap is not a transient error: do not retry.
         if (res.status === 403 && /spending cap/i.test(errBody.detail ?? errBody.error)) {
           throw new SpendCapExceededError(errBody)
         }
@@ -284,21 +284,20 @@ export class KeeperHubClient {
 
     throw lastErr instanceof Error
       ? lastErr
-      : new Error(`KeeperHub: échec réseau sur ${method} ${path}`)
+      : new Error(`KeeperHub: network failure on ${method} ${path}`)
   }
 
-  // ── Exécution directe ─────────────────────────────────────────────────────
+  // ── Direct execution ──────────────────────────────────────────────────────
 
   /**
-   * Simule un appel de contrat sans rien diffuser.
+   * Simulates a contract call without broadcasting anything.
    *
-   * `simulate` doit être un **booléen strict** : l'API rejette `"true"` et `1`
-   * en 400, précisément pour qu'une coercition accidentelle ne se transforme
-   * pas en diffusion réelle. On ne prend donc jamais ce paramètre de
-   * l'extérieur.
+   * `simulate` must be a **strict boolean**: the API rejects `"true"` and `1`
+   * with a 400, precisely so that an accidental coercion does not turn into a
+   * real broadcast. We therefore never take this parameter from the outside.
    *
-   * Un mandat dont la simulation échoue n'est jamais ouvert : la caution n'est
-   * pas prélevée pour un échec prévisible.
+   * A warrant whose simulation fails is never opened: no bond is taken for a
+   * foreseeable failure.
    */
   async simulateContractCall(req: ContractCallRequest): Promise<SimulationResult> {
     return this.request('POST', '/api/execute/contract-call', {
@@ -308,21 +307,21 @@ export class KeeperHubClient {
   }
 
   /**
-   * Exécute un appel de contrat. Bloquant côté API — la réponse n'arrive
-   * qu'une fois l'exécution terminée (≈ 23 s mesurées sur Sepolia).
+   * Executes a contract call. Blocking on the API side — the response only
+   * arrives once the execution has finished (≈ 23 s measured on Sepolia).
    *
-   * ⚠ **La réponse de POST ne porte pas le hash de transaction.** Elle rend un
-   * `202` avec exactement `{ executionId, status: "completed" }` — donc un
-   * succès annoncé, une exécution terminée, et rien pour aller la vérifier. Le
-   * hash, le `sponsored`, le gas et l'`executedCall` n'existent que sur
-   * `GET /api/execute/{id}/status`, où ils sont disponibles immédiatement.
-   * C'est `resolveTransaction` qui referme l'écart, une fois pour tous les
-   * appelants : un port qui rendrait un mandat « ouvert » sans hash laisserait
-   * le Settler sans aucun point d'entrée pour lire la chaîne.
+   * ⚠ **The POST response does not carry the transaction hash.** It returns a
+   * `202` with exactly `{ executionId, status: "completed" }` — so: an announced
+   * success, a finished execution, and nothing with which to go and verify it.
+   * The hash, the `sponsored` flag, the gas and the `executedCall` exist only on
+   * `GET /api/execute/{id}/status`, where they are available immediately.
+   * `resolveTransaction` is what closes that gap, once for every caller: a port
+   * that returned an "open" warrant with no hash would leave the Settler without
+   * any entry point for reading the chain.
    *
-   * `idempotencyKey` est indispensable dès qu'un retry est possible : la
-   * fenêtre de replay est de 24 h, à l'échelle de l'organisation. Sans elle,
-   * un timeout réseau suivi d'un retry diffuse deux transactions.
+   * `idempotencyKey` is indispensable as soon as a retry is possible: the replay
+   * window is 24 h, at organisation scope. Without it, a network timeout followed
+   * by a retry broadcasts two transactions.
    */
   async executeContractCall(
     req: ContractCallRequest,
@@ -338,13 +337,12 @@ export class KeeperHubClient {
   }
 
   /**
-   * Complète un record d'exécution auquel il manque son hash.
+   * Completes an execution record that is missing its hash.
    *
-   * Ne fait rien quand le hash est déjà là — le jour où l'API le renverra dans
-   * la réponse de POST, ce code cessera de coûter un aller-retour sans qu'on
-   * ait à y toucher. Ne fait rien non plus sur un échec : une exécution
-   * `failed` n'a pas forcément de transaction, et insister ne la ferait pas
-   * apparaître.
+   * Does nothing when the hash is already there — the day the API returns it in
+   * the POST response, this code stops costing a round trip without anyone having
+   * to touch it. Does nothing on a failure either: a `failed` execution does not
+   * necessarily have a transaction, and insisting would not make one appear.
    */
   private async resolveTransaction(execution: Execution, attempts = 4): Promise<Execution> {
     if (execution.txHash || !execution.executionId) return execution
@@ -355,8 +353,9 @@ export class KeeperHubClient {
       try {
         fresh = await this.getDirectExecution(execution.executionId)
       } catch {
-        // Le record de POST reste ce qu'on a de mieux : le perdre reviendrait à
-        // oublier l'`executionId`, seul fil vers une exécution déjà diffusée.
+        // The POST record remains the best thing we have: losing it would mean
+        // forgetting the `executionId`, the only thread back to an execution that
+        // has already been broadcast.
         return execution
       }
       if (fresh.txHash || fresh.status === 'failed' || fresh.status === 'cancelled') {
@@ -371,7 +370,7 @@ export class KeeperHubClient {
     req: {
       chainId: number
       recipientAddress: Address
-      /** Montant en unités humaines, ex. "0.1". */
+      /** Amount in human units, e.g. "0.1". */
       amount: string
       tokenAddress?: Address
     },
@@ -386,7 +385,7 @@ export class KeeperHubClient {
     return normalizeExecution(raw)
   }
 
-  /** Statut d'une exécution directe. */
+  /** Status of a direct execution. */
   async getDirectExecution(executionId: string): Promise<Execution> {
     const raw = await this.request<unknown>(
       'GET',
@@ -395,7 +394,7 @@ export class KeeperHubClient {
     return normalizeExecution(raw, executionId)
   }
 
-  // ── Exécutions de workflow ────────────────────────────────────────────────
+  // ── Workflow executions ───────────────────────────────────────────────────
 
   async getWorkflowExecution(executionId: string): Promise<Execution> {
     const raw = await this.request<unknown>(
@@ -406,10 +405,10 @@ export class KeeperHubClient {
   }
 
   /**
-   * Attend l'état terminal côté serveur. Préférable à une boucle de polling :
-   * un seul appel, et pas de rate limit consommé pour rien.
+   * Waits for the terminal state server-side. Preferable to a polling loop: a
+   * single call, and no rate limit burned for nothing.
    *
-   * `timeoutMs` est plafonné à 60 s par l'API.
+   * `timeoutMs` is capped at 60 s by the API.
    */
   async waitForWorkflowExecution(
     executionId: string,
@@ -424,9 +423,10 @@ export class KeeperHubClient {
   }
 
   /**
-   * Suit une exécution jusqu'à terminaison, quel que soit son type.
+   * Follows an execution through to termination, whatever its type.
    *
-   * Ne décide de rien : rend le record pour que le Settler aille lire la chaîne.
+   * Decides nothing: it returns the record so that the Settler can go and read
+   * the chain.
    */
   async pollExecution(
     executionId: string,
@@ -446,16 +446,16 @@ export class KeeperHubClient {
       if (isTerminal(exec.status)) return exec
       if (Date.now() >= deadline) {
         throw new Error(
-          `KeeperHub: exécution ${executionId} toujours ${exec.status} après ${timeoutMs} ms`,
+          `KeeperHub: execution ${executionId} still ${exec.status} after ${timeoutMs} ms`,
         )
       }
       await sleep(intervalMs)
     }
   }
 
-  // ── Wallet et budget ──────────────────────────────────────────────────────
+  // ── Wallet and budget ─────────────────────────────────────────────────────
 
-  /** Wallet Turnkey de l'organisation active. Les soldes sont ailleurs. */
+  /** Turnkey wallet of the active organisation. Balances live elsewhere. */
   async getWallet(): Promise<WalletInfo> {
     return this.request('GET', '/api/user/wallet')
   }
@@ -465,10 +465,10 @@ export class KeeperHubClient {
   }
 
   /**
-   * Cap de dépense journalier de l'organisation, en wei.
+   * The organisation's daily spend cap, in wei.
    *
-   * À surveiller avant un runner de volume : un dépassement fait échouer les
-   * exécutions en 403, et le compteur ne se remet à zéro qu'à minuit UTC.
+   * Worth watching before a volume runner: going over makes executions fail with
+   * a 403, and the counter only resets at midnight UTC.
    */
   async getSpendCap(): Promise<SpendCap> {
     return this.request('GET', '/api/analytics/spend-cap')
@@ -484,12 +484,12 @@ function contractCallBody(req: ContractCallRequest): Record<string, unknown> {
     chainId: req.chainId,
     contractAddress: req.contractAddress,
     functionName: req.functionName,
-    // Chaîne JSON, pas tableau : contrainte de l'API, vérifiée en direct.
+    // JSON string, not array: an API constraint, verified live.
     functionArgs: JSON.stringify(
       req.functionArgs.map((a) => (typeof a === 'bigint' ? a.toString() : a)),
     ),
-    // Même convention, même piège : chaîne JSON. Omise quand l'appelant ne la
-    // fournit pas, pour laisser l'auto-résolution agir sur un contrat vérifié.
+    // Same convention, same trap: a JSON string. Omitted when the caller does not
+    // supply one, so auto-resolution can do its job on a verified contract.
     ...(req.abi ? { abi: JSON.stringify(req.abi) } : {}),
     value: req.value ?? '0',
     ...(req.gasLimitMultiplier ? { gasLimitMultiplier: req.gasLimitMultiplier } : {}),
@@ -501,15 +501,15 @@ function isTerminal(status: ExecutionStatus): boolean {
 }
 
 /**
- * Normalise un record d'exécution.
+ * Normalises an execution record.
  *
- * Les deux familles de routes n'ont pas le même vocabulaire : l'exécution
- * directe dit `completed`/`failed` et `transactionHash`, le workflow dit
- * `success`/`error` et `transactionHashes[]`. On ramène tout à une forme unique.
+ * The two families of routes do not share a vocabulary: direct execution says
+ * `completed`/`failed` and `transactionHash`, the workflow says `success`/`error`
+ * and `transactionHashes[]`. We bring everything back to a single shape.
  */
 export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
   const r = (raw ?? {}) as Record<string, unknown>
-  // L'exécution directe imbrique l'essentiel sous `result`.
+  // Direct execution nests the essentials under `result`.
   const result = (r['result'] ?? {}) as Record<string, unknown>
   const call = (result['executedCall'] ?? {}) as Record<string, unknown>
 
@@ -547,7 +547,7 @@ export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
   const errorText = pickString(r, ['error', 'errorMessage'])
   const completedAt = pickString(r, ['completedAt', 'completed_at', 'timestamp'])
   const retryCount = pickBigInt(r, ['retryCount', 'retries'])
-  // `network` est une chaîne dans la réponse de l'exécution directe.
+  // `network` is a string in the direct-execution response.
   const chainId = pickBigInt(r, ['network', 'chainId'])
   const sponsored =
     pickBool(result, ['sponsored']) ?? pickBool(call, ['sponsored'])
@@ -576,8 +576,8 @@ export function normalizeExecution(raw: unknown, fallbackId = ''): Execution {
       : {}),
   }
 
-  // `result.success === false` signale une exécution qui a bien été soumise mais
-  // dont l'appel a reverté. C'est un échec d'exécution, pas une non-conformité.
+  // `result.success === false` signals an execution that was indeed submitted but
+  // whose call reverted. That is an execution failure, not a non-compliance.
   const innerSuccess = pickBool(result, ['success'])
   const rawStatus = normalizeStatus(pickString(r, ['status', 'state']))
   const status: ExecutionStatus =
@@ -677,7 +677,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/** `execRef` relie un verdict à l'exécution KeeperHub et à la transaction. */
+/** `execRef` ties a verdict to the KeeperHub execution and to the transaction. */
 export function execRefInput(executionId: string, txHash: Hex): string {
   return `${executionId}${txHash}`
 }

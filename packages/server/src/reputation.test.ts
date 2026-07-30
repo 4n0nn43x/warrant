@@ -131,7 +131,7 @@ const buildOpts = {
   createdAt: CREATED_AT,
 }
 
-/** Registre d'identité mocké. `authorized` = le soumetteur est owner/operator. */
+/** Mocked identity registry. `authorized` = the submitter is owner/operator. */
 function identityMock(opts: {
   authorized?: boolean
   owner?: Address | null
@@ -154,7 +154,7 @@ function identityMock(opts: {
       case 'isApprovedForAll':
         return opts.approvedForAll ?? false
       default:
-        throw new Error(`readContract inattendu: ${req.functionName}`)
+        throw new Error(`unexpected readContract: ${req.functionName}`)
     }
   })
   return { readContract }
@@ -170,11 +170,11 @@ function walletMock() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// L'ABI
+// The ABI
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('ABI ERC-8004', () => {
-  it('giveFeedback déclare huit paramètres, dans l’ordre de la spec', () => {
+describe('ERC-8004 ABI', () => {
+  it('giveFeedback declares eight parameters, in the spec’s order', () => {
     const fn = reputationRegistryAbi.find(
       (e) => e.type === 'function' && e.name === 'giveFeedback',
     )
@@ -193,7 +193,7 @@ describe('ABI ERC-8004', () => {
     ])
   })
 
-  it('NewFeedback est le seul porteur de endpoint / feedbackURI / feedbackHash', () => {
+  it('NewFeedback is the only carrier of endpoint / feedbackURI / feedbackHash', () => {
     const ev = reputationRegistryAbi.find(
       (e) => e.type === 'event' && e.name === 'NewFeedback',
     ) as { inputs: readonly { name: string }[] }
@@ -202,7 +202,7 @@ describe('ABI ERC-8004', () => {
     expect(names).toContain('feedbackURI')
     expect(names).toContain('feedbackHash')
 
-    // readFeedback, lui, ne les rend pas : d'où la lecture par logs.
+    // readFeedback, for its part, does not return them: hence reading via logs.
     const read = reputationRegistryAbi.find(
       (e) => e.type === 'function' && e.name === 'readFeedback',
     ) as { outputs: readonly { name: string }[] }
@@ -217,7 +217,7 @@ describe('ABI ERC-8004', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Les huit arguments
+// The eight arguments
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('giveFeedbackArgs', () => {
@@ -228,11 +228,11 @@ describe('giveFeedbackArgs', () => {
     feedbackHash: `0x${'aa'.repeat(32)}` as Hex,
   })
 
-  it('produit huit arguments positionnels', () => {
+  it('produces eight positional arguments', () => {
     expect(args).toHaveLength(8)
   })
 
-  it('les ordonne exactement comme l’ABI', () => {
+  it('orders them exactly as the ABI does', () => {
     expect(args[0]).toBe(AGENT_ID) // uint256 agentId
     expect(args[1]).toBe(100n) // int128 value
     expect(args[2]).toBe(2) // uint8 valueDecimals → +1.00
@@ -243,14 +243,14 @@ describe('giveFeedbackArgs', () => {
     expect(args[7]).toBe(`0x${'aa'.repeat(32)}`) // bytes32 feedbackHash
   })
 
-  it('passe endpoint en chaîne vide, jamais absent', () => {
+  it('passes endpoint as an empty string, never absent', () => {
     expect(args[5]).toBe('')
     expect(args[5]).toBe(FEEDBACK_ENDPOINT)
-    // Le piège : confondre endpoint et feedbackURI décalerait tout.
+    // The trap: confusing endpoint with feedbackURI would shift everything.
     expect(args[5]).not.toBe(args[6])
   })
 
-  it('mappe slashed sur une valeur négative', () => {
+  it('maps slashed onto a negative value', () => {
     const slashed = giveFeedbackArgs({
       agentId: 1n,
       verdict: 'slashed',
@@ -262,12 +262,12 @@ describe('giveFeedbackArgs', () => {
     expect(slashed[3]).toBe(FEEDBACK_TAG1)
   })
 
-  it('respecte les bornes du contrat (valueDecimals ≤ 18)', () => {
+  it('respects the contract’s bounds (valueDecimals ≤ 18)', () => {
     expect(VERDICT_VALUE_DECIMALS).toBeLessThanOrEqual(MAX_VALUE_DECIMALS)
   })
 
-  it('s’encode contre l’ABI réelle sans décalage', () => {
-    // Aller-retour d'encodage : si l'ordre était faux, viem lèverait ici.
+  it('encodes against the real ABI with no shift', () => {
+    // Encoding round trip: if the order were wrong, viem would throw here.
     const encoded = encodeGiveFeedback(args)
     const decoded = decodeFunctionData({ abi: reputationRegistryAbi, data: encoded })
     expect(decoded.functionName).toBe('giveFeedback')
@@ -284,16 +284,16 @@ function encodeGiveFeedback(args: GiveFeedbackArgs): Hex {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le document et son hash
+// The document and its hash
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('document de feedback', () => {
+describe('feedback document', () => {
   const doc = buildFeedbackDocument(verdictDocument(), {
     ...buildOpts,
     proofOfPayment: PROOF,
   })
 
-  it('suit le format normalisé de la spec ERC-8004', () => {
+  it('follows the normalised format of the ERC-8004 spec', () => {
     expect(doc.agentRegistry).toBe(caip10(CHAIN_ID, IDENTITY))
     expect(doc.agentId).toBe(4242)
     expect(doc.clientAddress).toBe(caip10(CHAIN_ID, SETTLER))
@@ -305,24 +305,24 @@ describe('document de feedback', () => {
     expect(doc.endpoint).toBe('')
   })
 
-  it('porte proofOfPayment, le pont normalisé x402 → réputation', () => {
+  it('carries proofOfPayment, the standard x402 → reputation bridge', () => {
     expect(doc.proofOfPayment).toEqual({
       fromAddress: AGENT,
       toAddress: ESCROW,
       chainId: '8453',
       txHash: FUNDING_REF,
     })
-    // Le txHash de la preuve est le fundingRef du mandat, pas la tx d'action.
+    // The proof’s txHash is the warrant’s fundingRef, not the action tx.
     expect(doc.proofOfPayment?.txHash).not.toBe(doc.warrant.txHash)
   })
 
-  it('reste rejouable : checks, evaluatedAtBlock et rpcUrl sont dedans', () => {
+  it('stays replayable: checks, evaluatedAtBlock and rpcUrl are in there', () => {
     expect(doc.warrant.checks).toHaveLength(1)
     expect(doc.warrant.evaluatedAtBlock).toBe('31000003')
     expect(doc.warrant.rpcUrl).toBe('https://base.rpc.example')
   })
 
-  it('normalise les adresses en minuscules', () => {
+  it('normalises the addresses to lowercase', () => {
     const upper = buildFeedbackDocument(verdictDocument(), {
       ...buildOpts,
       settler: SETTLER.toUpperCase().replace('0X', '0x') as Address,
@@ -330,13 +330,13 @@ describe('document de feedback', () => {
     expect(upper.clientAddress).toBe(caip10(CHAIN_ID, SETTLER))
   })
 
-  it('injecte null pour settlementTx absent plutôt que d’omettre le champ', () => {
+  it('injects null for an absent settlementTx rather than omitting the field', () => {
     const d = buildFeedbackDocument(verdictDocument({ settlementTx: undefined }), buildOpts)
     expect(d.warrant.settlementTx).toBeNull()
     expect('settlementTx' in d.warrant).toBe(true)
   })
 
-  it('exclut reputationTx : le hash ne peut pas dépendre de sa propre transaction', () => {
+  it('excludes reputationTx: the hash cannot depend on its own transaction', () => {
     const withTx = buildFeedbackDocument(
       verdictDocument({ reputationTx: `0x${'99'.repeat(32)}` as Hex }),
       buildOpts,
@@ -353,13 +353,13 @@ describe('feedbackHash', () => {
     proofOfPayment: PROOF,
   })
 
-  it('vaut keccak256(utf8(canonicalize(doc)))', () => {
+  it('equals keccak256(utf8(canonicalize(doc)))', () => {
     const expected = keccak256(stringToBytes(canonicalize(doc)))
     expect(feedbackHashOf(doc)).toBe(expected)
     expect(feedbackHashOf(doc)).toBe(hashCanonical(canonicalize(doc)))
   })
 
-  it('est reproductible : deux constructions identiques donnent le même hash', () => {
+  it('is reproducible: two identical constructions give the same hash', () => {
     const again = buildFeedbackDocument(verdictDocument(), {
       ...buildOpts,
       proofOfPayment: PROOF,
@@ -367,14 +367,14 @@ describe('feedbackHash', () => {
     expect(feedbackHashOf(again)).toBe(feedbackHashOf(doc))
   })
 
-  it('est recalculable par un tiers depuis le document servi à feedbackURI', () => {
-    // Ce que fait un vérificateur : télécharger, canonicaliser, hacher, comparer.
+  it('is recomputable by a third party from the document served at feedbackURI', () => {
+    // What a verifier does: download, canonicalise, hash, compare.
     const served = canonicalFeedbackDocument(doc)
     const downloaded = JSON.parse(served) as typeof doc
     expect(verifyFeedbackHash(downloaded, feedbackHashOf(doc))).toBe(true)
   })
 
-  it('change dès qu’un octet du verdict change', () => {
+  it('changes as soon as a single byte of the verdict changes', () => {
     const tampered = buildFeedbackDocument(
       verdictDocument({
         checks: [
@@ -386,31 +386,31 @@ describe('feedbackHash', () => {
     expect(feedbackHashOf(tampered)).not.toBe(feedbackHashOf(doc))
   })
 
-  it('rejette un hash qui ne correspond pas', () => {
+  it('rejects a hash that does not match', () => {
     expect(verifyFeedbackHash(doc, `0x${'00'.repeat(32)}` as Hex)).toBe(false)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Politique d'écriture (docs/10 § 5)
+// Write policy (docs/10 § 5)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('politique d’écriture', () => {
-  it('écrit immédiatement une saisie', () => {
+describe('write policy', () => {
+  it('writes a slash immediately', () => {
     expect(writePolicyFor('slashed')).toBe('immediate')
   })
 
-  it('met les mandats honorés en lot', () => {
+  it('batches the honored warrants', () => {
     expect(writePolicyFor('honored')).toBe('batch')
   })
 
-  it('n’écrit jamais rien pour un reclaim', () => {
+  it('never writes anything for a reclaim', () => {
     expect(writePolicyFor('reclaimed')).toBe('never')
   })
 })
 
 describe('publishVerdict', () => {
-  it('inscrit immédiatement une saisie, avec les huit arguments', async () => {
+  it('inscribes a slash immediately, with the eight arguments', async () => {
     const wallet = walletMock()
     const identity = identityMock({ authorized: false })
 
@@ -429,7 +429,7 @@ describe('publishVerdict', () => {
     const call = wallet.calls[0]!
     expect(call.address).toBe(REPUTATION)
     expect(call.functionName).toBe('giveFeedback')
-    // Le compte utilisé EST la preuve d'origine : pas de signature détachée.
+    // The account used IS the proof of origin: no detached signature.
     expect(call.account).toBe(SETTLER)
 
     expect(call.args).toHaveLength(8)
@@ -446,7 +446,7 @@ describe('publishVerdict', () => {
     expect(verifyFeedbackHash(res.document, res.feedbackHash)).toBe(true)
   })
 
-  it('diffère un mandat honoré vers le lot, sans écrire', async () => {
+  it('defers an honored warrant to the batch, without writing', async () => {
     const wallet = walletMock()
     const identity = identityMock({ authorized: false })
 
@@ -460,13 +460,13 @@ describe('publishVerdict', () => {
     expect(res.written).toBe(false)
     if (res.written) throw new Error('unreachable')
     expect(res.reason).toBe('batched')
-    // Le document est prêt — il partira avec le lot.
+    // The document is ready — it will go out with the batch.
     expect(res.document).toBeDefined()
     expect(res.feedbackHash).toBeDefined()
     expect(wallet.writeContract).not.toHaveBeenCalled()
   })
 
-  it('écrit un honoré isolé quand on force le mode immédiat', async () => {
+  it('writes an isolated honored when immediate mode is forced', async () => {
     const wallet = walletMock()
     const res = await publishVerdict(verdictDocument(), {
       ...buildOpts,
@@ -480,7 +480,7 @@ describe('publishVerdict', () => {
     expect(wallet.calls[0]!.args[4]).toBe('honored')
   })
 
-  it('n’écrit RIEN sur un reclaim, même en mode immédiat', async () => {
+  it('writes NOTHING on a reclaim, even in immediate mode', async () => {
     const wallet = walletMock()
     const identity = identityMock({ authorized: false })
 
@@ -495,22 +495,22 @@ describe('publishVerdict', () => {
       expect(res.written).toBe(false)
       if (res.written) throw new Error('unreachable')
       expect(res.reason).toBe('reclaimed')
-      // Aucun document n'est même construit : il n'y a rien à publier.
+      // No document is even built: there is nothing to publish.
       expect(res.document).toBeUndefined()
     }
 
-    // Une défaillance de notre infrastructure ne dégrade pas la réputation.
+    // A failure of our own infrastructure does not degrade reputation.
     expect(wallet.writeContract).not.toHaveBeenCalled()
     expect(identity.readContract).not.toHaveBeenCalled()
   })
 
-  it('refuse de construire un document pour un reclaim', () => {
+  it('refuses to build a document for a reclaim', () => {
     expect(() =>
       buildFeedbackDocument(verdictDocument({ verdict: 'reclaimed' }), buildOpts),
     ).toThrow(ReputationError)
   })
 
-  it('utilise l’URI explicite quand elle est fournie', async () => {
+  it('uses the explicit URI when one is supplied', async () => {
     const wallet = walletMock()
     const res = await publishVerdict(verdictDocument({ verdict: 'slashed' }), {
       ...buildOpts,
@@ -525,11 +525,11 @@ describe('publishVerdict', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le garde-fou anti-auto-notation
+// The anti-self-rating guard
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('assertCanGiveFeedback', () => {
-  it('laisse passer un Settler tiers', async () => {
+  it('lets a third-party Settler through', async () => {
     const identity = identityMock({ authorized: false })
     await expect(
       assertCanGiveFeedback(AGENT_ID, SETTLER, {
@@ -539,7 +539,7 @@ describe('assertCanGiveFeedback', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('refuse si le Settler est owner du NFT d’agent', async () => {
+  it('refuses if the Settler owns the agent NFT', async () => {
     const identity = identityMock({ authorized: true, owner: SETTLER })
     const err = await assertCanGiveFeedback(AGENT_ID, SETTLER, {
       publicClient: identity,
@@ -555,7 +555,7 @@ describe('assertCanGiveFeedback', () => {
     expect(e.message).toContain(String(AGENT_ID))
   })
 
-  it('refuse si le Settler est operator', async () => {
+  it('refuses if the Settler is an operator', async () => {
     const identity = identityMock({ authorized: true, owner: AGENT })
     const err = (await assertCanGiveFeedback(AGENT_ID, SETTLER, {
       publicClient: identity,
@@ -567,8 +567,8 @@ describe('assertCanGiveFeedback', () => {
     expect(err.agentOwner).toBe(AGENT)
   })
 
-  it('retombe sur la décomposition ERC-721 si isAuthorizedOrOwner est absente', async () => {
-    // L'ABI publiée ne déclare pas isAuthorizedOrOwner : le repli doit marcher.
+  it('falls back to the ERC-721 decomposition when isAuthorizedOrOwner is absent', async () => {
+    // The published ABI does not declare isAuthorizedOrOwner: the fallback must work.
     const identity = identityMock({ supportsIsAuthorized: false, owner: AGENT })
     const v = await canGiveFeedback(AGENT_ID, SETTLER, {
       publicClient: identity,
@@ -585,7 +585,7 @@ describe('assertCanGiveFeedback', () => {
     expect(asOwner.blocker).toBe('owner')
   })
 
-  it('détecte l’approbation pour tous via le repli', async () => {
+  it('detects approval-for-all through the fallback', async () => {
     const identity = identityMock({
       supportsIsAuthorized: false,
       owner: AGENT,
@@ -599,7 +599,7 @@ describe('assertCanGiveFeedback', () => {
     expect(v.blocker).toBe('operator')
   })
 
-  it('détecte un agentId inexistant', async () => {
+  it('detects a nonexistent agentId', async () => {
     const identity = identityMock({ supportsIsAuthorized: false, owner: null })
     const err = (await assertCanGiveFeedback(AGENT_ID, SETTLER, {
       publicClient: identity,
@@ -608,7 +608,7 @@ describe('assertCanGiveFeedback', () => {
     expect(err.blocker).toBe('agent-not-registered')
   })
 
-  it('empêche publishVerdict d’émettre la transaction', async () => {
+  it('stops publishVerdict from emitting the transaction', async () => {
     const wallet = walletMock()
     const identity = identityMock({ authorized: true, owner: SETTLER })
 
@@ -621,17 +621,17 @@ describe('assertCanGiveFeedback', () => {
       }),
     ).rejects.toBeInstanceOf(ReputationAuthorizationError)
 
-    // Le point du test : découvrir le problème AVANT 150 mandats réglés.
+    // The point of the test: discovering the problem BEFORE 150 settled warrants.
     expect(wallet.writeContract).not.toHaveBeenCalled()
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le lot
+// The batch
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('VerdictBatcher', () => {
-  it('n’accepte que des mandats honorés', () => {
+  it('accepts honored warrants only', () => {
     const b = new VerdictBatcher()
     expect(() => b.enqueue(AGENT_ID, verdictDocument({ verdict: 'slashed' }))).toThrow(
       ReputationError,
@@ -642,7 +642,7 @@ describe('VerdictBatcher', () => {
     expect(b.size(AGENT_ID)).toBe(0)
   })
 
-  it('déclenche à la taille de lot', () => {
+  it('triggers at the batch size', () => {
     const b = new VerdictBatcher({ maxBatchSize: 3 })
     b.enqueue(AGENT_ID, verdictDocument())
     b.enqueue(AGENT_ID, verdictDocument())
@@ -653,7 +653,7 @@ describe('VerdictBatcher', () => {
     expect(b.size(AGENT_ID)).toBe(0)
   })
 
-  it('déclenche à l’âge, sans attendre la taille', () => {
+  it('triggers on age, without waiting for the size', () => {
     let now = 1_000_000
     const b = new VerdictBatcher({ maxBatchSize: 100, maxAgeMs: 1000 }, () => now)
     b.enqueue(AGENT_ID, verdictDocument())
@@ -662,12 +662,12 @@ describe('VerdictBatcher', () => {
     expect(b.due()).toEqual([AGENT_ID])
   })
 
-  it('a une politique par défaut « N exécutions ou 24 h »', () => {
+  it('has a default policy of \"N executions or 24 h\"', () => {
     expect(DEFAULT_BATCH_POLICY.maxAgeMs).toBe(24 * 60 * 60 * 1000)
     expect(DEFAULT_BATCH_POLICY.maxBatchSize).toBeGreaterThan(1)
   })
 
-  it('sépare les files par agentId', () => {
+  it('keeps the queues separate per agentId', () => {
     const b = new VerdictBatcher()
     b.enqueue(1n, verdictDocument())
     b.enqueue(2n, verdictDocument())
@@ -684,7 +684,7 @@ describe('publishBatch', () => {
     verdictDocument({ warrantId: `0x${'a2'.repeat(32)}` as Hex }),
   ]
 
-  it('agrège N mandats honorés en un seul feedback', async () => {
+  it('aggregates N honored warrants into a single feedback', async () => {
     const wallet = walletMock()
     const res = await publishBatch(docs, {
       ...buildOpts,
@@ -706,17 +706,17 @@ describe('publishBatch', () => {
     expect(verifyFeedbackHash(res.document, res.feedbackHash)).toBe(true)
   })
 
-  it('refuse un lot contenant autre chose qu’un honoré', () => {
+  it('rejects a batch containing anything other than an honored', () => {
     expect(() =>
       buildBatchFeedbackDocument([...docs, verdictDocument({ verdict: 'slashed' })], buildOpts),
     ).toThrow(ReputationError)
   })
 
-  it('refuse un lot vide', () => {
+  it('rejects an empty batch', () => {
     expect(() => buildBatchFeedbackDocument([], buildOpts)).toThrow(ReputationError)
   })
 
-  it('place proofOfPayment par mandat, pas au niveau du lot', () => {
+  it('puts proofOfPayment per warrant, not at batch level', () => {
     const doc = buildBatchFeedbackDocument(docs, {
       ...buildOpts,
       proofsByWarrantId: { [docs[0]!.warrantId.toLowerCase()]: PROOF },
@@ -728,11 +728,11 @@ describe('publishBatch', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Identité — optionnelle, jamais bloquante
+// Identity — optional, never blocking
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('enregistrement d’agent', () => {
-  it('prépare une transaction que l’AGENT enverra, pas Warrant', () => {
+describe('agent registration', () => {
+  it('prepares a transaction the AGENT will send, not Warrant', () => {
     const tx = buildAgentRegistration({
       identityRegistry: IDENTITY,
       agentURI: 'https://agent.example/card.json',
@@ -751,7 +751,7 @@ describe('enregistrement d’agent', () => {
     expect(metadata.map((m) => m.metadataKey)).toEqual(['warrant.escrow', 'warrant.since'])
   })
 
-  it('écrit les métadonnées warrant.escrow et warrant.since', () => {
+  it('writes the warrant.escrow and warrant.since metadata', () => {
     const calls = buildWarrantMetadataCalls({
       identityRegistry: IDENTITY,
       agentId: AGENT_ID,
@@ -767,7 +767,7 @@ describe('enregistrement d’agent', () => {
     }
   })
 
-  it('inspectAgentIdentity ne lève jamais', async () => {
+  it('inspectAgentIdentity never throws', async () => {
     const absent = await inspectAgentIdentity(undefined, SETTLER, {
       publicClient: identityMock({}),
       identityRegistry: IDENTITY,
@@ -789,7 +789,7 @@ describe('enregistrement d’agent', () => {
     const down = await inspectAgentIdentity(AGENT_ID, SETTLER, {
       publicClient: {
         readContract: async () => {
-          throw new Error('RPC injoignable')
+          throw new Error('RPC unreachable')
         },
       },
       identityRegistry: IDENTITY,

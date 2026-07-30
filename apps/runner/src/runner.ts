@@ -1,94 +1,93 @@
 /**
- * Le runner de volume.
+ * The volume runner.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * Ce que c'est, et ce que ce n'est pas
+ * What it is, and what it is not
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * Le critère le plus pondéré du hackathon est « est-ce que ça s'exécute onchain
- * via KeeperHub ». Un protocole correct avec un seul mandat ne le satisfait pas.
- * Ce processus existe pour transformer une démonstration unitaire en volume :
- * il ouvre des mandats en continu, mélange les scénarios honorés et détournés,
- * et s'arrête proprement quand un budget nommé est atteint.
+ * The hackathon's most heavily weighted criterion is "does it execute onchain via
+ * KeeperHub". A correct protocol with a single warrant does not satisfy it. This
+ * process exists to turn a one-off demonstration into volume: it opens warrants
+ * continuously, mixes the honored and diverted scenarios, and stops cleanly when
+ * a named budget is reached.
  *
- * Ce n'est **pas** un service, et il ne réimplémente rien : l'ouverture est
- * déléguée à `packages/server/src/bin/open-warrant.ts` (voir `opener.ts` pour
- * l'argument du sous-processus), le règlement au daemon
- * `packages/server/src/bin/settler.ts`, la persistance au journal JSONL. Le
- * runner n'ajoute que trois choses : un plan, un budget, et un compteur.
- *
- * ═════════════════════════════════════════════════════════════════════════════
- * L'observation qui rend la cible atteignable
- * ═════════════════════════════════════════════════════════════════════════════
- *
- * **Le capital se recycle.** Un mandat honoré rend `bond − fee` à l'agent : à
- * `feeBps = 250` et `bond = 0,2 USDC`, un cycle coûte 0,005 USDC. Les 2 USDC de
- * l'agent financent donc ≈ 240 cycles honorés, et non 10 mandats. Ce qui borne
- * le volume, ce n'est pas le capital, c'est le débit — et l'ouverture étant
- * sponsorisée par KeeperHub (tx d'ouverture émise par le relayer `0x6331eb45…`
- * via le forwarder `0x5aF5194B…`), ce n'est pas le gas non plus, sauf celui du
- * règlement.
- *
- * **Une saisie, elle, détruit le capital.** La caution part au bénéficiaire et
- * ne revient jamais. C'est le seul poste qui consomme du principal, et c'est
- * pourquoi il a son propre plafond. Voir `budget.ts` pour les chiffres mesurés
- * et le calcul de débit complet.
+ * It is **not** a service, and it reimplements nothing: the opening is delegated
+ * to `packages/server/src/bin/open-warrant.ts` (see `opener.ts` for the
+ * subprocess argument), the settlement to the `packages/server/src/bin/settler.ts`
+ * daemon, the persistence to the JSONL ledger. The runner adds only three things:
+ * a plan, a budget, and a counter.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * Variables d'environnement — à ajouter au `.env`
+ * The observation that makes the target reachable
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * Aucune n'est obligatoire : les défauts sont calibrés sur les soldes réels du
- * 30/07/2026 après faucet (agent 2,165 USDC / 0,000385 ETH, Settler
- * 0,000365 ETH). Le runner réutilise sinon exactement les variables du Gateway
- * et du Settler.
+ * **Capital recycles.** An honored warrant returns `bond − fee` to the agent: at
+ * `feeBps = 250` and `bond = 0.2 USDC`, a cycle costs 0.005 USDC. So the agent's
+ * 2 USDC fund ≈ 240 honored cycles, not 10 warrants. What bounds the volume is
+ * not the capital, it is the throughput — and since the opening is sponsored by
+ * KeeperHub (opening tx emitted by the relayer `0x6331eb45…` via the forwarder
+ * `0x5aF5194B…`), it is not the gas either, except the settlement's.
  *
- *   RUNNER_CAMPAIGN=hackathon           libellé isolant les budgets entre séries
- *   RUNNER_TARGET=150                   mandats visés
- *   RUNNER_SLASH_TARGET=3               saisies visées (le critère en demande ≥ 3)
- *   RUNNER_CONCURRENCY=3                ouvertures simultanées
- *   RUNNER_BACKLOG_CAP=6                mandats ouverts simultanément au plus
- *   RUNNER_BOND=200000                  caution, unités atomiques
- *   RUNNER_AMOUNT=1                     montant transféré par l'action
- *   RUNNER_DURATION=900                 durée du mandat, secondes (= MIN_DURATION)
- *   RUNNER_SLASH_PRINCIPAL_BUDGET=800000  principal destructible par les saisies
- *   RUNNER_FEE_BUDGET=1000000           frais cumulés autorisés sur les honorés
- *   RUNNER_AGENT_RESERVE=50000          USDC intouchable sur l'agent
- *   RUNNER_GAS_FLOOR_WEI=20000000000000 plancher de solde du Settler (0,00002 ETH)
- *   RUNNER_GAS_SPEND_WEI=150000000000000  gas consommable par ce processus
- *   RUNNER_KH_REQ_PER_MIN=60            débit KeeperHub retenu
- *   RUNNER_KH_REQ_PER_MANDATE=11        coût en requêtes, au pire cas
+ * **A slash, on the other hand, destroys capital.** The bond goes to the
+ * beneficiary and never comes back. It is the only line item that consumes
+ * principal, and that is why it has a cap of its own. See `budget.ts` for the
+ * measured figures and the full throughput computation.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════
+ * Environment variables — to add to `.env`
+ * ═════════════════════════════════════════════════════════════════════════════
+ *
+ * None is mandatory: the defaults are calibrated on the real balances of
+ * 2026-07-30 after the faucet (agent 2.165 USDC / 0.000385 ETH, Settler
+ * 0.000365 ETH). Otherwise the runner reuses exactly the Gateway's and the
+ * Settler's variables.
+ *
+ *   RUNNER_CAMPAIGN=hackathon           label isolating budgets between series
+ *   RUNNER_TARGET=150                   warrants targeted
+ *   RUNNER_SLASH_TARGET=3               slashes targeted (the criterion asks ≥ 3)
+ *   RUNNER_CONCURRENCY=3                simultaneous openings
+ *   RUNNER_BACKLOG_CAP=6                at most this many warrants open at once
+ *   RUNNER_BOND=200000                  bond, atomic units
+ *   RUNNER_AMOUNT=1                     amount transferred by the action
+ *   RUNNER_DURATION=900                 warrant duration, seconds (= MIN_DURATION)
+ *   RUNNER_SLASH_PRINCIPAL_BUDGET=800000  principal the slashes may destroy
+ *   RUNNER_FEE_BUDGET=1000000           cumulative fees allowed on the honored ones
+ *   RUNNER_AGENT_RESERVE=50000          untouchable USDC on the agent
+ *   RUNNER_GAS_FLOOR_WEI=20000000000000 floor on the Settler's balance (0.00002 ETH)
+ *   RUNNER_GAS_SPEND_WEI=150000000000000  gas this process may consume
+ *   RUNNER_KH_REQ_PER_MIN=60            KeeperHub rate we keep
+ *   RUNNER_KH_REQ_PER_MANDATE=11        cost in requests, worst case
  *   RUNNER_MAX_RUNTIME_MS=5400000       90 min
- *   RUNNER_DRAIN_MS=420000              attente du drainage après le dernier open
+ *   RUNNER_DRAIN_MS=420000              drain wait after the last open
  *   RUNNER_COUNTERS_FILE=.warrant/counters.json
- *   RUNNER_ALLOWED_DEST=0x…dEaD         destination engagée
- *   RUNNER_DIVERTED_DEST=0x…DeaDBeef    destination servie dans le détournement
- *   RUNNER_SETTLER=auto                 auto | 1 | 0 — superviser le Settler
- *   RUNNER_OPEN_TIMEOUT_MS=180000       délai de garde d'une ouverture
- *   RUNNER_RECLAIM_INTERVAL_MS=60000    période du balayage des cautions expirées
- *   RUNNER_AGENT_GAS_FLOOR_WEI=5000000000000  plancher d'ETH de l'agent, sous
- *                                       lequel le balayage reclaim() se suspend
- *                                       — un reclaim coûte ≈ 380e9 wei, mesuré
- *   RUNNER_POLL_MS=5000                 période de l'instantané onchain
- *   RUNNER_SETTLER_INTERVAL_MS=8000     SETTLER_INTERVAL_MS imposé à l'enfant
+ *   RUNNER_ALLOWED_DEST=0x…dEaD         committed destination
+ *   RUNNER_DIVERTED_DEST=0x…DeaDBeef    destination served in the diversion
+ *   RUNNER_SETTLER=auto                 auto | 1 | 0 — supervise the Settler
+ *   RUNNER_OPEN_TIMEOUT_MS=180000       guard timeout on one opening
+ *   RUNNER_RECLAIM_INTERVAL_MS=60000    period of the expired-bond sweep
+ *   RUNNER_AGENT_GAS_FLOOR_WEI=5000000000000  floor on the agent's ETH, below
+ *                                       which the reclaim() sweep suspends itself
+ *                                       — one reclaim costs ≈ 380e9 wei, measured
+ *   RUNNER_POLL_MS=5000                 period of the onchain snapshot
+ *   RUNNER_SETTLER_INTERVAL_MS=8000     SETTLER_INTERVAL_MS forced on the child
  *
- * Et deux corrections que le runner impose au Settler qu'il supervise, parce que
- * leurs défauts sont faux sur Base Sepolia :
+ * And two corrections the runner forces on the Settler it supervises, because
+ * their defaults are wrong on Base Sepolia:
  *
- *   SETTLER_LOG_CHUNK        celui de l'environnement s'il est renseigné, borné à
- *                            2001 — `sepolia.base.org` refuse tout eth_getLogs
- *                            dont `toBlock − fromBlock` dépasse 2000. Le défaut
- *                            de 9000 de `bin/settler.ts` fait échouer **tous**
- *                            les chunks, donc le Settler ne découvre aucun mandat
- *                            et le backlog ne se drainerait jamais.
- *   SETTLER_FROM_BLOCK=…     dérivé du plus ancien mandat encore ouvert. Le
- *                            défaut balaye 60 000 blocs, soit 30 chunks de
- *                            requêtes à chaque tour de boucle pour ne rien
- *                            découvrir de plus.
+ *   SETTLER_LOG_CHUNK        the environment's own if it is set, clamped to
+ *                            2001 — `sepolia.base.org` refuses any eth_getLogs
+ *                            whose `toBlock − fromBlock` exceeds 2000. The
+ *                            default of 9000 in `bin/settler.ts` makes **every**
+ *                            chunk fail, so the Settler discovers no warrant at
+ *                            all and the backlog would never drain.
+ *   SETTLER_FROM_BLOCK=…     derived from the oldest still-open warrant. The
+ *                            default scans 60,000 blocks, i.e. 30 chunks of
+ *                            requests on every loop pass to discover nothing
+ *                            more.
  *
- * Le runner lit par ailleurs `ERC8004_BATCH_SIZE` sans la modifier : elle ne
- * change aucune décision, mais elle amortit le gas d'inscription ERC-8004 des
- * mandats honorés dans la borne annoncée (voir `budget.ts` § 1).
+ * The runner also reads `ERC8004_BATCH_SIZE` without modifying it: it changes no
+ * decision, but it amortises the honored warrants' ERC-8004 registration gas
+ * within the announced bound (see `budget.ts` § 1).
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -124,17 +123,17 @@ import { TokenBucket, openWarrant, type OpenerConfig } from './opener.js'
 import { computeCounters, openLedger, tally, type Ledger, type Scenario } from './ledger.js'
 
 /**
- * Débits mesurés, nommés une fois — les répandre en littéraux dans les calculs
- * garantit qu'une remesure n'en corrige que la moitié.
+ * Measured rates, named once — scattering them as literals through the
+ * computations guarantees that a re-measurement only fixes half of them.
  *
- * `MANDATES_PER_MINUTE_PER_WORKER` : 60 000 / 17 384 ms, moyenne des 8 mandats de
- * la campagne « borne ». `SETTLER_MANDATES_PER_MINUTE` : le drainage d'une clé
- * unique, voir `budget.ts` § 2 (c).
+ * `MANDATES_PER_MINUTE_PER_WORKER`: 60,000 / 17,384 ms, the average of the 8
+ * warrants of the "bound" campaign. `SETTLER_MANDATES_PER_MINUTE`: the drain rate
+ * of a single key, see `budget.ts` § 2 (c).
  */
 const MANDATES_PER_MINUTE_PER_WORKER = 3.45
 const SETTLER_MANDATES_PER_MINUTE = 6
 
-/** Journal structuré, une ligne JSON par événement. Jamais de secret. */
+/** Structured log, one JSON line per event. Never a secret. */
 export function emit(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event, (_k, v) => (typeof v === 'bigint' ? v.toString(10) : v)))
 }
@@ -144,15 +143,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Y a-t-il déjà un Settler en vie ?
+ * Is there already a Settler alive?
  *
- * On sonde le port du serveur de verdicts, que `bin/settler.ts` ouvre
- * inconditionnellement au démarrage. Ce n'est pas une preuve formelle — un
- * autre processus pourrait tenir ce port — mais c'est le seul indice local et
- * bon marché, et l'erreur qu'il évite est grave : deux Settlers sur la même clé
- * signeraient avec le même nonce, et l'un des deux verrait ses règlements
- * rejetés en `replacement transaction underpriced`. Le doute conduit donc à ne
- * **pas** en lancer un second.
+ * We probe the verdict server's port, which `bin/settler.ts` opens
+ * unconditionally at startup. It is not a formal proof — another process could be
+ * holding that port — but it is the only local and cheap clue, and the mistake it
+ * avoids is serious: two Settlers on the same key would sign with the same nonce,
+ * and one of the two would see its settlements rejected as
+ * `replacement transaction underpriced`. So doubt leads to **not** launching a
+ * second one.
  */
 function settlerListening(port: number, timeoutMs = 700): Promise<boolean> {
   return new Promise((resolveP) => {
@@ -177,12 +176,12 @@ export interface RunnerConfig {
   token: Address
   agent: Address
   /**
-   * Le compte de l'agent. Ne sert qu'à `reclaim()` — l'ouverture, elle, signe
-   * l'autorisation EIP-3009 dans le sous-processus, avec sa propre copie de la
-   * clé lue dans l'environnement. Le runner ne journalise jamais cet objet.
+   * The agent's account. Used only for `reclaim()` — the opening signs the
+   * EIP-3009 authorization inside the subprocess, with its own copy of the key
+   * read from the environment. The runner never logs this object.
    */
   agentAccount: PrivateKeyAccount
-  /** Plancher d'ETH sous lequel le runner cesse de réclamer. */
+  /** ETH floor below which the runner stops reclaiming. */
   agentGasFloorWei: bigint
   settlerKeyAddress: Address
   journalFile: string
@@ -233,9 +232,9 @@ export function loadConfig(): RunnerConfig {
       slashTarget: integer('RUNNER_SLASH_TARGET', 3),
       maxRuntimeMs: integer('RUNNER_MAX_RUNTIME_MS', 90 * 60 * 1000),
       backlogCap: integer('RUNNER_BACKLOG_CAP', 6),
-      // Lue et non supposée : c'est la variable que le Settler lira lui aussi,
-      // et elle amortit le gas d'inscription ERC-8004 des honorés. Le défaut est
-      // celui de `bin/settler.ts`.
+      // Read and not assumed: it is the variable the Settler will read too, and it
+      // amortises the honored warrants' ERC-8004 registration gas. The default is
+      // `bin/settler.ts`'s own.
       erc8004BatchSize: integer('ERC8004_BATCH_SIZE', 25),
     },
     opener: {
@@ -264,23 +263,23 @@ export function loadConfig(): RunnerConfig {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Préflight
+// Preflight
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Ce qui fait échouer le démarrage, et pourquoi.
+ * What makes startup fail, and why.
  *
- * Un runner de volume mal configuré ne se plante pas : il dépense. Chacune de
- * ces vérifications correspond à un mode d'échec qui, sans elle, ne se
- * découvrirait qu'après N ouvertures — c'est-à-dire N cautions.
+ * A misconfigured volume runner does not crash: it spends. Each of these checks
+ * corresponds to a failure mode that, without it, would only be discovered after
+ * N openings — that is, N bonds.
  */
 export async function preflight(
   cfg: RunnerConfig,
   client: PublicClient,
   /**
-   * Les mandats déjà connus du journal. Servent à une seule chose ici, et elle
-   * est décisive : distinguer « l'agent est à sec » de « le capital de l'agent
-   * est en vol ». Voir le correctif du contrôle de capital plus bas.
+   * The warrants already known to the ledger. They serve exactly one purpose
+   * here, and it is decisive: telling "the agent is dry" apart from "the agent's
+   * capital is in flight". See the capital check's fix below.
    */
   journalIds: readonly Hex[] = [],
 ): Promise<{
@@ -290,42 +289,42 @@ export async function preflight(
   executor: Address
   inherited: { open: number; recoverable: bigint }
 }> {
-  // Chaîne. La première parce que se tromper de chaîne est la seule erreur
-  // irréversible de la liste.
+  // Chain. First, because getting the chain wrong is the only irreversible
+  // mistake on this list.
   const observed = await client.getChainId()
   if (observed !== cfg.chainId) {
     throw new Error(
-      `le RPC ${cfg.escrowRpc} répond chainId ${observed}, WARRANT_ESCROW_CHAIN_ID annonce ` +
-        `${cfg.chainId} : la campagne partirait sur la mauvaise chaîne`,
+      `RPC ${cfg.escrowRpc} answers chainId ${observed}, WARRANT_ESCROW_CHAIN_ID announces ` +
+        `${cfg.chainId}: the campaign would go out on the wrong chain`,
     )
   }
   if (!VOLUME_ALLOWED_CHAIN_IDS.has(cfg.chainId)) {
     throw new Error(
-      `chaîne ${cfg.chainId} refusée : un runner de volume n'ouvre des centaines de mandats ` +
-        'sans confirmation humaine que sur un testnet. Chaînes autorisées : ' +
+      `chain ${cfg.chainId} refused: a volume runner only opens hundreds of warrants ` +
+        'without human confirmation on a testnet. Allowed chains: ' +
         `${[...VOLUME_ALLOWED_CHAIN_IDS].join(', ')}`,
     )
   }
 
   const roles = await readEscrowRoles(client, cfg.escrow)
 
-  // `settler()` onchain. Sans elle, `honor`/`slash` reverteraient en
-  // `NotSettler()` : le runner ouvrirait 150 mandats dont aucun ne se réglerait,
-  // et il faudrait attendre 150 expirations pour récupérer les cautions.
+  // `settler()` onchain. Without it, `honor`/`slash` would revert with
+  // `NotSettler()`: the runner would open 150 warrants none of which would settle,
+  // and one would have to wait for 150 expiries to get the bonds back.
   if (roles.settler !== cfg.settlerKeyAddress) {
     throw new Error(
-      `settler() onchain vaut ${roles.settler}, SETTLER_PRIVATE_KEY dérive ` +
-        `${cfg.settlerKeyAddress} : rien ne serait jamais réglé`,
+      `settler() onchain is ${roles.settler}, SETTLER_PRIVATE_KEY derives ` +
+        `${cfg.settlerKeyAddress}: nothing would ever be settled`,
     )
   }
-  // `opener()` doit être le wallet KeeperHub, sinon `open()` révèrte en
-  // `NotOpener()` — et si c'était une clé locale, le gas d'ouverture cesserait
-  // d'être sponsorisé, ce qui déplacerait la borne du volume de l'USDC vers
-  // l'ETH de l'agent, dont il a 0,00019.
+  // `opener()` must be the KeeperHub wallet, otherwise `open()` reverts with
+  // `NotOpener()` — and were it a local key, the opening gas would stop being
+  // sponsored, which would move the volume bound from USDC to the agent's ETH, of
+  // which it has 0.00019.
   if (roles.token !== cfg.token) {
     throw new Error(
-      `token() onchain vaut ${roles.token}, WARRANT_ASSET annonce ${cfg.token} : ` +
-        "l'autorisation EIP-3009 serait signée sur le domaine du mauvais token",
+      `token() onchain is ${roles.token}, WARRANT_ASSET announces ${cfg.token}: ` +
+        'the EIP-3009 authorization would be signed on the wrong token domain',
     )
   }
 
@@ -337,21 +336,21 @@ export async function preflight(
   ])
 
   /**
-   * Le capital en vol, lu onchain, avant de refuser de démarrer.
+   * The capital in flight, read onchain, before refusing to start.
    *
-   * ⚠ Même correctif qu'au § « correctif nº 2 » de `budget.ts`, appliqué ici
-   * parce que le préflight avait la version dure du même raisonnement — et à un
-   * endroit bien pire : il **jetait**. Un runner tué au milieu d'une campagne
-   * laisse `backlogCap` cautions immobilisées ; relancé, il trouvait un solde
-   * libre sous la caution et refusait de démarrer. Or c'est lui qui lance le
-   * Settler, donc rien ne réglait les mandats en vol, donc le capital ne
-   * revenait jamais : le préflight se rendait sa propre condition d'échec
-   * permanente. L'interblocage était complet et le message d'erreur — « recharger
-   * avec pnpm faucet » — désignait un faucet plafonné à 1 USDC / 24 h comme
-   * seule issue à une situation qui se dénouait toute seule en trente secondes.
+   * ⚠ Same fix as § "fix nº 2" of `budget.ts`, applied here because the preflight
+   * held the hard version of the same reasoning — and in a far worse place: it
+   * **threw**. A runner killed mid-campaign leaves `backlogCap` bonds locked up;
+   * restarted, it found a free balance below one bond and refused to start. But it
+   * is the runner that launches the Settler, so nothing settled the warrants in
+   * flight, so the capital never came back: the preflight made its own failure
+   * condition permanent. The deadlock was complete and the error message — "top up
+   * with pnpm faucet" — pointed at a faucet capped at 1 USDC / 24 h as the only way
+   * out of a situation that resolved itself in thirty seconds.
    *
-   * Un solde insuffisant reste bloquant, mais seulement quand **rien** n'est en
-   * vol. Sinon c'est un avertissement, et la boucle attend (`decide` rend `wait`).
+   * An insufficient balance remains blocking, but only when **nothing** is in
+   * flight. Otherwise it is a warning, and the loop waits (`decide` returns
+   * `wait`).
    */
   const inherited = await (async () => {
     if (journalIds.length === 0) return { open: 0, recoverable: 0n }
@@ -361,11 +360,11 @@ export async function preflight(
     for (const w of known.values()) {
       if (w.status !== WarrantStatus.Open || w.agent !== cfg.agent) continue
       open += 1
-      // Prudence délibérée : on ne suppose pas le verdict à venir. `bond − fee`
-      // est ce qu'un honoré rend, et c'est le plancher de ce qui peut revenir —
-      // un `reclaim` rendrait `bond` entier, une saisie ne rendrait rien. Ce
-      // champ ne sert qu'à répondre « oui, quelque chose revient », et une
-      // sous-estimation y est du bon côté.
+      // Deliberate caution: we do not assume the verdict to come. `bond − fee` is
+      // what an honored warrant returns, and it is the floor of what can come
+      // back — a `reclaim` would return the whole `bond`, a slash would return
+      // nothing. This field only serves to answer "yes, something is coming
+      // back", and an underestimate errs on the right side.
       recoverable += w.bond - (w.bond * BigInt(w.feeBpsAtOpen)) / 10_000n
     }
     return { open, recoverable }
@@ -374,83 +373,85 @@ export async function preflight(
   if (agentUsdc < cfg.opener.bond + cfg.caps.agentReserve) {
     if (inherited.recoverable === 0n) {
       throw new Error(
-        `l'agent ${cfg.agent} détient ${usdc(agentUsdc)} USDC : insuffisant pour une caution de ` +
-          `${usdc(cfg.opener.bond)} plus ${usdc(cfg.caps.agentReserve)} de réserve, et aucun ` +
-          'mandat en vol ne peut rendre de capital. Recharger avec `pnpm faucet` ' +
-          '(1 USDC / adresse / 24 h) : c\'est la borne dure du volume.',
+        `agent ${cfg.agent} holds ${usdc(agentUsdc)} USDC: not enough for a bond of ` +
+          `${usdc(cfg.opener.bond)} plus ${usdc(cfg.caps.agentReserve)} of reserve, and no ` +
+          'warrant in flight can return capital. Top up with `pnpm faucet` ' +
+          "(1 USDC / address / 24 h): that is volume's hard bound.",
       )
     }
     emit({
-      msg: 'runner: avertissement — capital de l\'agent momentanément en vol',
-      soldeLibre: usdc(agentUsdc),
-      requis: usdc(cfg.opener.bond + cfg.caps.agentReserve),
-      mandatsEnVol: inherited.open,
-      capitalRécupérable: usdc(inherited.recoverable),
-      conséquence:
-        'le runner démarre, lance le Settler et attend le premier règlement. ' +
-        "Refuser de démarrer ici empêcherait le seul processus capable de rendre ce capital.",
+      msg: "runner: warning — the agent's capital is momentarily in flight",
+      freeBalance: usdc(agentUsdc),
+      required: usdc(cfg.opener.bond + cfg.caps.agentReserve),
+      warrantsInFlight: inherited.open,
+      recoverableCapital: usdc(inherited.recoverable),
+      consequence:
+        'the runner starts, launches the Settler and waits for the first settlement. ' +
+        'Refusing to start here would block the only process able to return that capital.',
     })
   }
   if (settlerWei < cfg.caps.gasFloorWei) {
     throw new Error(
-      `le Settler ${cfg.settlerKeyAddress} détient ${eth(settlerWei)} ETH, sous le plancher ` +
-        `${eth(cfg.caps.gasFloorWei)} : aucun règlement ne partirait`,
+      `Settler ${cfg.settlerKeyAddress} holds ${eth(settlerWei)} ETH, below the floor of ` +
+        `${eth(cfg.caps.gasFloorWei)}: no settlement would ever go out`,
     )
   }
   /**
-   * Le stock d'USDC du **wallet d'exécution**, et c'est la vérification la moins
-   * évidente de la liste.
+   * The **execution wallet**'s USDC inventory, and this is the least obvious check
+   * on the list.
    *
-   * La post-condition exige que la destination engagée soit créditée de
-   * `amount`. Ce montant sort du wallet KeeperHub, qui détenait 0 USDC au
-   * 30/07/2026. Sans stock, l'action `transfer` révèrte, la post-condition
-   * échoue, et **tous** les mandats — y compris ceux prévus honorés — seraient
-   * saisis. Soit 0,2 USDC détruits par mandat au lieu de 0,005 : le capital de
-   * l'agent partirait en dix mandats, et le runner aurait sagement respecté tous
-   * ses budgets en produisant exactement l'inverse de ce qu'on lui demandait.
+   * The post-condition requires the committed destination to be credited with
+   * `amount`. That amount leaves the KeeperHub wallet, which held 0 USDC on
+   * 2026-07-30. With no inventory, the `transfer` action reverts, the
+   * post-condition fails, and **every** warrant — including those meant to be
+   * honored — would be slashed. That is 0.2 USDC destroyed per warrant instead of
+   * 0.005: the agent's capital would be gone in ten warrants, and the runner would
+   * have dutifully respected every one of its budgets while producing the exact
+   * opposite of what it was asked for.
    */
   if (executorUsdc < cfg.opener.amount) {
     throw new Error(
-      `le wallet d'exécution KeeperHub ${roles.opener} détient ${usdc(executorUsdc)} USDC, ` +
-        `il en faut au moins ${usdc(cfg.opener.amount)} pour que l'action honorée aboutisse. ` +
-        "Sans stock, l'action révèrte et TOUS les mandats sont saisis — 0,2 USDC détruits " +
-        'par mandat. Lui transférer un stock depuis l\'agent avant de lancer la campagne.',
+      `the KeeperHub execution wallet ${roles.opener} holds ${usdc(executorUsdc)} USDC, ` +
+        `it needs at least ${usdc(cfg.opener.amount)} for the honored action to go through. ` +
+        'With no inventory, the action reverts and EVERY warrant is slashed — 0.2 USDC ' +
+        'destroyed per warrant. Transfer it an inventory from the agent before launching ' +
+        'the campaign.',
     )
   }
   const affordableMandates = cfg.opener.amount === 0n ? Infinity : executorUsdc / cfg.opener.amount
   if (affordableMandates < BigInt(cfg.caps.target)) {
     emit({
-      msg: 'runner: avertissement — stock du wallet d\'exécution juste',
+      msg: "runner: warning — the execution wallet's inventory is tight",
       executor: roles.opener,
-      stock: usdc(executorUsdc),
-      mandatsFinançables: affordableMandates.toString(10),
-      cible: cfg.caps.target,
+      inventory: usdc(executorUsdc),
+      fundableWarrants: affordableMandates.toString(10),
+      target: cfg.caps.target,
     })
   }
   if (cfg.opener.duration < 900) {
     throw new Error(
-      `RUNNER_DURATION=${cfg.opener.duration} est sous MIN_DURATION (900 s) : ` +
-        'open() révèrterait en BadDuration()',
+      `RUNNER_DURATION=${cfg.opener.duration} is below MIN_DURATION (900 s): ` +
+        'open() would revert with BadDuration()',
     )
   }
   const minBond = bigint('WARRANT_MIN_BOND', 200_000n)
   const maxBond = bigint('WARRANT_MAX_BOND', 500_000n)
   if (cfg.opener.bond < minBond || cfg.opener.bond > maxBond) {
     throw new Error(
-      `RUNNER_BOND=${cfg.opener.bond} hors [${minBond}, ${maxBond}] : la politique locale ` +
-        'ramènerait la caution à son plancher et le nonce EIP-3009 ne vaudrait plus ' +
-        'termsHash(...) — open() révèrterait en TermsMismatch()',
+      `RUNNER_BOND=${cfg.opener.bond} outside [${minBond}, ${maxBond}]: the local policy ` +
+        'would bring the bond back to its floor and the EIP-3009 nonce would no longer be ' +
+        'termsHash(...) — open() would revert with TermsMismatch()',
     )
   }
   if (cfg.concurrency > cfg.caps.backlogCap) {
     throw new Error(
-      `RUNNER_CONCURRENCY=${cfg.concurrency} dépasse RUNNER_BACKLOG_CAP=${cfg.caps.backlogCap} : ` +
-        'les workers ouvriraient au-delà du plafond de capital immobilisé',
+      `RUNNER_CONCURRENCY=${cfg.concurrency} exceeds RUNNER_BACKLOG_CAP=${cfg.caps.backlogCap}: ` +
+        'the workers would open past the locked-up capital cap',
     )
   }
 
   emit({
-    msg: 'runner: préflight',
+    msg: 'runner: preflight',
     chainId: cfg.chainId,
     escrow: cfg.escrow,
     token: cfg.token,
@@ -464,30 +465,30 @@ export async function preflight(
     agentUsdc: usdc(agentUsdc),
     settlerEth: eth(settlerWei),
     executorUsdc: usdc(executorUsdc),
-    mandatsHéritésEnVol: inherited.open,
-    capitalRécupérable: usdc(inherited.recoverable),
+    inheritedWarrantsInFlight: inherited.open,
+    recoverableCapital: usdc(inherited.recoverable),
   })
 
   return { feeBps: roles.feeBps, agentUsdc, settlerWei, executor: roles.opener, inherited }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Supervision du Settler
+// Supervising the Settler
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Lance le Settler si — et seulement si — il n'y en a pas déjà un.
+ * Launches the Settler if — and only if — there is not one already.
  *
- * Le runner pourrait laisser l'exploitant s'en charger. Il ne le fait pas parce
- * qu'un runner sans Settler est un piège : il ouvre à plein débit, rien ne se
- * règle, le capital s'immobilise, et l'arrêt tombe sur
- * `capital-agent-insuffisant` — un message vrai qui désigne la mauvaise cause.
+ * The runner could leave that to the operator. It does not, because a runner
+ * without a Settler is a trap: it opens at full rate, nothing settles, the capital
+ * locks up, and the stop lands on `agent-capital-insufficient` — a true message
+ * that names the wrong cause.
  *
- * `SETTLER_FROM_BLOCK` est calculé et non laissé au défaut : `fromBlock` dérive
- * du plus ancien mandat **encore ouvert**, à 2 s par bloc sur Base, avec 300
- * blocs de marge. Le défaut de 60 000 blocs coûterait 32 requêtes `eth_getLogs`
- * par tour de boucle — sur le quota partagé avec l'ouverture — pour ne rien
- * découvrir de plus.
+ * `SETTLER_FROM_BLOCK` is computed rather than left to its default: `fromBlock` is
+ * derived from the oldest **still-open** warrant, at 2 s per block on Base, with
+ * 300 blocks of margin. The default of 60,000 blocks would cost 32 `eth_getLogs`
+ * requests per loop pass — out of the quota shared with the opening — to discover
+ * nothing more.
  */
 async function superviseSettler(
   cfg: RunnerConfig,
@@ -495,14 +496,14 @@ async function superviseSettler(
   oldestOpenAt: number | undefined,
 ): Promise<ChildProcess | undefined> {
   if (cfg.settlerMode === 'off') {
-    emit({ msg: 'runner: settler non supervisé', raison: 'RUNNER_SETTLER=0' })
+    emit({ msg: 'runner: settler not supervised', reason: 'RUNNER_SETTLER=0' })
     return undefined
   }
   if (cfg.settlerMode === 'auto' && (await settlerListening(cfg.settlerPort))) {
     emit({
-      msg: 'runner: settler déjà en vie',
+      msg: 'runner: settler already alive',
       port: cfg.settlerPort,
-      raison: 'un second Settler sur la même clé produirait un conflit de nonce',
+      reason: 'a second Settler on the same key would produce a nonce conflict',
     })
     return undefined
   }
@@ -513,29 +514,29 @@ async function superviseSettler(
   const fromBlock = head > back ? head - back : 0n
 
   /**
-   * `SETTLER_LOG_CHUNK` : la valeur de l'exploitant si elle existe, bornée.
+   * `SETTLER_LOG_CHUNK`: the operator's value if there is one, clamped.
    *
-   * Le runner imposait 1900 en dur. C'était sûr mais faux de deux façons : d'une
-   * part il écrasait silencieusement la valeur de `.env` — un exploitant qui
-   * corrige un plafond de RPC et voit son réglage ignoré sans un mot cherche
-   * longtemps ; d'autre part 1900 laisse 5 % de la fenêtre sur la table. Mesuré
-   * sur `sepolia.base.org` : l'erreur est `query exceeds max block range 2000` et
-   * elle porte sur `toBlock − fromBlock`, non sur le nombre de blocs — une plage
-   * de 2001 blocs passe, 2002 non. Le `viemEscrowReader` calcule
-   * `to = cursor + chunk − 1`, donc `chunk = 2001` est la valeur maximale
-   * acceptée. On borne à cela, et l'on dit ce qu'on a fait.
+   * The runner used to force 1900 hard. That was safe but wrong in two ways: for
+   * one it silently overrode the value from `.env` — an operator who fixes an RPC
+   * cap and sees their setting ignored without a word searches for a long time;
+   * for another, 1900 leaves 5% of the window on the table. Measured on
+   * `sepolia.base.org`: the error is `query exceeds max block range 2000` and it
+   * bears on `toBlock − fromBlock`, not on the number of blocks — a range of 2001
+   * blocks goes through, 2002 does not. `viemEscrowReader` computes
+   * `to = cursor + chunk − 1`, so `chunk = 2001` is the largest accepted value. We
+   * clamp to that, and we say what we did.
    */
   const RPC_MAX_LOG_SPAN = 2001
   const requestedChunk = integer('SETTLER_LOG_CHUNK', RPC_MAX_LOG_SPAN)
   const logChunk = Math.max(1, Math.min(RPC_MAX_LOG_SPAN, requestedChunk))
   if (logChunk !== requestedChunk) {
     emit({
-      msg: 'runner: SETTLER_LOG_CHUNK ramené au plafond du RPC',
-      demandé: requestedChunk,
-      appliqué: logChunk,
-      raison:
-        'sepolia.base.org refuse eth_getLogs au-delà de 2000 blocs d\'écart ; au-delà, ' +
-        'TOUS les chunks échouent et le Settler ne découvre aucun mandat',
+      msg: "runner: SETTLER_LOG_CHUNK clamped to the RPC's cap",
+      requested: requestedChunk,
+      applied: logChunk,
+      reason:
+        'sepolia.base.org refuses eth_getLogs beyond a 2000-block span; past that, ' +
+        'EVERY chunk fails and the Settler discovers no warrant at all',
     })
   }
 
@@ -546,10 +547,10 @@ async function superviseSettler(
       cwd: cfg.repoRoot,
       env: {
         ...process.env,
-        // Le défaut de 9000 fait échouer *tous* les chunks sur le RPC public de
-        // Base Sepolia, qui refuse eth_getLogs au-delà de 2000 blocs d'écart. Le
-        // Settler dégrade proprement (« balayage incomplet ») et ne découvre
-        // donc **aucun** mandat : le backlog ne se drainerait jamais.
+        // The default of 9000 makes *every* chunk fail on Base Sepolia's public
+        // RPC, which refuses eth_getLogs beyond a 2000-block span. The Settler
+        // degrades gracefully ("incomplete scan") and therefore discovers **no**
+        // warrant at all: the backlog would never drain.
         SETTLER_LOG_CHUNK: String(logChunk),
         SETTLER_FROM_BLOCK: fromBlock.toString(10),
         SETTLER_INTERVAL_MS: String(cfg.settlerIntervalMs),
@@ -558,8 +559,8 @@ async function superviseSettler(
     },
   )
 
-  // Les lignes du Settler sont réémises préfixées : un runner qui avale les logs
-  // de son enfant rend indiagnosticable le seul processus qui déplace des fonds.
+  // The Settler's lines are re-emitted with a prefix: a runner that swallows its
+  // child's logs makes the one process that moves funds impossible to diagnose.
   const forward = (stream: NodeJS.ReadableStream, level: 'out' | 'err') => {
     let pending = ''
     stream.setEncoding?.('utf8')
@@ -576,35 +577,35 @@ async function superviseSettler(
   forward(child.stdout!, 'out')
   forward(child.stderr!, 'err')
   child.once('exit', (code, signal) =>
-    emit({ msg: 'runner: settler terminé', code, signal }),
+    emit({ msg: 'runner: settler exited', code, signal }),
   )
 
   emit({
-    msg: 'runner: settler lancé',
+    msg: 'runner: settler launched',
     pid: child.pid,
     fromBlock: fromBlock.toString(10),
     logChunk,
     intervalMs: cfg.settlerIntervalMs,
   })
-  // Le temps qu'il fasse son préflight — chaîne, rôle, sonde d'archive, gas —
-  // et ouvre son serveur de verdicts. Ouvrir un mandat avant qu'il soit prêt
-  // n'est pas grave (il le découvrira au tour suivant) mais échouer son
-  // préflight après 50 ouvertures le serait.
+  // Time enough for it to run its preflight — chain, role, archive probe, gas —
+  // and open its verdict server. Opening a warrant before it is ready is harmless
+  // (it will discover it on the next pass) but failing its preflight after 50
+  // openings would not be.
   await sleep(6_000)
   if (child.exitCode !== null) {
     throw new Error(
-      `le Settler s'est arrêté immédiatement (code ${child.exitCode}) : ` +
-        'son préflight a échoué. Voir les lignes [settler:err] ci-dessus.',
+      `the Settler stopped immediately (code ${child.exitCode}): ` +
+        'its preflight failed. See the [settler:err] lines above.',
     )
   }
   return child
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// La boucle
+// The loop
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** L'état partagé entre workers. Une seule instance, un seul point de vérité. */
+/** The state shared between workers. One instance, one point of truth. */
 interface Shared {
   ledger: Ledger
   client: PublicClient
@@ -612,42 +613,41 @@ interface Shared {
   feeBps: number
   startedAt: number
   settlerWeiAtStart: bigint
-  /** Dernier instantané onchain, et l'instant de sa lecture. */
+  /** Latest onchain snapshot, and the instant it was read. */
   snapshot: {
     at: number
     warrants: Map<string, OnchainWarrant>
     agentUsdc: bigint
     settlerWei: bigint
   }
-  /** Ouvertures en cours, par scénario. Réservées avant le spawn. */
+  /** Openings under way, per scenario. Reserved before the spawn. */
   inFlight: { honored: number; diverted: number }
-  /** Vrai dès qu'un plafond a été atteint. Les workers sortent. */
+  /** True as soon as a cap has been reached. The workers exit. */
   stop?: { cap: StopCap; why: string }
-  /** Sérialise la décision : deux workers ne réservent pas la même saisie. */
+  /** Serialises the decision: two workers do not reserve the same slash. */
   gate: Promise<void>
   /**
-   * Sérialise l'étiquetage. Verrou **distinct** de `gate`, et c'est délibéré :
-   * étiqueter demande une lecture-puis-écriture du journal, mais n'a pas besoin
-   * de bloquer les décisions d'ouverture. Les confondre ferait attendre trois
-   * workers pendant un `appendFileSync`. Sans verrou du tout, deux workers
-   * terminant en même temps liraient le même `nextSeq()` et deux mandats
-   * porteraient le rang 7 — un rang dupliqué ne fausse aucun budget (ils sont
-   * tous calculés onchain) mais il rend le journal illisible à qui l'audite.
+   * Serialises the tagging. A lock **distinct** from `gate`, and deliberately so:
+   * tagging requires a read-then-write of the ledger, but has no need to block
+   * opening decisions. Conflating them would make three workers wait through an
+   * `appendFileSync`. With no lock at all, two workers finishing at the same time
+   * would read the same `nextSeq()` and two warrants would carry rank 7 — a
+   * duplicated rank falsifies no budget (they are all computed onchain) but it
+   * makes the ledger unreadable to whoever audits it.
    */
   tagGate: Promise<void>
   bucket: TokenBucket
-  /** Compteurs cumulés de la session — ce que le runner a lui-même observé. */
+  /** Cumulative session counters — what the runner itself observed. */
   session: { opened: number; failed: number; orphans: number }
 }
 
 /**
- * Rafraîchit l'instantané onchain, au plus une fois par `pollMs`.
+ * Refreshes the onchain snapshot, at most once per `pollMs`.
  *
- * Le cache n'est pas une optimisation cosmétique : à 3 workers décidant chacun
- * avant chaque ouverture, une lecture systématique ferait 3 multicalls plus 6
- * lectures de solde toutes les 15 s, sur le même RPC public que le Settler
- * utilise pour ses évaluations d'archive. Le rationner protège le composant qui
- * décide des verdicts.
+ * The cache is not cosmetic optimisation: with 3 workers each deciding before
+ * every opening, reading systematically would mean 3 multicalls plus 6 balance
+ * reads every 15 s, on the same public RPC the Settler uses for its archive
+ * evaluations. Rationing it protects the component that decides the verdicts.
  */
 async function refreshSnapshot(s: Shared, force = false): Promise<void> {
   if (!force && Date.now() - s.snapshot.at < s.cfg.pollMs) return
@@ -661,7 +661,7 @@ async function refreshSnapshot(s: Shared, force = false): Promise<void> {
   s.snapshot = { at: Date.now(), warrants, agentUsdc, settlerWei }
 }
 
-/** Projette l'instantané et le journal dans l'état que `decide` attend. */
+/** Projects the snapshot and the ledger into the state `decide` expects. */
 function budgetState(s: Shared): BudgetState {
   const campaign = s.ledger.campaign()
   const w = s.snapshot.warrants
@@ -679,32 +679,32 @@ function budgetState(s: Shared): BudgetState {
     } else if (status === WarrantStatus.Honored && onchain) {
       fees += (onchain.bond * BigInt(onchain.feeBpsAtOpen)) / 10_000n
     }
-    // Une saisie « en vol » est un mandat étiqueté `diverted` dont le verdict
-    // n'est pas tombé. Le compter est ce qui évite d'en ouvrir quatre pour en
-    // obtenir trois — la sur-saisie coûte 0,2 USDC l'unité.
+    // A slash "in flight" is a warrant tagged `diverted` whose verdict has not
+    // landed. Counting it is what avoids opening four to obtain three —
+    // over-slashing costs 0.2 USDC apiece.
     if (record.runner.scenario === 'diverted' && status === WarrantStatus.Open) {
       divertedPending += 1
     }
   }
 
-  // Le backlog compte **tous** les mandats ouverts, campagne ou non : c'est la
-  // charge réelle du Settler et le capital réellement immobilisé.
+  // The backlog counts **every** open warrant, campaign or not: that is the
+  // Settler's real load and the capital really locked up.
   const backlog = [...w.values()].filter((x) => x.status === WarrantStatus.Open).length
 
   /**
-   * Le capital que les mandats en vol vont rendre — la donnée qui transforme un
-   * arrêt définitif en attente de trente secondes (voir `decide`, correctif nº 2).
+   * The capital the warrants in flight will return — the datum that turns a
+   * permanent stop into a thirty-second wait (see `decide`, fix nº 2).
    *
-   * Trois régimes, et il faut les trois : un mandat étiqueté `diverted` ne rend
-   * **rien** (sa caution part au bénéficiaire), un mandat déjà expiré rend `bond`
-   * **entier** (`reclaim` ne prélève pas de frais, et le balayeur du runner
-   * l'appelle), un mandat honorable rend `bond − fee`. Compter uniformément
-   * `bond − fee` surestimerait le retour d'une campagne à forte proportion de
-   * saisies, et le runner attendrait un capital qui ne revient pas — c'est-à-dire
-   * qu'il remplacerait un faux arrêt par une fausse attente.
+   * Three regimes, and all three are needed: a warrant tagged `diverted` returns
+   * **nothing** (its bond goes to the beneficiary), a warrant already expired
+   * returns the **whole** `bond` (`reclaim` takes no fee, and the runner's sweeper
+   * calls it), an honorable warrant returns `bond − fee`. Counting `bond − fee`
+   * uniformly would overestimate the return of a campaign with a high proportion of
+   * slashes, and the runner would wait for capital that is not coming back — that
+   * is, it would replace a false stop with a false wait.
    *
-   * Seuls les mandats de **notre** agent comptent : le backlog inclut ceux d'un
-   * tiers, dont le règlement ne nous rend rien.
+   * Only **our** agent's warrants count: the backlog includes a third party's,
+   * whose settlement returns us nothing.
    */
   const now = Math.floor(Date.now() / 1000)
   const scenarioOf = new Map(
@@ -735,13 +735,13 @@ function budgetState(s: Shared): BudgetState {
 }
 
 /**
- * Réserve un créneau d'ouverture, sous verrou.
+ * Reserves an opening slot, under lock.
  *
- * Le verrou (`s.gate`) n'est pas décoratif : `decide` lit `divertedInFlight`
- * pour savoir combien de saisies sont déjà acquises. Sans sérialisation, trois
- * workers appelant `decide` au même instant liraient tous « 0 saisie » et
- * ouvriraient trois saisies pour en obtenir une — 0,4 USDC détruits par
- * inadvertance, soit 20 % du capital de l'agent.
+ * The lock (`s.gate`) is not decorative: `decide` reads `divertedInFlight` to know
+ * how many slashes are already acquired. Without serialisation, three workers
+ * calling `decide` at the same instant would all read "0 slashes" and would open
+ * three slashes to obtain one — 0.4 USDC destroyed by inadvertence, i.e. 20% of
+ * the agent's capital.
  */
 async function reserve(s: Shared): Promise<{ scenario: Scenario; why: string } | 'wait' | 'stop'> {
   let release!: () => void
@@ -765,31 +765,31 @@ async function reserve(s: Shared): Promise<{ scenario: Scenario; why: string } |
 }
 
 /**
- * Balaie les mandats expirés et récupère leur caution.
+ * Sweeps the expired warrants and recovers their bond.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi ce balayage existe, et pourquoi il appartient au runner
+ * Why this sweep exists, and why it belongs to the runner
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Le Settler s'abstient quand il ne peut pas juger : action KeeperHub en échec,
- * `ConditionSpec` absente du journal, exécution introuvable. Il émet
- * `kind: 'let-expire'` et passe — c'est le bon comportement, le doute doit
- * bénéficier à l'agent. Mais l'abstention ne rembourse rien par elle-même :
- * `reclaim()` doit être appelé, et **le Settler ne l'appelle jamais** (à dessein :
- * ce n'est pas au juge de rembourser). Personne d'autre ne le fait non plus.
+ * The Settler abstains when it cannot judge: failed KeeperHub action,
+ * `ConditionSpec` missing from the ledger, execution not found. It emits
+ * `kind: 'let-expire'` and moves on — that is the right behaviour, doubt must
+ * benefit the agent. But abstention refunds nothing by itself: `reclaim()` has to
+ * be called, and **the Settler never calls it** (by design: it is not the judge's
+ * job to refund). Nobody else does either.
  *
- * Sans ce balayage, chaque mandat abandonné gèle 0,2 USDC définitivement. Sur la
- * campagne mesurée, 8 mandats sur 15 ont vu leur action KeeperHub échouer sous
- * concurrence 4 : c'est 1,6 USDC, soit **les deux tiers du capital de l'agent**,
- * et 320 cycles honorés perdus. Le balayage les rend intégralement — `reclaim`
- * rembourse `bond` sans prélever de frais.
+ * Without this sweep, every abandoned warrant freezes 0.2 USDC for good. On the
+ * measured campaign, 8 warrants out of 15 saw their KeeperHub action fail at
+ * concurrency 4: that is 1.6 USDC, i.e. **two thirds of the agent's capital**, and
+ * 320 honored cycles lost. The sweep returns all of it — `reclaim` refunds `bond`
+ * without taking a fee.
  *
- * Il appartient au runner et non au Settler parce que c'est une opération de
- * *trésorerie de l'agent*, pas de règlement : elle part de la clé de l'agent,
- * elle ne rend aucun verdict, et elle ne touche jamais au bénéficiaire.
+ * It belongs to the runner and not to the Settler because it is an *agent
+ * treasury* operation, not a settlement one: it goes out from the agent's key, it
+ * renders no verdict, and it never touches the beneficiary.
  *
- * Séquentiel, et sans négociation : une seule clé, donc un seul nonce. Deux
- * `reclaim` en parallèle sur la même clé produiraient un
+ * Sequential, and not up for negotiation: a single key, hence a single nonce. Two
+ * `reclaim`s in parallel on the same key would produce a
  * `replacement transaction underpriced`.
  */
 async function reclaimExpired(s: Shared): Promise<{ reclaimed: number; recovered: bigint }> {
@@ -798,9 +798,8 @@ async function reclaimExpired(s: Shared): Promise<{ reclaimed: number; recovered
     (w) =>
       w.status === WarrantStatus.Open &&
       w.expiry < now &&
-      // Uniquement les cautions de **notre** agent : `reclaim` est
-      // permissionless, mais réclamer pour un tiers dépenserait notre gas pour
-      // rembourser quelqu'un d'autre.
+      // Only **our** agent's bonds: `reclaim` is permissionless, but reclaiming for
+      // a third party would spend our gas to refund somebody else.
       w.agent === s.cfg.agent,
   )
   if (expired.length === 0) return { reclaimed: 0, recovered: 0n }
@@ -808,10 +807,10 @@ async function reclaimExpired(s: Shared): Promise<{ reclaimed: number; recovered
   const gas = await s.client.getBalance({ address: s.cfg.agent })
   if (gas < s.cfg.agentGasFloorWei) {
     emit({
-      msg: 'runner: balayage reclaim suspendu',
-      raison: `l'agent est à ${eth(gas)} ETH, plancher ${eth(s.cfg.agentGasFloorWei)}`,
-      expirés: expired.length,
-      gelé: usdc(expired.reduce((acc, w) => acc + w.bond, 0n)),
+      msg: 'runner: reclaim sweep suspended',
+      reason: `the agent is at ${eth(gas)} ETH, floor ${eth(s.cfg.agentGasFloorWei)}`,
+      expired: expired.length,
+      frozen: usdc(expired.reduce((acc, w) => acc + w.bond, 0n)),
     })
     return { reclaimed: 0, recovered: 0n }
   }
@@ -835,16 +834,16 @@ async function reclaimExpired(s: Shared): Promise<{ reclaimed: number; recovered
       reclaimed += 1
       recovered += w.bond
       emit({
-        msg: 'runner: caution récupérée',
+        msg: 'runner: bond recovered',
         warrantId: w.id,
         bond: usdc(w.bond),
         reclaimTx: tx,
       })
     } catch (e) {
-      // `NotOpen()` signifie que le Settler a réglé entre la lecture et l'envoi
-      // — bénin, et fréquent. Toute autre erreur mérite d'être vue.
+      // `NotOpen()` means the Settler settled between the read and the send —
+      // benign, and frequent. Any other error deserves to be seen.
       emit({
-        msg: 'runner: reclaim en échec',
+        msg: 'runner: reclaim failed',
         warrantId: w.id,
         error: e instanceof Error ? e.message.split('\n')[0] : String(e),
       })
@@ -853,7 +852,7 @@ async function reclaimExpired(s: Shared): Promise<{ reclaimed: number; recovered
   return { reclaimed, recovered }
 }
 
-/** Exécute `body` en exclusion mutuelle sur le journal. Voir `Shared.tagGate`. */
+/** Runs `body` under mutual exclusion on the ledger. See `Shared.tagGate`. */
 async function withTagLock<T>(s: Shared, body: () => T): Promise<T> {
   let release!: () => void
   const previous = s.tagGate
@@ -876,13 +875,13 @@ async function worker(s: Shared, slot: number): Promise<void> {
       continue
     }
 
-    // Le débit KeeperHub est réservé **après** la décision et avant le spawn :
-    // réserver avant la décision immobiliserait des jetons pour une ouverture
-    // qui peut être refusée par le budget.
+    // The KeeperHub rate is reserved **after** the decision and before the spawn:
+    // reserving before the decision would tie up tokens for an opening the budget
+    // may well refuse.
     await s.bucket.take(s.cfg.khReqPerMandate)
 
     const { scenario, why } = slotDecision
-    emit({ msg: 'runner: ouverture', slot, scenario, raison: why, jetons: s.bucket.available() })
+    emit({ msg: 'runner: opening', slot, scenario, reason: why, tokens: s.bucket.available() })
     let outcome
     try {
       outcome = await openWarrant(s.cfg.opener, scenario)
@@ -903,7 +902,7 @@ async function worker(s: Shared, slot: number): Promise<void> {
         return next
       })
       emit({
-        msg: 'runner: mandat ouvert',
+        msg: 'runner: warrant opened',
         slot,
         seq,
         scenario,
@@ -918,28 +917,28 @@ async function worker(s: Shared, slot: number): Promise<void> {
       continue
     }
 
-    // Échec. Deux cas très différents, et les confondre coûterait cher.
+    // Failure. Two very different cases, and conflating them would be expensive.
     if (outcome.openTx && !outcome.journalWritten) {
-      // Mandat ouvert onchain, caution encaissée, pas de ligne de journal : le
-      // Settler ne saura pas quoi évaluer. Ce n'est pas une perte de principal
-      // — `reclaim()` remboursera à l'expiration — mais c'est du capital gelé
-      // 900 s et un mandat qui ne comptera ni honoré ni saisi.
+      // Warrant opened onchain, bond collected, no ledger line: the Settler will
+      // not know what to evaluate. This is not a loss of principal — `reclaim()`
+      // will refund at expiry — but it is capital frozen for 900 s and a warrant
+      // that will count neither as honored nor as slashed.
       s.session.orphans += 1
       emit({
-        msg: 'runner: mandat ORPHELIN — ouvert sans ligne de journal',
+        msg: 'runner: ORPHAN warrant — opened with no ledger line',
         slot,
         warrantId: outcome.warrantId,
         openTx: outcome.openTx,
-        conséquence:
-          "le Settler refusera d'évaluer faute de ConditionSpec ; la caution sera " +
-          'remboursée par reclaim() à expiration',
+        consequence:
+          'the Settler will refuse to evaluate for lack of a ConditionSpec; the bond ' +
+          'will be refunded by reclaim() at expiry',
         error: outcome.error,
         tail: outcome.tail,
       })
     } else {
       s.session.failed += 1
       emit({
-        msg: 'runner: ouverture en échec',
+        msg: 'runner: opening failed',
         slot,
         scenario,
         exitCode: outcome.exitCode,
@@ -949,22 +948,22 @@ async function worker(s: Shared, slot: number): Promise<void> {
         tail: outcome.tail,
       })
     }
-    // Un échec ne tue pas la campagne, mais il ne doit pas boucler à plein
-    // débit : un 429 ou une panne KeeperHub se répéterait à l'identique.
+    // A failure does not kill the campaign, but it must not loop at full rate: a
+    // 429 or a KeeperHub outage would repeat identically.
     await sleep(Math.min(30_000, s.cfg.pollMs * 3))
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Compteur public
+// Public counter
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Écrit le compteur public, et l'écrit **atomiquement**.
+ * Writes the public counter, and writes it **atomically**.
  *
- * Un dashboard qui interroge ce fichier en boucle finirait sinon par lire un
- * JSON tronqué — `writeFileSync` n'est pas atomique sur un fichier existant.
- * Écrire à côté puis renommer l'est, sur le même système de fichiers.
+ * A dashboard polling this file in a loop would otherwise end up reading truncated
+ * JSON — `writeFileSync` is not atomic on an existing file. Writing beside it then
+ * renaming is, on the same filesystem.
  */
 export async function writeCounters(s: Shared): Promise<void> {
   const counters = await computeCounters({
@@ -1006,39 +1005,39 @@ export async function writeCounters(s: Shared): Promise<void> {
   const { renameSync } = await import('node:fs')
   renameSync(tmp, path)
   emit({
-    msg: 'runner: compteur',
-    campagne: counters.campaignTally,
+    msg: 'runner: counter',
+    campaign: counters.campaignTally,
     total: counters.total,
-    fichier: path,
+    file: path,
   })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Entrée
+// Entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function run(): Promise<void> {
   const cfg = loadConfig()
   const client = publicClientFor(cfg.chainId, cfg.escrowRpc)
 
-  // Le journal est ouvert **avant** le préflight, et ce n'est pas un détail de
-  // séquence : le préflight a besoin de savoir ce qui est déjà en vol pour ne pas
-  // refuser de démarrer sur un capital qui ne demande qu'à revenir. Voir le
-  // contrôle de capital de `preflight`.
+  // The ledger is opened **before** the preflight, and that is not an incidental
+  // detail of sequencing: the preflight needs to know what is already in flight so
+  // as not to refuse to start over capital that is only waiting to come back. See
+  // `preflight`'s capital check.
   const ledger = openLedger(resolve(cfg.repoRoot, cfg.journalFile), cfg.campaign)
   const journalIds = ledger.all().map((r) => r.id.toLowerCase() as Hex)
   const { feeBps, agentUsdc, settlerWei } = await preflight(cfg, client, journalIds)
 
-  // La reprise. Rien à reconstruire : le journal porte déjà les étiquettes de
-  // campagne, donc le rang, donc le nombre de saisies déjà provoquées. Le
-  // runner reprend au rang suivant sans rien rouvrir.
+  // The resumption. Nothing to rebuild: the ledger already carries the campaign
+  // tags, hence the rank, hence the number of slashes already caused. The runner
+  // resumes at the next rank without reopening anything.
   const resumed = ledger.campaign()
 
   /**
-   * L'état déjà acquis de la campagne, lu **onchain**, pour que la borne annoncée
-   * soit celle du reste à faire et non celle d'une campagne vierge. Le journal
-   * donne la liste des mandats, la chaîne donne leur sort : c'est la même règle
-   * de partage qu'ailleurs dans ce fichier.
+   * The campaign's already-acquired state, read **onchain**, so that the announced
+   * bound is the one of what is left to do and not the one of a fresh campaign. The
+   * ledger gives the list of warrants, the chain gives their fate: the same
+   * division of labour as everywhere else in this file.
    */
   const acquired = await (async () => {
     if (resumed.length === 0) return { opened: 0, slashed: 0, destroyed: 0n, fees: 0n }
@@ -1059,45 +1058,45 @@ export async function run(): Promise<void> {
     ...acquired,
   })
   emit({
-    msg: 'runner: démarrage',
-    campagne: cfg.campaign,
-    reprise: resumed.length,
-    rangSuivant: ledger.nextSeq(),
-    cible: cfg.caps.target,
-    cibleSaisies: cfg.caps.slashTarget,
-    concurrence: cfg.concurrency,
-    plafondBacklog: cfg.caps.backlogCap,
-    caution: usdc(cfg.opener.bond),
-    montantAction: usdc(cfg.opener.amount),
-    durée: cfg.opener.duration,
-    acquis: {
-      ouverts: acquired.opened,
-      saisis: acquired.slashed,
-      principalDétruit: usdc(acquired.destroyed),
-      fraisPayés: usdc(acquired.fees),
+    msg: 'runner: startup',
+    campaign: cfg.campaign,
+    resumedFrom: resumed.length,
+    nextSeq: ledger.nextSeq(),
+    target: cfg.caps.target,
+    slashTarget: cfg.caps.slashTarget,
+    concurrency: cfg.concurrency,
+    backlogCap: cfg.caps.backlogCap,
+    bond: usdc(cfg.opener.bond),
+    actionAmount: usdc(cfg.opener.amount),
+    duration: cfg.opener.duration,
+    acquired: {
+      opened: acquired.opened,
+      slashed: acquired.slashed,
+      principalDestroyed: usdc(acquired.destroyed),
+      feesPaid: usdc(acquired.fees),
     },
-    // La borne réelle, annoncée avant d'ouvrir quoi que ce soit — et bornée par
-    // les quatre contraintes à la fois, `contrainte` nommant celle qui mord.
-    borne: {
-      mandatsEncoreFinançables: bound.total,
-      dontSaisies: bound.slashes,
-      dontHonorés: bound.honored,
-      contrainte: bound.binding,
-      gasUtilisableEth: eth(bound.gasUsableWei),
-      règlementsFinançablesParLeGas: bound.settlementsPerGas,
-      // 3,45 mandats/min par worker, moyenne des 8 ouvertures de la campagne
-      // « borne » (17 384 ms par mandat) et non les 3,7 dérivés des deux mandats
-      // de « smoke » — deux mesures ne font pas une moyenne. Plafonné par le
-      // débit du Settler : une seule clé, un règlement à la fois, ≈ 6/min.
-      // Annoncer 3,45 × C serait annoncer un débit d'ouverture que le drainage ne
-      // suit pas — le backlog absorbe la différence jusqu'à son plafond, puis le
-      // runner attend.
-      débitOuvertureParMinute: Number((MANDATES_PER_MINUTE_PER_WORKER * cfg.concurrency).toFixed(1)),
-      débitSoutenuParMinute: Math.min(
+    // The real bound, announced before opening anything at all — and bounded by all
+    // four constraints at once, `binding` naming the one that bites.
+    bound: {
+      warrantsStillFundable: bound.total,
+      ofWhichSlashes: bound.slashes,
+      ofWhichHonored: bound.honored,
+      binding: bound.binding,
+      gasUsableEth: eth(bound.gasUsableWei),
+      settlementsFundableByGas: bound.settlementsPerGas,
+      // 3.45 warrants/min per worker, the average of the 8 openings of the "bound"
+      // campaign (17,384 ms per warrant) and not the 3.7 derived from "smoke"'s two
+      // warrants — two measurements do not make an average. Capped by the Settler's
+      // throughput: a single key, one settlement at a time, ≈ 6/min. Announcing
+      // 3.45 × C would be announcing an opening rate the draining does not keep up
+      // with — the backlog absorbs the difference up to its cap, then the runner
+      // waits.
+      openingRatePerMinute: Number((MANDATES_PER_MINUTE_PER_WORKER * cfg.concurrency).toFixed(1)),
+      sustainedRatePerMinute: Math.min(
         SETTLER_MANDATES_PER_MINUTE,
         Number((MANDATES_PER_MINUTE_PER_WORKER * cfg.concurrency).toFixed(1)),
       ),
-      minutesPourÉpuiserLaBorne: Math.ceil(
+      minutesToExhaustTheBound: Math.ceil(
         bound.total /
           Math.min(
             SETTLER_MANDATES_PER_MINUTE,
@@ -1135,23 +1134,23 @@ export async function run(): Promise<void> {
     if (interrupted) process.exit(130)
     interrupted = true
     shared.stop = {
-      cap: 'durée-maximale',
-      why: `interruption par ${signal} — les mandats en vol restent réglables`,
+      cap: 'max-runtime',
+      why: `interrupted by ${signal} — the warrants in flight remain settleable`,
     }
-    emit({ msg: 'runner: interruption demandée', signal })
+    emit({ msg: 'runner: interruption requested', signal })
   }
   process.on('SIGINT', () => onSignal('SIGINT'))
   process.on('SIGTERM', () => onSignal('SIGTERM'))
 
   /**
-   * Le balayeur de cautions expirées — **une seule instance**, et c'est la
-   * contrainte qui dicte sa forme.
+   * The expired-bond sweeper — **a single instance**, and that is the constraint
+   * that dictates its shape.
    *
-   * Il ne peut pas vivre dans `worker()` : `reclaim` part de la clé de l'agent,
-   * et quatre workers réclamant en parallèle produiraient des transactions au
-   * même nonce. Il ne peut pas non plus être dans `Promise.all` avec les workers,
-   * puisqu'il doit continuer à tourner pendant le drainage — c'est même là qu'il
-   * est le plus utile, quand plus rien ne s'ouvre et que les abandons restent.
+   * It cannot live inside `worker()`: `reclaim` goes out from the agent's key, and
+   * four workers reclaiming in parallel would produce transactions at the same
+   * nonce. Nor can it be in `Promise.all` with the workers, since it must keep
+   * running during the drain — that is in fact where it is most useful, when
+   * nothing is opening any more and the abandoned warrants remain.
    */
   let sweeping = true
   const reclaimIntervalMs = integer('RUNNER_RECLAIM_INTERVAL_MS', 60_000)
@@ -1175,19 +1174,19 @@ export async function run(): Promise<void> {
   )
 
   emit({
-    msg: 'runner: ouvertures terminées',
-    plafond: shared.stop?.cap,
-    raison: shared.stop?.why,
+    msg: 'runner: openings finished',
+    cap: shared.stop?.cap,
+    reason: shared.stop?.why,
     session: shared.session,
   })
 
-  // ── Drainage ───────────────────────────────────────────────────────────────
+  // ── Draining ───────────────────────────────────────────────────────────────
   //
-  // On n'arrête pas le runner sur le dernier `open`. Les mandats en vol ne sont
-  // pas encore réglés, et ce sont eux qui portent le chiffre qui compte : un
-  // mandat ouvert ne prouve rien, un mandat **réglé** prouve que la
-  // post-condition a été évaluée et que la caution a bougé. On attend donc que
-  // le backlog se vide, et on continue à publier le compteur pendant ce temps.
+  // We do not stop the runner on the last `open`. The warrants in flight are not
+  // settled yet, and they are the ones that carry the figure that matters: an open
+  // warrant proves nothing, a **settled** warrant proves the post-condition was
+  // evaluated and that the bond moved. So we wait for the backlog to empty, and we
+  // keep publishing the counter meanwhile.
   const drainUntil = Date.now() + cfg.drainMs
   for (;;) {
     await refreshSnapshot(shared, true)
@@ -1196,7 +1195,7 @@ export async function run(): Promise<void> {
       (w) => w.status === WarrantStatus.Open,
     ).length
     if (open === 0) {
-      emit({ msg: 'runner: backlog drainé' })
+      emit({ msg: 'runner: backlog drained' })
       break
     }
     if (Date.now() > drainUntil) {
@@ -1205,13 +1204,13 @@ export async function run(): Promise<void> {
         (w) => w.status === WarrantStatus.Open && w.expiry < now,
       ).length
       emit({
-        msg: 'runner: drainage interrompu',
-        ouvertsRestants: open,
-        dontExpirés: past,
-        raison:
-          `RUNNER_DRAIN_MS=${cfg.drainMs} écoulé. Les non-expirés sont encore réglables : ` +
-          'laisser le Settler tourner. Les expirés attendent un reclaim() — relancer le ' +
-          'runner suffit, son balayeur les récupère.',
+        msg: 'runner: draining cut short',
+        stillOpen: open,
+        ofWhichExpired: past,
+        reason:
+          `RUNNER_DRAIN_MS=${cfg.drainMs} elapsed. The non-expired ones are still ` +
+          'settleable: leave the Settler running. The expired ones are waiting for a ' +
+          'reclaim() — restarting the runner is enough, its sweeper recovers them.',
       })
       break
     }
@@ -1222,22 +1221,21 @@ export async function run(): Promise<void> {
   const swept = await sweeper
 
   /**
-   * ⚠ Le Settler est arrêté **avant** le relevé final, et non après.
+   * ⚠ The Settler is stopped **before** the final reading, not after.
    *
-   * Défaut constaté sur la campagne « borne » : le rapport annonçait
-   * 0,000004641 ETH de gas consommé, alors que la somme des reçus valait
-   * 0,000005446 ETH — 17 % de moins. La cause n'est pas une erreur de calcul mais
-   * un ordre : `bin/settler.ts` vide ses lots ERC-8004 en attente sur `SIGTERM`
-   * (« les garder en mémoire reviendrait à perdre des verdicts déjà rendus »),
-   * donc **une transaction de 806e9 wei part après** le dernier relevé de solde.
-   * Un rapport de gas qui exclut systématiquement la dernière écriture de
-   * réputation sous-provisionne la campagne suivante, et il le fait d'autant plus
-   * que le lot est petit.
+   * Defect observed on the "bound" campaign: the report announced 0.000004641 ETH
+   * of gas consumed, while the sum of the receipts was 0.000005446 ETH — 17% more.
+   * The cause is not an arithmetic error but an ordering one: `bin/settler.ts`
+   * flushes its pending ERC-8004 batches on `SIGTERM` ("keeping them in memory
+   * would amount to losing verdicts already rendered"), so **an 806e9 wei
+   * transaction goes out after** the last balance reading. A gas report that
+   * systematically excludes the last reputation write under-provisions the next
+   * campaign, and it does so all the more the smaller the batch is.
    *
-   * On lui envoie donc le signal, on attend sa sortie, puis on relit le solde. Le
-   * Settler qui tournait déjà survit — ce n'est pas au runner de tuer un processus
-   * qu'il n'a pas lancé — et dans ce cas le relevé reste approximatif, ce que le
-   * champ `gasSettlerHorsRunner` du rapport dit explicitement.
+   * So we send it the signal, wait for it to exit, then re-read the balance. A
+   * Settler that was already running survives — it is not the runner's job to kill
+   * a process it did not launch — and in that case the reading stays approximate,
+   * which the report's `gasSettlerOutsideRunner` field says explicitly.
    */
   if (settlerChild && settlerChild.exitCode === null) {
     settlerChild.kill('SIGTERM')
@@ -1256,40 +1254,41 @@ export async function run(): Promise<void> {
     campaign: cfg.campaign,
   })
   emit({
-    msg: 'runner: terminé',
-    plafondAtteint: shared.stop?.cap ?? 'aucun',
-    raison: shared.stop?.why,
-    campagne: final.campaignTally,
+    msg: 'runner: finished',
+    capReached: shared.stop?.cap ?? 'none',
+    reason: shared.stop?.why,
+    campaign: final.campaignTally,
     total: final.total,
-    cautionsRécupérées: swept.totalReclaimed,
-    capitalRécupéré: usdc(swept.totalRecovered),
-    gasConsommé: eth(
+    bondsRecovered: swept.totalReclaimed,
+    capitalRecovered: usdc(swept.totalRecovered),
+    gasConsumed: eth(
       shared.settlerWeiAtStart > shared.snapshot.settlerWei
         ? shared.settlerWeiAtStart - shared.snapshot.settlerWei
         : 0n,
     ),
-    // Coût **tout compris** par règlement : le gas mesuré sur la clé du Settler
-    // divisé par les règlements de la campagne. Inclut donc l'inscription
-    // ERC-8004, immédiate sur les saisies et amortie en lot sur les honorés.
-    coûtMoyenRèglementWei:
+    // **All-in** cost per settlement: the gas measured on the Settler's key divided
+    // by the campaign's settlements. So it includes the ERC-8004 registration,
+    // immediate on the slashes and amortised in batches on the honored ones.
+    averageSettlementCostWei:
       final.campaignTally.honored + final.campaignTally.slashed > 0
         ? (
             (shared.settlerWeiAtStart - shared.snapshot.settlerWei) /
             BigInt(final.campaignTally.honored + final.campaignTally.slashed)
           ).toString(10)
         : '0',
-    provisionRèglementWei: {
+    settlementProvisionWei: {
       honor: GAS_HONOR_WEI.toString(10),
       slash: GAS_SLASH_WEI.toString(10),
-      inscriptionErc8004: GAS_FEEDBACK_WEI.toString(10),
+      erc8004Registration: GAS_FEEDBACK_WEI.toString(10),
     },
-    // Le relevé n'est exact que si le Settler mesuré est celui que le runner a
-    // lancé et arrêté : sinon ses lots partent hors de la fenêtre de mesure.
-    gasSettlerHorsRunner: settlerChild === undefined,
+    // The reading is only exact if the Settler measured is the one the runner
+    // launched and stopped: otherwise its batches go out beyond the measurement
+    // window.
+    gasSettlerOutsideRunner: settlerChild === undefined,
   })
 }
 
-/** Charge `.env` comme le font `bin/settler.ts` et `bin/open-warrant.ts`. */
+/** Loads `.env` the way `bin/settler.ts` and `bin/open-warrant.ts` do. */
 export function loadEnv(): void {
   for (const candidate of [optional('WARRANT_ENV_FILE', ''), '.env', '../../.env']) {
     if (!candidate) continue
@@ -1297,7 +1296,7 @@ export function loadEnv(): void {
       process.loadEnvFile(candidate)
       return
     } catch {
-      /* suivant */
+      /* next */
     }
   }
 }

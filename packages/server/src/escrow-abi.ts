@@ -1,21 +1,21 @@
 /**
- * ABI de `WarrantEscrow`.
+ * ABI of `WarrantEscrow`.
  *
- * Écrite à la main d'après contracts/src/WarrantEscrow.sol pour que le serveur
- * soit typé sans dépendre d'un artefact de compilation. Un test d'intégration
- * la compare à `contracts/out/WarrantEscrow.sol/WarrantEscrow.json` et échoue
- * si les deux divergent.
+ * Hand-written from contracts/src/WarrantEscrow.sol so that the server is typed
+ * without depending on a compilation artefact. An integration test compares it
+ * against `contracts/out/WarrantEscrow.sol/WarrantEscrow.json` and fails if the
+ * two diverge.
  */
 
 /**
- * Composants de la struct `Authorization` — **dans l'ordre de la déclaration
- * Solidity**, qui est celui de l'encodage ABI.
+ * Components of the `Authorization` struct — **in Solidity declaration order**,
+ * which is also the ABI encoding order.
  *
- * Extrait dans une constante parce que trois endroits en dépendent et qu'une
- * divergence d'ordre entre eux serait silencieuse : un tuple est encodé par
- * position, pas par nom. `validAfter` et `validBefore` sont deux `uint256`
- * adjacents — les permuter ne produirait aucune erreur de type, seulement une
- * autorisation dont le token dirait qu'elle n'est pas encore valide.
+ * Pulled out into a constant because three places depend on it and any ordering
+ * divergence between them would be silent: a tuple is encoded by position, not
+ * by name. `validAfter` and `validBefore` are two adjacent `uint256` fields —
+ * swapping them would produce no type error at all, only an authorization the
+ * token would report as not yet valid.
  */
 export const authorizationComponents = [
   { name: 'from', type: 'address' },
@@ -29,13 +29,14 @@ export const authorizationComponents = [
 ] as const
 
 /**
- * Membres de la struct `Warrant`, dans l'ordre du stockage.
+ * Members of the `Warrant` struct, in storage order.
  *
- * `feeBpsAtOpen` est le neuvième membre, **avant** `status` : le getter public
- * `warrants(bytes32)` rend donc dix valeurs. C'est le décalage le plus
- * dangereux de cette ABI — lire `status` à l'index 8 rendrait `feeBpsAtOpen`,
- * soit 250 sur le déploiement courant, valeur qui n'est aucun `Status` connu et
- * que `WarrantStatus[250]` traduirait en `undefined` sans lever.
+ * `feeBpsAtOpen` is the ninth member, **before** `status`: the public getter
+ * `warrants(bytes32)` therefore returns ten values. This is the most dangerous
+ * off-by-one in this ABI — reading `status` at index 8 would return
+ * `feeBpsAtOpen`, that is 250 on the current deployment, a value that is no known
+ * `Status` and that `WarrantStatus[250]` would translate to `undefined` without
+ * throwing.
  */
 export const warrantComponents = [
   { name: 'agent', type: 'address' },
@@ -57,14 +58,14 @@ export const warrantEscrowAbi = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'id', type: 'bytes32' },
-      // `agent` n'est plus un paramètre : il est `auth.from`, prouvé par la
-      // signature EIP-3009 que le token vérifie. Un opener ne peut donc plus
-      // désigner librement le destinataire du remboursement.
+      // `agent` is no longer a parameter: it is `auth.from`, proven by the
+      // EIP-3009 signature the token verifies. An opener can therefore no longer
+      // freely designate who gets the refund.
       { name: 'beneficiary', type: 'address' },
       { name: 'bond', type: 'uint256' },
       { name: 'conditionHash', type: 'bytes32' },
       { name: 'actionHash', type: 'bytes32' },
-      // `fundingRef` n'est plus un paramètre non plus : c'est `auth.nonce`.
+      // `fundingRef` is no longer a parameter either: it is `auth.nonce`.
       { name: 'duration', type: 'uint64' },
       { name: 'auth', type: 'tuple', components: authorizationComponents },
     ],
@@ -103,8 +104,8 @@ export const warrantEscrowAbi = [
     name: 'warrants',
     stateMutability: 'view',
     inputs: [{ name: '', type: 'bytes32' }],
-    // Dix valeurs, pas neuf : voir `warrantComponents`. Le getter généré
-    // aplatit la struct, il ne rend pas un tuple imbriqué.
+    // Ten values, not nine: see `warrantComponents`. The generated getter
+    // flattens the struct, it does not return a nested tuple.
     outputs: warrantComponents,
   },
   {
@@ -112,8 +113,8 @@ export const warrantEscrowAbi = [
     name: 'getWarrant',
     stateMutability: 'view',
     inputs: [{ name: 'id', type: 'bytes32' }],
-    // Une struct, donc **un** tuple à dix membres — et non dix valeurs à plat.
-    // La différence compte au décodage : viem rend ici un objet nommé.
+    // A struct, hence **one** ten-member tuple — not ten flattened values. The
+    // difference matters when decoding: viem returns a named object here.
     outputs: [{ name: '', type: 'tuple', components: warrantComponents }],
   },
   {
@@ -225,10 +226,10 @@ export const warrantEscrowAbi = [
   { type: 'error', name: 'BadFee', inputs: [] },
   { type: 'error', name: 'ZeroBond', inputs: [] },
   { type: 'error', name: 'Underfunded', inputs: [] },
-  // Ajoutées par le correctif d'audit. Les décoder est ce qui distingue un
-  // « open a échoué » d'un diagnostic exploitable : `ValueMismatch` dit que la
-  // caution recalculée ne vaut plus le montant signé, `BeneficiaryIsTreasury`
-  // et `BadBeneficiary` désignent une politique à corriger, pas une panne.
+  // Added by the audit fix. Decoding them is what separates a bare "open failed"
+  // from an actionable diagnosis: `ValueMismatch` says the recomputed bond no
+  // longer equals the signed amount, while `BeneficiaryIsTreasury` and
+  // `BadBeneficiary` point at a policy to fix, not at an outage.
   { type: 'error', name: 'RolesMustDiffer', inputs: [] },
   { type: 'error', name: 'ZeroAddress', inputs: [] },
   { type: 'error', name: 'BeneficiaryIsTreasury', inputs: [] },

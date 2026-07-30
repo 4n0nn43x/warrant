@@ -1,20 +1,20 @@
 /**
- * Tests du serveur MCP, exécutés à travers un vrai client MCP.
+ * Tests of the MCP server, run through a real MCP client.
  *
- * Tout passe par `InMemoryTransport` et le `Client` officiel plutôt que par des
- * appels directs aux handlers : ce qu'on veut vérifier, c'est ce qu'un client —
- * Claude Code, ElizaOS, n'importe lequel — voit réellement sur le fil. Un test
- * qui appelle le handler en direct valide notre code ; celui-ci valide le
- * protocole.
+ * Everything goes through `InMemoryTransport` and the official `Client` rather
+ * than through direct calls to the handlers: what we want to verify is what a
+ * client — Claude Code, ElizaOS, any of them — actually sees on the wire. A test
+ * that calls the handler directly validates our code; this one validates the
+ * protocol.
  *
- * **Ce fichier teste l'ère 2025.** `Client.connect()` négocie par défaut
- * `mode: 'legacy'` (la révision 2026-07-28 ne se sélectionne que via un probe
- * `server/discover`, cf. `ClientOptions.versionNegotiation`), et le probe
- * n'existe pas sur `InMemoryTransport`. Loin d'être une limite, c'est ce qui
- * fait la valeur de ce fichier après la migration : il prouve, comportement par
- * comportement, qu'un client resté en 2025 obtient exactement ce qu'il obtenait
- * avant. L'ère 2026-07-28 est couverte sur vraie socket dans `http.test.ts`,
- * où le probe peut avoir lieu.
+ * **This file tests the 2025 era.** `Client.connect()` negotiates `mode:
+ * 'legacy'` by default (the 2026-07-28 revision is only selected via a
+ * `server/discover` probe, cf. `ClientOptions.versionNegotiation`), and the probe
+ * does not exist on `InMemoryTransport`. Far from being a limitation, that is
+ * what makes this file valuable after the migration: it proves, behaviour by
+ * behaviour, that a client still on 2025 gets exactly what it got before. The
+ * 2026-07-28 era is covered over a real socket in `http.test.ts`, where the probe
+ * can take place.
  */
 
 import { Client } from '@modelcontextprotocol/client'
@@ -64,14 +64,14 @@ function structured<T>(result: CallToolResult): T {
 
 function firstText(result: CallToolResult): string {
   const block = result.content[0]
-  if (!block || block.type !== 'text') throw new Error('content[0] n\'est pas un bloc texte')
+  if (!block || block.type !== 'text') throw new Error('content[0] is not a text block')
   return block.text
 }
 
-/** Un paiement plausible. Le Gateway mocké l'accepte sur parole. */
+/** A plausible payment. The mocked Gateway takes it on trust. */
 function paymentFor(required: PaymentRequired): PaymentPayload {
   const accepted = required.accepts[0]
-  if (!accepted) throw new Error('PaymentRequired sans offre')
+  if (!accepted) throw new Error('PaymentRequired with no offer')
   return {
     x402Version: 2,
     resource: { url: required.resource.url },
@@ -100,7 +100,7 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('tools/list', () => {
-  it('expose exactement quatre outils — pas cinq', async () => {
+  it('exposes exactly four tools — not five', async () => {
     const { client } = await connect(gateway)
     const { tools } = await client.listTools()
 
@@ -110,24 +110,24 @@ describe('tools/list', () => {
       'quote_risk',
       'request_warrant',
     ])
-    // `execute_metered` est parti avec le régime routine (docs/09 § 2).
+    // `execute_metered` left along with the routine regime (docs/09 § 2).
     expect(tools.map((t) => t.name)).not.toContain('execute_metered')
   })
 
-  it('publie un JSON Schema d\'entrée exploitable pour chaque outil', async () => {
+  it('publishes a usable input JSON Schema for every tool', async () => {
     const { client } = await connect(gateway)
     const { tools } = await client.listTools()
 
     for (const tool of tools) {
-      expect(tool.description, `${tool.name} sans description`).toBeTruthy()
+      expect(tool.description, `${tool.name} has no description`).toBeTruthy()
       expect(tool.inputSchema.type).toBe('object')
-      expect(tool.inputSchema.properties, `${tool.name} sans properties`).toBeDefined()
-      // Une propriété non documentée est une propriété que le modèle remplira mal.
+      expect(tool.inputSchema.properties, `${tool.name} has no properties`).toBeDefined()
+      // An undocumented property is a property the model will fill in badly.
       expect(JSON.stringify(tool.inputSchema)).toContain('description')
     }
   })
 
-  it('déclare les bons champs requis', async () => {
+  it('declares the right required fields', async () => {
     const { client } = await connect(gateway)
     const { tools } = await client.listTools()
     const byName = Object.fromEntries(tools.map((t) => [t.name, t]))
@@ -141,7 +141,7 @@ describe('tools/list', () => {
     expect(byName['list_warrants']?.inputSchema.required).toEqual(['agent'])
   })
 
-  it('n\'accepte ni category ni notional dans aucun schéma', async () => {
+  it('accepts neither category nor notional in any schema', async () => {
     const { client } = await connect(gateway)
     const { tools } = await client.listTools()
 
@@ -154,8 +154,8 @@ describe('tools/list', () => {
       expect(Object.keys(properties ?? {})).not.toContain('notional')
       expect(Object.keys(properties ?? {})).not.toContain('notionalUSD')
       if (tool.name !== 'list_warrants') {
-        // `list_warrants` filtre a posteriori sur une catégorie déjà dérivée —
-        // c'est le seul endroit où le mot peut légitimement apparaître.
+        // `list_warrants` filters after the fact on an already-derived category —
+        // it is the only place where the word may legitimately appear.
         expect(Object.keys(properties ?? {})).not.toContain('category')
       }
       if (actionSpec) {
@@ -171,7 +171,7 @@ describe('tools/list', () => {
     }
   })
 
-  it('signale quel outil est payant', async () => {
+  it('signals which tool is paid', async () => {
     const { client } = await connect(gateway)
     const { tools } = await client.listTools()
     const paid = tools.filter((t) => t._meta?.['x402/paid'] === true).map((t) => t.name)
@@ -182,8 +182,8 @@ describe('tools/list', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('quote_risk — gratuit', () => {
-  it('rend un devis sans exiger de paiement', async () => {
+describe('quote_risk — free', () => {
+  it('returns a quote without requiring payment', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'quote_risk',
@@ -198,7 +198,7 @@ describe('quote_risk — gratuit', () => {
     expect(result._meta?.[X402_PAYMENT_RESPONSE_META_KEY]).toBeUndefined()
   })
 
-  it('rend la post-condition qui sera engagée', async () => {
+  it('returns the post-condition that will be committed', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'quote_risk',
@@ -211,7 +211,7 @@ describe('quote_risk — gratuit', () => {
     )
   })
 
-  it('sérialise le même objet dans les deux formats', async () => {
+  it('serialises the same object into both formats', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'quote_risk',
@@ -224,15 +224,15 @@ describe('quote_risk — gratuit', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('request_warrant — transport x402 v2 sur MCP', () => {
-  it('sans paiement : isError, avec le PaymentRequired dans les deux formats', async () => {
+describe('request_warrant — x402 v2 transport over MCP', () => {
+  it('without payment: isError, carrying the PaymentRequired in both formats', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'request_warrant',
       arguments: { actionSpec: ACTION_SPEC, beneficiary: TREASURY },
     })) as CallToolResult
 
-    // Étape 2 du flux (docs/05 § 1.7).
+    // Step 2 of the flow (docs/05 § 1.7).
     expect(result.isError).toBe(true)
 
     const fromStructured = structured<PaymentRequired>(result)
@@ -242,17 +242,17 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
     expect(fromStructured.accepts[0]?.network).toBe('eip155:8453')
     expect(fromStructured.resource.url).toBeTruthy()
 
-    // L'exigence du double format : `content[0].text` est exactement
-    // `JSON.stringify` de `structuredContent`.
+    // The dual-format requirement: `content[0].text` is exactly
+    // `JSON.stringify` of `structuredContent`.
     const fromText = JSON.parse(firstText(result)) as PaymentRequired
     expect(fromText).toEqual(fromStructured)
     expect(firstText(result)).toBe(JSON.stringify(fromStructured))
 
-    // Aucun mandat n'a été ouvert.
+    // No warrant was opened.
     expect(gateway.warrants.size).toBe(0)
   })
 
-  it('les deux formats restent équivalents champ par champ', async () => {
+  it('keeps the two formats equivalent field by field', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'request_warrant',
@@ -262,14 +262,14 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
     const structuredKeys = Object.keys(result.structuredContent ?? {}).sort()
     const textKeys = Object.keys(JSON.parse(firstText(result)) as object).sort()
     expect(textKeys).toEqual(structuredKeys)
-    // Un client qui ne sait lire que le texte doit obtenir un objet payable.
+    // A client that can only read the text must still get a payable object.
     const parsed = JSON.parse(firstText(result)) as PaymentRequired
     expect(parsed.accepts[0]?.amount).toBe(
       structured<PaymentRequired>(result).accepts[0]?.amount,
     )
   })
 
-  it('avec paiement dans _meta : succès, règlement dans _meta', async () => {
+  it('with the payment in _meta: success, settlement in _meta', async () => {
     const { client } = await connect(gateway)
     const args = { actionSpec: ACTION_SPEC, beneficiary: TREASURY }
 
@@ -279,7 +279,7 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
     })) as CallToolResult
     const required = structured<PaymentRequired>(challenge)
 
-    // Étapes 3 et 4 : le client rejoue avec le paiement dans `_meta`.
+    // Steps 3 and 4: the client replays with the payment in `_meta`.
     const settled = (await client.callTool({
       name: 'request_warrant',
       arguments: args,
@@ -300,7 +300,7 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
     expect(warrant.actionHash).toMatch(/^0x[0-9a-f]{64}$/)
     expect(warrant.expiry).toBeGreaterThan(Math.floor(Date.now() / 1000))
 
-    // Étape 6 : le règlement voyage dans `_meta["x402/payment-response"]`.
+    // Step 6: the settlement travels in `_meta["x402/payment-response"]`.
     const settlement = settled._meta?.[X402_PAYMENT_RESPONSE_META_KEY] as {
       success: boolean
       transaction: string
@@ -310,11 +310,11 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
     expect(settlement.transaction).toMatch(/^0x[0-9a-f]{64}$/)
     expect(settlement.amount).toBe(required.accepts[0]?.amount)
 
-    // Le paiement a bien atteint le Gateway.
+    // The payment did reach the Gateway.
     expect(gateway.seen.payments.at(-1)).toBeDefined()
   })
 
-  it('un _meta["x402/payment"] malformé est traité comme absent', async () => {
+  it('treats a malformed _meta["x402/payment"] as absent', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'request_warrant',
@@ -322,12 +322,12 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
       _meta: { [X402_PAYMENT_META_KEY]: { nope: true } },
     })) as CallToolResult
 
-    // Un nouveau challenge, pas une erreur de protocole : le client peut se corriger.
+    // A fresh challenge, not a protocol error: the client can correct itself.
     expect(result.isError).toBe(true)
     expect(structured<PaymentRequired>(result).x402Version).toBe(2)
   })
 
-  it('la caution ne dépend pas du client — deux appels, même montant', async () => {
+  it('makes the bond independent of the client — two calls, same amount', async () => {
     const { client } = await connect(gateway)
     const args = { actionSpec: ACTION_SPEC, beneficiary: TREASURY }
 
@@ -342,8 +342,8 @@ describe('request_warrant — transport x402 v2 sur MCP', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('rien n\'est déclaré, tout est dérivé', () => {
-  it('un champ `category` parasite dans l\'actionSpec est ignoré', async () => {
+describe('nothing is declared, everything is derived', () => {
+  it('ignores a stray `category` field inside the actionSpec', async () => {
     const { client } = await connect(gateway)
 
     const honest = (await client.callTool({
@@ -359,12 +359,12 @@ describe('rien n\'est déclaré, tout est dérivé', () => {
     })) as CallToolResult
 
     expect(cheating.isError).toBeFalsy()
-    // Le prix est identique : le champ n'a eu aucun effet.
+    // The price is identical: the field had no effect.
     expect(structured(cheating)).toEqual(structured(honest))
 
-    // Et surtout : le Gateway n'a jamais vu le champ. C'est ce qui compte, car
-    // l'`actionHash` est calculé sur ce qu'il reçoit — un champ parasite qui
-    // survivrait jusque-là changerait l'engagement.
+    // And above all: the Gateway never saw the field. That is what counts, since
+    // the `actionHash` is computed over what it receives — a stray field that
+    // survived that far would change the commitment.
     const forwarded = gateway.seen.actionSpecs.at(-1) as unknown as Record<string, unknown>
     expect(forwarded).not.toHaveProperty('category')
     expect(forwarded).not.toHaveProperty('notionalUSD')
@@ -378,7 +378,7 @@ describe('rien n\'est déclaré, tout est dérivé', () => {
     ])
   })
 
-  it('un `category` parasite ne change pas non plus la caution exigée', async () => {
+  it('does not let a stray `category` change the bond required either', async () => {
     const { client } = await connect(gateway)
 
     const honest = (await client.callTool({
@@ -399,7 +399,7 @@ describe('rien n\'est déclaré, tout est dérivé', () => {
     )
   })
 
-  it('un `category` de premier niveau est ignoré lui aussi', async () => {
+  it('ignores a top-level `category` too', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'quote_risk',
@@ -414,7 +414,7 @@ describe('rien n\'est déclaré, tout est dérivé', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('get_warrant', () => {
-  it('rend le mandat et son tableau checks[]', async () => {
+  it('returns the warrant and its checks[] array', async () => {
     const { client } = await connect(gateway)
     const args = { actionSpec: ACTION_SPEC, beneficiary: TREASURY }
     const challenge = (await client.callTool({
@@ -440,7 +440,7 @@ describe('get_warrant', () => {
     expect(Array.isArray(view.checks)).toBe(true)
   })
 
-  it('expose le verdict complet quand le mandat est réglé', async () => {
+  it('exposes the full verdict once the warrant is settled', async () => {
     const { client } = await connect(gateway)
     const id = `0x${'0c'.repeat(32)}`
     gateway.warrants.set(id as `0x${string}`, {
@@ -475,8 +475,8 @@ describe('get_warrant', () => {
     }>(result)
     expect(view.verdict.verdict).toBe('slashed')
     expect(view.verdict.evaluatedAtBlock).toBe('31337')
-    // Les vérifications qui passent sont publiées aussi : sans elles, le verdict
-    // n'est pas auditable.
+    // The checks that pass are published as well: without them, the verdict is
+    // not auditable.
     expect(view.checks).toHaveLength(2)
     expect(view.checks.filter((c) => c.pass)).toHaveLength(1)
   })
@@ -485,7 +485,7 @@ describe('get_warrant', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_warrants', () => {
-  it('rend l\'historique et les statistiques', async () => {
+  it('returns the history and the statistics', async () => {
     const { client } = await connect(gateway)
     const args = { actionSpec: ACTION_SPEC, beneficiary: TREASURY }
     const challenge = (await client.callTool({
@@ -510,7 +510,7 @@ describe('list_warrants', () => {
     expect(list.stats.open).toBe(1)
   })
 
-  it('rend un historique vide plutôt qu\'une erreur pour un agent inconnu', async () => {
+  it('returns an empty history rather than an error for an unknown agent', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'list_warrants',
@@ -526,16 +526,16 @@ describe('list_warrants', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('erreurs actionnables', () => {
+describe('actionable errors', () => {
   interface ErrorBody {
     error: { code: string; message: string; hint: string; docs: string; field?: string }
   }
 
-  it('une adresse invalide nomme le champ fautif et dit quoi faire', async () => {
+  it('names the offending field and says what to do on an invalid address', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'request_warrant',
-      arguments: { actionSpec: ACTION_SPEC, beneficiary: 'pas-une-adresse' },
+      arguments: { actionSpec: ACTION_SPEC, beneficiary: 'not-an-address' },
     })) as CallToolResult
 
     expect(result.isError).toBe(true)
@@ -546,7 +546,7 @@ describe('erreurs actionnables', () => {
     expect(body.error.docs).toMatch(/^https:\/\//)
   })
 
-  it('un calldata malformé est rejeté à l\'ouverture, champ nommé', async () => {
+  it('rejects a malformed calldata up front, with the field named', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'quote_risk',
@@ -559,7 +559,7 @@ describe('erreurs actionnables', () => {
     expect(body.error.hint).toBeTruthy()
   })
 
-  it('un mandat inconnu rend warrant_not_found, pas une erreur de protocole', async () => {
+  it('returns warrant_not_found for an unknown warrant, not a protocol error', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'get_warrant',
@@ -572,7 +572,7 @@ describe('erreurs actionnables', () => {
     expect(body.error.hint).toContain('list_warrants')
   })
 
-  it('un outil inconnu rend une erreur qui liste les outils existants', async () => {
+  it('returns an error listing the existing tools for an unknown tool', async () => {
     const { client } = await connect(gateway)
     const result = (await client.callTool({
       name: 'execute_metered',
@@ -585,7 +585,7 @@ describe('erreurs actionnables', () => {
     expect(body.error.hint).toContain('request_warrant')
   })
 
-  it('une panne du Gateway reste actionnable', async () => {
+  it('keeps a Gateway outage actionable', async () => {
     const broken = createMockGateway()
     broken.quote = async () => {
       throw new Error('ECONNREFUSED')
@@ -603,7 +603,7 @@ describe('erreurs actionnables', () => {
     expect(body.error.docs).toBeTruthy()
   })
 
-  it('toute erreur porte hint et docs, et respecte le double format', async () => {
+  it('makes every error carry hint and docs, and honour the dual format', async () => {
     const { client } = await connect(gateway)
     const cases = [
       { name: 'quote_risk', arguments: {} },
@@ -614,10 +614,10 @@ describe('erreurs actionnables', () => {
 
     for (const call of cases) {
       const result = (await client.callTool(call)) as CallToolResult
-      expect(result.isError, `${call.name} aurait dû échouer`).toBe(true)
+      expect(result.isError, `${call.name} should have failed`).toBe(true)
       const body = structured<ErrorBody>(result)
-      expect(body.error.hint, `${call.name} sans hint`).toBeTruthy()
-      expect(body.error.docs, `${call.name} sans docs`).toBeTruthy()
+      expect(body.error.hint, `${call.name} has no hint`).toBeTruthy()
+      expect(body.error.docs, `${call.name} has no docs`).toBeTruthy()
       expect(JSON.parse(firstText(result))).toEqual(result.structuredContent)
     }
   })

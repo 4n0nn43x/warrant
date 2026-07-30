@@ -21,7 +21,7 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'warrant-verdicts-'))
 }
 
-/** Un document quelconque : ce module ne connaît pas la forme, seulement les octets. */
+/** An arbitrary document: this module knows nothing of the shape, only the bytes. */
 function document(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     warrantId: WARRANT_ID,
@@ -33,29 +33,29 @@ function document(over: Record<string, unknown> = {}): Record<string, unknown> {
   }
 }
 
-describe('publication — ce qui est servi est exactement ce qui est haché', () => {
-  it('le fichier écrit est la forme canonique JCS, sans reformatage', () => {
+describe('publication — what is served is exactly what is hashed', () => {
+  it('the written file is the canonical JCS form, with no reformatting', () => {
     const dir = tempDir()
     const published = fileVerdictPublisher({ dir, baseUri: BASE }).publish(WARRANT_ID, document())
 
     const onDisk = readFileSync(published.path, 'utf8')
     expect(onDisk).toBe(canonicalize(document()))
     expect(onDisk).toBe(published.bytes)
-    // C'est l'engagement inscrit onchain dans `NewFeedback`.
+    // This is the commitment inscribed onchain in `NewFeedback`.
     expect(hashCanonical(onDisk)).toBe(published.hash)
   })
 
-  it('l’URI est stable et dérive de l’identifiant du mandat', () => {
+  it('the URI is stable and derives from the warrant identifier', () => {
     const dir = tempDir()
     const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
     expect(publisher.publish(WARRANT_ID, document()).uri).toBe(`${BASE}${WARRANT_ID}`)
-    // Republier ne déplace rien : l'URI est fonction du mandat, pas de l'heure.
+    // Republishing moves nothing: the URI is a function of the warrant, not of the clock.
     expect(publisher.publish(WARRANT_ID, document({ verdict: 'slashed' })).uri).toBe(
       `${BASE}${WARRANT_ID}`,
     )
   })
 
-  it('un lot est indexé par son propre hash', () => {
+  it('a batch is indexed by its own hash', () => {
     const dir = tempDir()
     const doc = { warrantCount: 2, warrants: [] }
     const published = fileVerdictPublisher({ dir, baseUri: BASE }).publishBatch(doc)
@@ -63,14 +63,14 @@ describe('publication — ce qui est servi est exactement ce qui est haché', ()
     expect(readFileSync(published.path, 'utf8')).toBe(canonicalize(doc))
   })
 
-  it('ajoute la barre finale manquante plutôt que de coller le hash au chemin', () => {
+  it('adds the missing trailing slash rather than gluing the hash to the path', () => {
     const publisher = fileVerdictPublisher({ dir: tempDir(), baseUri: 'https://x.example/v' })
     expect(publisher.publish(WARRANT_ID, document()).uri).toBe(`https://x.example/v/${WARRANT_ID}`)
   })
 })
 
-describe('serveur de verdicts', () => {
-  it('rend les octets publiés à l’octet près, avec le hash en ETag', async () => {
+describe('verdict server', () => {
+  it('returns the published bytes byte-for-byte, with the hash as the ETag', async () => {
     const dir = tempDir()
     const published = fileVerdictPublisher({ dir, baseUri: BASE }).publish(WARRANT_ID, document())
     const app = createVerdictServer({ dir, baseUri: BASE })
@@ -79,12 +79,12 @@ describe('serveur de verdicts', () => {
     expect(res.status).toBe(200)
     const body = await res.text()
     expect(body).toBe(published.bytes)
-    // Un tiers recalcule le hash sur ce qu'il a reçu et retrouve l'engagement.
+    // A third party recomputes the hash over what it received and finds the commitment.
     expect(hashCanonical(body)).toBe(published.hash)
     expect(res.headers.get('etag')).toBe(`"${published.hash}"`)
   })
 
-  it('sert un document de lot', async () => {
+  it('serves a batch document', async () => {
     const dir = tempDir()
     const published = fileVerdictPublisher({ dir, baseUri: BASE }).publishBatch({ warrantCount: 0 })
     const app = createVerdictServer({ dir, baseUri: BASE })
@@ -93,14 +93,14 @@ describe('serveur de verdicts', () => {
     expect(await res.text()).toBe(published.bytes)
   })
 
-  it('sert le même index sous les trois formes du chemin', async () => {
+  it('serves the same index under all three forms of the path', async () => {
     const dir = tempDir()
     const published = fileVerdictPublisher({ dir, baseUri: BASE }).publish(WARRANT_ID, document())
     const app = createVerdictServer({ dir, baseUri: BASE })
 
-    // `/v/index.json` est la forme que sert git-raw ; `/v` et `/v/` sont celles
-    // qu'on obtient en collant la base. Les trois doivent rendre les mêmes
-    // octets, sinon la documentation devrait en décrire trois.
+    // `/v/index.json` is the form git-raw serves; `/v` and `/v/` are the ones you
+    // get by pasting the base. All three must return the same bytes, otherwise
+    // the documentation would have to describe three of them.
     const bodies: string[] = []
     for (const path of ['/v', '/v/', '/v/index.json']) {
       const res = await app.request(path)
@@ -115,71 +115,71 @@ describe('serveur de verdicts', () => {
     ])
   })
 
-  it('404 sur un mandat jamais publié, 400 sur un identifiant malformé', async () => {
+  it('404 on a warrant never published, 400 on a malformed identifier', async () => {
     const app = createVerdictServer({ dir: tempDir(), baseUri: BASE })
     expect((await app.request(`/v/${WARRANT_ID}`)).status).toBe(404)
-    expect((await app.request('/v/pas-un-id')).status).toBe(400)
+    expect((await app.request('/v/not-an-id')).status).toBe(400)
   })
 
-  it('sert sous le chemin annoncé par VERDICT_BASE_URI, pas sous un chemin figé', async () => {
+  it('serves under the path VERDICT_BASE_URI announces, not under a frozen one', async () => {
     const dir = tempDir()
     const base = 'https://warrant.example/verdicts/'
     fileVerdictPublisher({ dir, baseUri: base }).publish(WARRANT_ID, document())
     const app = createVerdictServer({ dir, baseUri: base })
 
     expect((await app.request(`/verdicts/${WARRANT_ID}`)).status).toBe(200)
-    // L'ancien chemin ne répond pas : une URI inscrite onchain qui ne résout
-    // pas serait un verdict invérifiable.
+    // The old path does not answer: a URI inscribed onchain that does not resolve
+    // would be an unverifiable verdict.
     expect((await app.request(`/v/${WARRANT_ID}`)).status).toBe(404)
   })
 })
 
 describe('verdictPathPrefix', () => {
-  it('déduit le chemin de la base publique', () => {
+  it('derives the path from the public base', () => {
     expect(verdictPathPrefix('https://warrant.sh/v/')).toBe('/v')
     expect(verdictPathPrefix('http://localhost:8403/v/')).toBe('/v')
     expect(verdictPathPrefix('https://warrant.sh/')).toBe('')
   })
 
-  it('retire owner/repo/ref d’une base git-raw et garde le chemin du dépôt', () => {
+  it('strips owner/repo/ref from a git-raw base and keeps the repository path', () => {
     expect(verdictPathPrefix(DEFAULT_VERDICT_BASE_URI)).toBe('/verdicts')
-    // Un répertoire imbriqué reste entier : seuls les trois premiers segments
-    // appartiennent à l'adressage GitHub.
+    // A nested directory stays whole: only the first three segments belong to
+    // GitHub's addressing.
     expect(
       verdictPathPrefix(gitRawBaseUri({ owner: 'o', repo: 'r', ref: 'main', dir: 'v/base-sepolia' })),
     ).toBe('/v/base-sepolia')
   })
 })
 
-describe('publication dans le dépôt git', () => {
-  it('la base par défaut est une URL git-raw résolvable, pas un domaine inventé', () => {
+describe('publication into the git repository', () => {
+  it('the default base is a resolvable git-raw URL, not an invented domain', () => {
     expect(DEFAULT_VERDICT_BASE_URI).toBe(
       `https://${GIT_RAW_HOST}/4n0nn43x/warrant/master/verdicts/`,
     )
-    // Le document d'un mandat est un fichier du dépôt, à un chemin devinable
-    // depuis le seul warrantId — c'est la condition pour qu'un tiers le trouve.
+    // A warrant's document is a file in the repository, at a path guessable from
+    // the warrantId alone — the condition for a third party to find it.
     const uri = fileVerdictPublisher({ dir: tempDir() }).publish(WARRANT_ID, document()).uri
     expect(uri).toBe(`${DEFAULT_VERDICT_BASE_URI}${WARRANT_ID}`)
   })
 
-  it('le nom du fichier est le dernier segment de l’URI inscrite onchain', () => {
+  it('the file name is the last segment of the URI inscribed onchain', () => {
     const dir = tempDir()
     const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
     const verdict = publisher.publish(WARRANT_ID, document())
     const batch = publisher.publishBatch({ warrantCount: 0 })
 
-    // L'invariant qui décide si un verdict est lisible par un tiers : git-raw
-    // sert des chemins, pas des identifiants. Un `.json` sur le disque et pas
-    // dans l'URI, c'est un 404 sur chaque verdict publié.
+    // The invariant that decides whether a verdict is readable by a third party:
+    // git-raw serves paths, not identifiers. A `.json` on disk but not in the
+    // URI means a 404 on every published verdict.
     for (const published of [verdict, batch]) {
       const lastUriSegment = new URL(published.uri).pathname.split('/').pop()
       expect(published.path.split('/').pop()).toBe(lastUriSegment)
     }
-    // Et le chemin relatif complet coïncide, `batch/` compris.
+    // And the full relative path matches, `batch/` included.
     expect(batch.path).toBe(join(dir, 'batch', batch.hash))
   })
 
-  it('l’index recense mandats et lots, avec le hash relu sur disque', () => {
+  it('the index lists warrants and batches, with the hash re-read from disk', () => {
     const dir = tempDir()
     const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
     const verdict = publisher.publish(WARRANT_ID, document())
@@ -194,7 +194,7 @@ describe('publication dans le dépôt git', () => {
     })
   })
 
-  it('l’index est canonique : republier à l’identique ne produit aucun diff', () => {
+  it('the index is canonical: republishing identically produces no diff', () => {
     const dir = tempDir()
     const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
     publisher.publish(WARRANT_ID, document())
@@ -204,25 +204,25 @@ describe('publication dans le dépôt git', () => {
     expect(first).toBe(canonicalize(buildVerdictIndex(dir, BASE)))
   })
 
-  it('l’index dénonce un document reformaté après publication', () => {
+  it('the index exposes a document reformatted after publication', () => {
     const dir = tempDir()
     const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
     const published = publisher.publish(WARRANT_ID, document())
 
-    // Le scénario réel : un formateur passe sur le dépôt et réindente le JSON.
-    // Les octets ne sont plus ceux qui ont été hachés ; l'index le montre.
+    // The real scenario: a formatter sweeps the repository and reindents the
+    // JSON. The bytes are no longer the ones that were hashed; the index shows it.
     writeFileSync(published.path, JSON.stringify(document(), null, 2), 'utf8')
     const index = buildVerdictIndex(dir, BASE)
     expect(index.warrants[0]!.feedbackHash).not.toBe(published.hash)
   })
 
-  it('l’index n’est jamais servi comme un document de verdict', async () => {
+  it('the index is never served as a verdict document', async () => {
     const dir = tempDir()
     fileVerdictPublisher({ dir, baseUri: BASE }).publish(WARRANT_ID, document())
     const app = createVerdictServer({ dir, baseUri: BASE })
 
-    // `index.json` est dans le même répertoire que les documents : il ne doit
-    // apparaître ni comme un mandat de l'index, ni comme un identifiant.
+    // `index.json` lives in the same directory as the documents: it must appear
+    // neither as a warrant of the index, nor as an identifier.
     const index = (await app.request('/v/index.json').then((r) => r.json())) as VerdictIndex
     expect(index.warrants.map((w) => w.warrantId)).toEqual([WARRANT_ID])
     expect((await app.request('/v/index')).status).toBe(400)

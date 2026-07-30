@@ -1,6 +1,5 @@
 /**
- * Vérificateurs ERC-20 : `erc20_allowance`, `erc20_balance`,
- * `erc20_balance_delta`.
+ * ERC-20 checks: `erc20_allowance`, `erc20_balance`, `erc20_balance_delta`.
  */
 
 import {
@@ -40,7 +39,7 @@ export async function checkErc20Allowance(
         abi: erc20Abi,
         functionName: 'allowance',
         args: [check.owner, check.spender],
-        // Lecture à bloc figé — jamais `latest`.
+        // Read at a pinned block — never `latest`.
         blockNumber: env.evalBlock,
       }),
   )
@@ -80,16 +79,16 @@ export async function checkErc20Balance(
 }
 
 /**
- * Delta de solde ERC-20 **attribuable à la transaction d'action**.
+ * ERC-20 balance delta **attributable to the action transaction**.
  *
- * Le delta est la somme signée des `Transfer` du compte dans le receipt de la
- * transaction, et non `balanceOf(evaluateAt) - balanceOf(tx.blockNumber - 1)`.
+ * The delta is the signed sum of the account's `Transfer` logs in the
+ * transaction receipt, not `balanceOf(evaluateAt) - balanceOf(tx.blockNumber -
+ * 1)`.
  *
- * Raison, non négociable : sur un compte actif, une autre transaction incluse
- * dans le même bloc — un versement de salaire, un remboursement, une autre
- * stratégie — serait imputée à l'agent et produirait une saisie injuste. On ne
- * saisit une caution que pour ce que la transaction engagée a effectivement
- * fait.
+ * The reason, and it is not negotiable: on an active account, another
+ * transaction included in the same block — a payroll run, a refund, another
+ * strategy — would be charged to the agent and produce an unjust slash. A bond
+ * is slashed only for what the committed transaction actually did.
  */
 export async function checkErc20BalanceDelta(
   check: Erc20BalanceDeltaCheck,
@@ -114,17 +113,17 @@ export interface TransferDelta {
   delta: bigint
   inflow: bigint
   outflow: bigint
-  /** Nombre de logs `Transfer` du token touchant le compte. */
+  /** Number of `Transfer` logs of the token that touch the account. */
   matched: number
 }
 
 /**
- * Somme les `Transfer` entrants et sortants du compte, pour un token donné,
- * dans les logs fournis.
+ * Sums the account's inbound and outbound `Transfer` logs, for a given token,
+ * within the supplied logs.
  *
- * Un auto-transfert (`from === to === account`) s'annule naturellement. Les
- * `Transfer` ERC-721 (4 topics) sont ignorés : leur `tokenId` indexé n'est pas
- * un montant.
+ * A self-transfer (`from === to === account`) cancels out naturally. ERC-721
+ * `Transfer` logs (4 topics) are ignored: their indexed `tokenId` is not an
+ * amount.
  */
 export function sumTransferDelta(
   logs: readonly { address: string; topics: readonly Hex[]; data: Hex }[],

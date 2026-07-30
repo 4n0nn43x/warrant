@@ -1,40 +1,38 @@
 /**
- * Génération de la post-condition depuis la politique du propriétaire du
- * capital.
+ * Generation of the post-condition from the capital owner's policy.
  *
- * > « La politique génère la post-condition, l'agent ne la propose pas. »
+ * > "The policy generates the post-condition; the agent does not propose it."
  * > (docs/13-risques.md § 5)
  *
- * Une fois la catégorie **dérivée** du calldata, la politique produit la
- * `conditionSpec` en y injectant **ses propres** paramètres. Le point qui ferme
- * le vecteur d'attaque : `allowedDest` vient de l'allowlist de la politique,
- * pas du calldata. Un transfert détourné engage donc une destination qui n'est
- * pas celle de l'attaquant — l'engagement échoue, la caution est saisie, et le
- * propriétaire du capital est indemnisé.
+ * Once the category has been **derived** from the calldata, the policy produces
+ * the `conditionSpec` by injecting **its own** parameters into it. The point
+ * that closes the attack vector: `allowedDest` comes from the policy's
+ * allowlist, not from the calldata. A diverted transfer therefore commits to a
+ * destination that is not the attacker's — the commitment fails, the bond is
+ * slashed, and the capital owner is made whole.
  *
- * ## Trois règles de construction, apprises à l'audit
+ * ## Three construction rules, learned at audit
  *
- * 1. **Un trou de politique est un refus d'ouvrir, jamais une post-condition
- *    permissive.** Un paramètre manquant lève `PolicyError` ; il ne fait pas
- *    disparaître silencieusement le vérificateur qui en dépend. Un mandat
- *    ouvert sur une post-condition amputée serait pire que pas de mandat : il
- *    rend la caution, améliore la réputation, et signe la conformité d'un
- *    détournement.
- * 2. **N'engager que des vérificateurs ATTRIBUABLES à la transaction** — logs
- *    et receipt de l'action engagée. Jamais un état absolu partagé (un solde
- *    lu en fin de bloc) qu'un tiers peut faire varier après coup : il rendrait
- *    le verdict dépendant d'autre chose que du travail de l'agent, dans les
- *    deux sens (saisie fabriquée par le bénéficiaire, ou conformité fabriquée
- *    par un versement extérieur). Seule exception assumée :
- *    `aave_health_factor`, invariant de protection normatif de docs/07 § 2.5,
- *    qu'une post-condition de position ne peut pas exprimer autrement.
- * 3. **Une post-condition par défaut ne contient que des vérificateurs
- *    décidables dans le mode d'exécution réel du projet** — l'exécution
- *    sponsorisée par KeeperHub. Un vérificateur qui lève
- *    `UnsupportedCheckError` ne rend pas `false` : il fait expirer le mandat
- *    vers `reclaim`. Ce n'est donc pas une garantie, c'est un remboursement
- *    automatique déguisé. Voir les docstrings de
- *    `packages/server/src/checks/nonce.ts` et `.../native.ts`.
+ * 1. **A hole in the policy is a refusal to open, never a permissive
+ *    post-condition.** A missing parameter throws `PolicyError`; it does not
+ *    silently make the check that depends on it disappear. A warrant opened on
+ *    an amputated post-condition would be worse than no warrant at all: it
+ *    returns the bond, improves the reputation, and certifies a diversion as
+ *    compliant.
+ * 2. **Commit only to checks ATTRIBUTABLE to the transaction** — the logs and
+ *    receipt of the committed action. Never a shared absolute state (a balance
+ *    read at end of block) that a third party can move after the fact: it would
+ *    make the verdict depend on something other than the agent's work, in both
+ *    directions (a slash manufactured by the beneficiary, or compliance
+ *    manufactured by an outside deposit). The one exception we accept:
+ *    `aave_health_factor`, the normative protection invariant of docs/07 § 2.5,
+ *    which a position post-condition cannot express any other way.
+ * 3. **A default post-condition contains only checks that are decidable in the
+ *    project's real execution mode** — sponsored execution by KeeperHub. A check
+ *    that throws `UnsupportedCheckError` does not return `false`: it lets the
+ *    warrant expire into `reclaim`. So it is not a guarantee, it is an automatic
+ *    refund in disguise. See the docstrings of
+ *    `packages/server/src/checks/nonce.ts` and `.../native.ts`.
  */
 
 import {
@@ -50,54 +48,53 @@ import {
 } from './types.js'
 
 /**
- * Champs de politique que `types.ts` ne modélise pas encore. Lus de façon
- * défensive : leur absence donne la valeur la plus stricte, jamais la plus
- * permissive.
+ * Policy fields that `types.ts` does not model yet. Read defensively: their
+ * absence yields the strictest value, never the most permissive one.
  */
 export interface CategoryPolicyExtras {
-  /** Seuil de health factor Aave, en 1e18. Défaut : `DEFAULT_MIN_HEALTH_FACTOR`. */
+  /** Aave health factor threshold, in 1e18. Default: `DEFAULT_MIN_HEALTH_FACTOR`. */
   minHealthFactor?: string
 }
 
 export interface PolicyExtras {
-  /** Tokens surveillés pour `no_new_approvals` sur les actions non classifiées. */
+  /** Tokens watched by `no_new_approvals` on unclassified actions. */
   watchedTokens?: Address[]
   /**
-   * Déclare que l'action part du wallet d'exécution lui-même, sans relayer ni
-   * forwarder. **Faux par défaut**, et c'est délibéré.
+   * Declares that the action originates from the execution wallet itself, with
+   * no relayer and no forwarder. **False by default**, and that is deliberate.
    *
-   * Sous exécution sponsorisée — le mode réel du projet — la transaction est
-   * émise par le relayer KeeperHub : le nonce du compte surveillé n'avance pas,
-   * et `checks/nonce.ts` lève `UnsupportedCheckError` (voir son docstring, qui
-   * conclut : « ce vérificateur ne doit pas figurer dans les post-conditions
-   * par défaut tant que le sponsoring est actif »). Un check qui lève toujours
-   * fait expirer le mandat vers `reclaim` : la caution ne peut jamais être
-   * saisie, et la post-condition n'est plus un engagement.
+   * Under sponsored execution — the project's real mode — the transaction is
+   * submitted by the KeeperHub relayer: the nonce of the watched account does
+   * not advance, and `checks/nonce.ts` throws `UnsupportedCheckError` (see its
+   * docstring, which concludes: "this check must not appear in default
+   * post-conditions as long as sponsoring is active"). A check that always
+   * throws lets the warrant expire into `reclaim`: the bond can never be
+   * slashed, and the post-condition is no longer a commitment.
    *
-   * Ce drapeau n'est donc à activer que par un propriétaire de capital qui sait
-   * que ses exécutions ne sont pas sponsorisées.
+   * This flag is therefore only to be turned on by a capital owner who knows
+   * that their executions are not sponsored.
    */
   unsponsoredExecution?: boolean
 }
 
 export interface BuildConditionOptions {
-  /** Chaîne d'évaluation. Défaut : `classification.params.chainId`. */
+  /** Evaluation chain. Default: `classification.params.chainId`. */
   chainId?: number
   evaluateAt?: EvaluateAt
   confirmations?: number
   /**
-   * Compte dont le nonce doit progresser. Défaut : le trésor. Le Gateway passe
-   * ici l'adresse du wallet d'exécution KeeperHub quand il la connaît.
+   * Account whose nonce must advance. Default: the treasury. The Gateway passes
+   * the address of the KeeperHub execution wallet here when it knows it.
    */
   executor?: Address
   /**
-   * `actionHash` de l'`ActionSpec` engagée. Fourni, il ajoute d'office le
-   * vérificateur `calldata_matches_commitment` (hors quota `MAX_CHECKS`).
+   * `actionHash` of the committed `ActionSpec`. When supplied, it unconditionally
+   * adds the `calldata_matches_commitment` check (out of the `MAX_CHECKS` quota).
    */
   actionHash?: Hex
 }
 
-/** Health factor minimal par défaut : 1,5 en 1e18 (docs/07 § 2.5). */
+/** Default minimum health factor: 1.5 in 1e18 (docs/07 § 2.5). */
 export const DEFAULT_MIN_HEALTH_FACTOR = '1500000000000000000'
 
 export class PolicyError extends Error {
@@ -108,10 +105,10 @@ export class PolicyError extends Error {
 }
 
 /**
- * Construit la `conditionSpec` engagée pour une classification donnée.
+ * Builds the committed `conditionSpec` for a given classification.
  *
- * @throws {PolicyError} si la politique est incomplète pour cette catégorie —
- * une politique incomplète est un refus, pas une post-condition vide.
+ * @throws {PolicyError} if the policy is incomplete for this category — an
+ * incomplete policy is a refusal, not an empty post-condition.
  */
 export function buildConditionSpec(
   classification: Classification,
@@ -121,7 +118,7 @@ export function buildConditionSpec(
   const chainId = opts.chainId ?? Number(classification.params['chainId'])
   if (!Number.isInteger(chainId) || chainId <= 0) {
     throw new PolicyError(
-      'chainId indéterminé : ni fourni en option ni présent dans la classification',
+      'undetermined chainId: neither supplied as an option nor present in the classification',
     )
   }
 
@@ -131,10 +128,10 @@ export function buildConditionSpec(
     ? requireAddress(opts.executor, 'opts.executor')
     : treasury
 
-  // Compte dont le nonce est engagé, ou `undefined` — le cas par défaut, qui
-  // retire `nonce_advanced` de la post-condition. Voir
-  // `PolicyExtras.unsponsoredExecution` : sous sponsoring, ce vérificateur est
-  // indécidable et transforme la post-condition en remboursement automatique.
+  // Account whose nonce is committed, or `undefined` — the default case, which
+  // removes `nonce_advanced` from the post-condition. See
+  // `PolicyExtras.unsponsoredExecution`: under sponsoring this check is
+  // undecidable and turns the post-condition into an automatic refund.
   const nonceAccount = (policy as PolicyExtras).unsponsoredExecution
     ? executor
     : undefined
@@ -157,27 +154,27 @@ export function buildConditionSpec(
       checks = unknownChecks(classification, policy, treasury, nonceAccount)
       break
     default: {
-      // Exhaustivité : une catégorie ajoutée sans politique associée doit
-      // casser à la compilation, pas produire une post-condition vide.
+      // Exhaustiveness: a category added without an associated policy must break
+      // at compile time, not produce an empty post-condition.
       const never: never = category
-      throw new PolicyError(`catégorie sans politique: ${String(never)}`)
+      throw new PolicyError(`category without a policy: ${String(never)}`)
     }
   }
 
   if (checks.length === 0) {
     throw new PolicyError(
-      `politique vide pour ${category} : une post-condition sans vérificateur ` +
-        'ne serait pas un engagement',
+      `empty policy for ${category}: a post-condition with no check would not ` +
+        'be a commitment',
     )
   }
   if (checks.length > MAX_CHECKS) {
     throw new PolicyError(
-      `${checks.length} vérificateurs pour ${category}, maximum ${MAX_CHECKS}`,
+      `${checks.length} checks for ${category}, maximum ${MAX_CHECKS}`,
     )
   }
 
-  // Hors quota, non retirable (docs/07 § 2.10) : ce qui est engagé doit être ce
-  // qui est exécuté.
+  // Out of quota, not removable (docs/07 § 2.10): what is committed to must be
+  // what is executed.
   if (opts.actionHash) {
     checks = [
       ...checks,
@@ -195,16 +192,16 @@ export function buildConditionSpec(
 }
 
 /**
- * Confirmations par défaut. Non exporté : `hash.ts` expose déjà la fonction
- * publique de même nom, et deux exports homonymes dans le baril `index.ts`
- * seraient une collision.
+ * Default confirmations. Not exported: `hash.ts` already exposes the public
+ * function of the same name, and two same-named exports in the `index.ts` barrel
+ * would collide.
  */
 function defaultConfirmations(chainId: number): number {
   return chainId === 1 ? DEFAULT_CONFIRMATIONS.l1 : DEFAULT_CONFIRMATIONS.l2
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// erc20.transfer — l'exemple normatif de docs/13 § 5
+// erc20.transfer — the normative example of docs/13 § 5
 // ─────────────────────────────────────────────────────────────────────────────
 
 function transferChecks(
@@ -214,7 +211,7 @@ function transferChecks(
 ): Check[] {
   const cat = policy.categories['erc20.transfer']
   if (!cat) {
-    throw new PolicyError('aucune politique pour erc20.transfer')
+    throw new PolicyError('no policy for erc20.transfer')
   }
   const token = requireAddress(
     classification.params['token'],
@@ -224,59 +221,60 @@ function transferChecks(
 
   if (cat.maxOutflow === undefined) {
     throw new PolicyError(
-      'erc20.transfer sans maxOutflow : la borne de sortie doit venir de la ' +
-        'politique, elle ne peut pas être déduite du calldata',
+      'erc20.transfer without maxOutflow: the outflow bound must come from the ' +
+        'policy, it cannot be inferred from the calldata',
     )
   }
   const maxOutflow = requireUint(cat.maxOutflow, 'maxOutflow')
-  // Symétrique de `maxOutflow` : sans allowlist, il n'y a pas de destination à
-  // engager, donc plus rien qui distingue un virement de paie d'un transfert
-  // détourné (docs/13 § 6, Adversaire 1). On refuse d'ouvrir.
+  // The counterpart of `maxOutflow`: with no allowlist there is no destination to
+  // commit to, hence nothing left to tell a payroll transfer from a diverted one
+  // (docs/13 § 6, Adversary 1). We refuse to open.
   const allowedDest = requireAllowedDest(cat.allowedDest, 'erc20.transfer')
 
   const checks: Check[] = [
-    // Borne de la POLITIQUE, pas du calldata.
+    // The POLICY's bound, not the calldata's.
     {
       kind: 'erc20_balance_delta',
       token,
       account: treasury,
       op: 'gte',
-      // `maxOutflow: '0'` — « aucune sortie tolérée », la politique la plus
-      // stricte et le défaut du Gateway — donnerait `-0`, qui n'est pas un
-      // décimal canonique : la ConditionSpec produite est alors refusée par sa
-      // propre validation, et *toute* quotation d'un `erc20.transfer` classifié
-      // échoue en 400. RFC 8785 impose d'ailleurs la même sérialisation pour
-      // `0` et `-0` (voir canonical.ts) ; `-0` n'aurait donc pas non plus
-      // survécu au hachage de la condition.
+      // `maxOutflow: '0'` — "no outflow tolerated", the strictest policy and the
+      // Gateway's default — would yield `-0`, which is not a canonical decimal:
+      // the ConditionSpec produced is then refused by its own validation, and
+      // *every* quotation of a classified `erc20.transfer` fails with a 400.
+      // RFC 8785 mandates the same serialization for `0` and `-0` anyway (see
+      // canonical.ts); `-0` would therefore not have survived the hashing of the
+      // condition either.
       value: maxOutflow === 0n ? '0' : `-${maxOutflow.toString(10)}`,
     },
   ]
 
-  // Destination de l'ALLOWLIST. Si le calldata désigne une destination
-  // autorisée, c'est elle qui est engagée ; sinon on engage la destination
-  // canonique de la politique — et le transfert détourné échoue par
-  // construction, puisque les fonds n'y arriveront jamais.
+  // The destination comes from the ALLOWLIST. If the calldata names an allowed
+  // destination, that is the one committed to; otherwise we commit to the
+  // policy's canonical destination — and the diverted transfer fails by
+  // construction, since the funds will never arrive there.
   const dest = resolveDest(allowedDest, classification.params['to'])
 
-  // Seul le DELTA est engagé, jamais `erc20_balance(dest)`.
+  // Only the DELTA is committed to, never `erc20_balance(dest)`.
   //
-  // Un solde absolu lu à `evaluateAt` est le seul résultat de la post-condition
-  // qui dépende d'autre chose que de la transaction de l'agent : il suffit que
-  // `dest` — une adresse de l'allowlist, donc contrôlée par le propriétaire du
-  // capital, ou un hot wallet qui balaie vers du cold storage — dépense ses
-  // fonds plus tard dans le même bloc pour que `balanceOf(dest) >= amount`
-  // échoue et fabrique la saisie, pendant que le delta jumeau prouve, dans le
-  // même verdict, que l'agent a fait exactement ce qui était engagé. Le delta
-  // domine strictement l'absolu : il ne passe que si les fonds sont réellement
-  // arrivés, et il est dérivé des seuls logs `Transfer` de la transaction.
+  // An absolute balance read at `evaluateAt` is the one post-condition outcome
+  // that depends on something other than the agent's transaction: it is enough
+  // for `dest` — an allowlist address, hence controlled by the capital owner, or
+  // a hot wallet sweeping into cold storage — to spend its funds later in the
+  // same block for `balanceOf(dest) >= amount` to fail and manufacture the
+  // slash, while the twin delta proves, in the very same verdict, that the agent
+  // did exactly what was committed. The delta strictly dominates the absolute:
+  // it only passes if the funds really did arrive, and it is derived from the
+  // transaction's `Transfer` logs alone.
   checks.push({
     kind: 'erc20_balance_delta',
     token,
     account: dest,
-    // Auto-transfert : quand la destination engagée est le trésor lui-même, les
-    // fonds ne bougent pas (`from === to`, le delta s'annule dans les logs).
-    // Exiger `>= amount` saisirait un transfert légitime ; `>= 0` reste
-    // contraignant, puisqu'un transfert détourné sortirait `-amount` du trésor.
+    // Self-transfer: when the committed destination is the treasury itself, the
+    // funds do not move (`from === to`, the delta cancels out in the logs).
+    // Requiring `>= amount` would slash a legitimate transfer; `>= 0` remains
+    // binding, since a diverted transfer would take `-amount` out of the
+    // treasury.
     op: 'gte',
     value: dest === treasury ? '0' : amount.toString(10),
   })
@@ -296,7 +294,7 @@ function approveChecks(
 ): Check[] {
   const cat = policy.categories['erc20.approve']
   if (!cat) {
-    throw new PolicyError('aucune politique pour erc20.approve')
+    throw new PolicyError('no policy for erc20.approve')
   }
   const token = requireAddress(
     classification.params['token'],
@@ -307,13 +305,13 @@ function approveChecks(
     'classification.params.spender',
   )
 
-  // Une approbation est une sortie différée : sans allowlist de spenders, il
-  // n'y a personne à qui refuser une allowance, et `allowlisted` serait vrai
-  // pour n'importe quelle adresse — y compris celle de l'attaquant. Refus.
+  // An approval is a deferred outflow: with no spender allowlist there is nobody
+  // to deny an allowance to, and `allowlisted` would be true for any address —
+  // the attacker's included. Refused.
   const allowedDest = requireAllowedDest(cat.allowedDest, 'erc20.approve')
 
-  // Plafond d'allowance de la politique. Un spender hors allowlist est plafonné
-  // à zéro : la seule approbation conforme est alors une révocation.
+  // The policy's allowance cap. A spender outside the allowlist is capped at
+  // zero: the only compliant approval is then a revocation.
   const allowlisted = allowedDest.some(
     (a) => a.toLowerCase() === spender.toLowerCase(),
   )
@@ -328,8 +326,7 @@ function approveChecks(
       op: 'lte',
       value: requireUint(cap, 'maxOutflow').toString(10),
     },
-    // Une approbation ne déplace pas de fonds. Si elle en déplace, ce n'était
-    // pas une approbation.
+    // An approval does not move funds. If it does, it was not an approval.
     {
       kind: 'erc20_balance_delta',
       token,
@@ -353,7 +350,7 @@ function aaveChecks(
   const category = classification.category
   const cat = policy.categories[category]
   if (!cat) {
-    throw new PolicyError(`aucune politique pour ${category}`)
+    throw new PolicyError(`no policy for ${category}`)
   }
   const pool = requireAddress(
     classification.params['pool'],
@@ -365,8 +362,8 @@ function aaveChecks(
   )
 
   const checks: Check[] = [
-    // L'utilisateur engagé est le trésor de la POLITIQUE, pas l'`onBehalfOf`
-    // du calldata : un agent ne peut pas déplacer la garantie sur un tiers.
+    // The committed user is the POLICY's treasury, not the calldata's
+    // `onBehalfOf`: an agent cannot shift the guarantee onto a third party.
     {
       kind: 'aave_health_factor',
       pool,
@@ -377,8 +374,8 @@ function aaveChecks(
     ...nonceChecks(nonceAccount),
   ]
 
-  // Retrait et emprunt sortent des fonds : la destination engagée vient de
-  // l'allowlist, comme pour un transfert — et son absence est le même refus.
+  // Withdrawal and borrow move funds out: the committed destination comes from
+  // the allowlist, as for a transfer — and its absence is the same refusal.
   if (category === 'aavev3.withdraw' || category === 'aavev3.borrow') {
     const asset = requireAddress(
       classification.params['asset'],
@@ -390,9 +387,9 @@ function aaveChecks(
       allowedDest,
       classification.params['to'] ?? classification.params['onBehalfOf'],
     )
-    // Ici les fonds *entrent* sur `dest` (ils viennent du pool), y compris
-    // quand `dest` est le trésor : contrairement au transfert, `>= amount` est
-    // la bonne borne même sur le trésor lui-même.
+    // Here the funds come *in* to `dest` (they come from the pool), including
+    // when `dest` is the treasury: unlike the transfer case, `>= amount` is the
+    // right bound even on the treasury itself.
     checks.push({
       kind: 'erc20_balance_delta',
       token: asset,
@@ -406,14 +403,14 @@ function aaveChecks(
 }
 
 /**
- * `nonce_advanced`, ou rien.
+ * `nonce_advanced`, or nothing at all.
  *
- * `op: 'eq'` et non `'gte'` : le vérificateur calcule
- * `count(evalBlock) − count(txBlock − 1)`, qui vaut mécaniquement ≥ 1 dès que
- * le compte a émis la transaction évaluée. `gte 1` est donc une tautologie —
- * un check qui ne peut pas rendre `false` ne contraint rien. La forme
- * normative de docs/07 § 2.8 est « exactement une transaction, aucune action
- * parasite ».
+ * `op: 'eq'` and not `'gte'`: the check computes
+ * `count(evalBlock) − count(txBlock − 1)`, which is mechanically ≥ 1 as soon as
+ * the account has submitted the evaluated transaction. `gte 1` is therefore a
+ * tautology — a check that cannot return `false` constrains nothing. The
+ * normative form of docs/07 § 2.8 is "exactly one transaction, no stray
+ * action".
  */
 function nonceChecks(account: Address | undefined): Check[] {
   if (!account) return []
@@ -421,7 +418,7 @@ function nonceChecks(account: Address | undefined): Check[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// unknown — le repli le plus strict
+// unknown — the strictest fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
 function unknownChecks(
@@ -430,19 +427,19 @@ function unknownChecks(
   treasury: Address,
   nonceAccount: Address | undefined,
 ): Check[] {
-  // Le repli le plus strict était en réalité le plus permissif : ni
-  // `native_balance_delta` ni `nonce_advanced` ne sont décidables dans le mode
-  // d'exécution du projet. Le premier exige un tracer — aucun n'est câblé, et
-  // `checks/native.ts` refuse explicitement de deviner ; le second est
-  // indécidable sous sponsoring. Les deux levaient `UnsupportedCheckError`, si
-  // bien que la catégorie facturée `maxBond` était la seule dont la caution ne
-  // pouvait jamais être saisie : elle expirait toujours vers `reclaim`.
+  // The strictest fallback was in fact the most permissive one: neither
+  // `native_balance_delta` nor `nonce_advanced` is decidable in the project's
+  // execution mode. The former requires a tracer — none is wired up, and
+  // `checks/native.ts` explicitly refuses to guess; the latter is undecidable
+  // under sponsoring. Both threw `UnsupportedCheckError`, so much so that the
+  // category charged at `maxBond` was the only one whose bond could never be
+  // slashed: it always expired into `reclaim`.
   //
-  // On les remplace par des vérificateurs dérivés du receipt, donc toujours
-  // décidables : les logs de la transaction suffisent à les trancher.
+  // We replace them with checks derived from the receipt, hence always
+  // decidable: the transaction's logs are enough to settle them.
   const watched = new Set<Address>()
-  // La cible est le seul fait connu d'une action non classifiée, et c'est le
-  // contrat que l'agent appelle : c'est la surveillance minimale.
+  // The target is the only known fact about an unclassified action, and it is the
+  // contract the agent calls: it is the minimal surveillance.
   const target = classification.params['target']
   if (target !== undefined) watched.add(requireAddress(target, 'params.target'))
   for (const token of (policy as PolicyExtras).watchedTokens ?? []) {
@@ -451,28 +448,28 @@ function unknownChecks(
   const tokens = [...watched]
   if (tokens.length === 0) {
     throw new PolicyError(
-      'unknown sans cible ni watchedTokens : aucune surveillance décidable à ' +
-        'engager. Déclarer policy.watchedTokens plutôt qu\'ouvrir un mandat ' +
-        'dont la post-condition ne peut rien trancher',
+      'unknown with neither a target nor watchedTokens: no decidable ' +
+        'surveillance to commit to. Declare policy.watchedTokens rather than ' +
+        'opening a warrant whose post-condition can settle nothing',
     )
   }
-  // 1 `no_new_approvals` + 1 delta par token (+ 1 nonce éventuel).
+  // 1 `no_new_approvals` + 1 delta per token (+ 1 optional nonce).
   const total = tokens.length + 1 + (nonceAccount ? 1 : 0)
   if (total > MAX_CHECKS) {
     throw new PolicyError(
-      `unknown : ${tokens.length} tokens surveillés produisent ${total} ` +
-        `vérificateurs, maximum ${MAX_CHECKS} — réduire watchedTokens`,
+      `unknown: ${tokens.length} watched tokens produce ${total} ` +
+        `checks, maximum ${MAX_CHECKS} — reduce watchedTokens`,
     )
   }
 
   return [
-    // Le vecteur Bankr : un appel opaque qui débloque des permissions au
-    // passage. Un `Approval` remettant à zéro reste autorisé (checks/logs.ts).
+    // The Bankr vector: an opaque call that unlocks permissions along the way. An
+    // `Approval` resetting to zero remains allowed (checks/logs.ts).
     { kind: 'no_new_approvals', owner: treasury, tokens },
-    // Et rien ne doit sortir du trésor sur ces tokens. `0` et non `-x` : une
-    // action qu'on ne sait pas classer n'a droit à aucune tolérance de sortie.
-    // Sur une cible qui n'est pas un ERC-20, aucun log `Transfer` ne matche,
-    // le delta vaut 0 et le check passe : décidable dans tous les cas.
+    // And nothing must leave the treasury on those tokens. `0` and not `-x`: an
+    // action we cannot classify is entitled to no outflow tolerance at all. On a
+    // target that is not an ERC-20, no `Transfer` log matches, the delta is 0 and
+    // the check passes: decidable in every case.
     ...tokens.map(
       (token): Check => ({
         kind: 'erc20_balance_delta',
@@ -489,18 +486,18 @@ function unknownChecks(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Allowlist de la catégorie, obligatoire pour toute catégorie **sortante**.
+ * The category's allowlist, mandatory for every **outbound** category.
  *
- * Son absence était le défaut le plus grave de ce fichier : `resolveDest`
- * rendait `undefined`, l'appelant omettait *silencieusement* les checks de
- * destination, et il ne restait que « le trésor n'a pas perdu plus de
- * `maxOutflow` ». Un transfert de 500 USDC vers l'adresse de l'attaquant
- * passait alors les trois checks restants : verdict `honored`, caution rendue,
- * réputation améliorée. C'est mot pour mot l'Adversaire 1 de docs/13 § 6, que
- * la post-condition est censée arrêter.
+ * Its absence was the gravest defect of this file: `resolveDest` returned
+ * `undefined`, the caller *silently* omitted the destination checks, and all
+ * that was left was "the treasury did not lose more than `maxOutflow`". A
+ * 500 USDC transfer to the attacker's address then passed the three remaining
+ * checks: verdict `honored`, bond returned, reputation improved. That is word for
+ * word Adversary 1 of docs/13 § 6, the one the post-condition is supposed to
+ * stop.
  *
- * `maxOutflow` absent lève déjà. Il n'y a aucune raison que le champ voisin,
- * qui porte exactement la même fonction de sécurité, dégrade en silence.
+ * A missing `maxOutflow` already throws. There is no reason for the neighbouring
+ * field, which carries exactly the same security function, to degrade silently.
  */
 function requireAllowedDest(
   allowedDest: Address[] | undefined,
@@ -508,20 +505,20 @@ function requireAllowedDest(
 ): Address[] {
   if (!allowedDest || allowedDest.length === 0) {
     throw new PolicyError(
-      `${category} sans allowedDest : la destination engagée doit venir de ` +
-        "l'allowlist de la politique, elle ne peut pas être déduite du " +
-        'calldata — sans elle la post-condition ne distingue plus un virement ' +
-        "autorisé d'un transfert détourné",
+      `${category} without allowedDest: the committed destination must come ` +
+        "from the policy's allowlist, it cannot be inferred from the " +
+        'calldata — without it the post-condition no longer tells an authorized ' +
+        'payment from a diverted transfer',
     )
   }
   return allowedDest.map((a) => requireAddress(a, 'allowedDest'))
 }
 
 /**
- * Destination engagée. Elle sort de l'allowlist de la politique — le calldata
- * ne fait que *sélectionner* parmi les adresses déjà autorisées, il n'en ajoute
- * aucune. Une destination hors allowlist retombe sur la première entrée de
- * l'allowlist, ce qui fait échouer le transfert détourné.
+ * The committed destination. It comes out of the policy's allowlist — the
+ * calldata merely *selects* among the addresses already authorized, it adds
+ * none. A destination outside the allowlist falls back to the first entry of the
+ * allowlist, which is what makes the diverted transfer fail.
  */
 function resolveDest(
   allowedDest: Address[],
@@ -534,21 +531,21 @@ function resolveDest(
 
 function requireAddress(value: string | undefined, what: string): Address {
   if (typeof value !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new PolicyError(`${what} : adresse absente ou invalide (${String(value)})`)
+    throw new PolicyError(`${what}: address missing or invalid (${String(value)})`)
   }
   return value.toLowerCase() as Address
 }
 
 function requireUint(value: string | undefined, what: string): bigint {
   if (typeof value !== 'string') {
-    throw new PolicyError(`${what} : valeur absente`)
+    throw new PolicyError(`${what}: value missing`)
   }
   let parsed: bigint
   try {
     parsed = BigInt(value)
   } catch {
-    throw new PolicyError(`${what} : entier attendu, reçu "${value}"`)
+    throw new PolicyError(`${what}: integer expected, got "${value}"`)
   }
-  if (parsed < 0n) throw new PolicyError(`${what} : entier positif attendu`)
+  if (parsed < 0n) throw new PolicyError(`${what}: non-negative integer expected`)
   return parsed
 }

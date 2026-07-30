@@ -1,282 +1,280 @@
 /**
- * Budget et dimensionnement — la partie du runner qui a le droit de dire non.
+ * Budget and sizing — the part of the runner that is allowed to say no.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * 1. Ce que coûte réellement un mandat, mesuré sur Base Sepolia
+ * 1. What a warrant really costs, measured on Base Sepolia
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * Les trois chiffres ci-dessous ne sont pas des estimations : ils viennent des
- * reçus du premier mandat réglé sur le déploiement courant
+ * The three figures below are not estimates: they come from the receipts of the
+ * first warrant settled on the current deployment
  * (`0x3ae9ad53…`, chainId 84532, `feeBps` 250).
  *
- *   • **ouverture** — tx `0xf95b25e4…`, 319 607 gas, frais L1 23 661 378 860 wei,
- *     coût total 0,00000194 ETH. `from` est le relayer KeeperHub
- *     `0x6331eb45…`, `to` le forwarder `0x5aF5194B…` : l'ouverture est
- *     **sponsorisée**. Elle ne consomme donc *rien* de nos clés — ni gas, ni
- *     nonce. C'est le fait qui rend le volume possible.
- *   • **honor** — tx `0x3220b47e…`, 86 013 gas, frais L1 6 845 289 219 wei,
- *     coût total **0,000000523 ETH**, `from` le Settler. `refunded` 195 000,
- *     `fee` 5 000 : la caution de 200 000 revient à 97,5 %.
- *   • **slash** — même forme, et **à peine plus cher** : 493e9 wei mesurés contre
- *     477e9 pour un honor. Le provisionnement d'origine à 1,5 × honor supposait
- *     que la chaîne `reason` alourdissait sensiblement les frais L1 ; elle est
- *     trop courte pour cela. Voir les constantes plus bas.
- *   • **inscription ERC-8004** — poste **nouveau**, et il n'existait pas quand
- *     les trois chiffres ci-dessus ont été relevés : `ERC8004_AGENT_IDS_FILE`
- *     est désormais renseignée, donc `erc8004Sink` résout un `agentId` et écrit
- *     réellement dans le `ReputationRegistry`, sur la clé du Settler. La
- *     politique d'écriture n'est pas uniforme (`daemon.ts`, `writePolicyFor`) et
- *     c'est ce qui rend le provisionnement asymétrique :
+ *   • **opening** — tx `0xf95b25e4…`, 319,607 gas, L1 fee 23,661,378,860 wei,
+ *     total cost 0.00000194 ETH. `from` is the KeeperHub relayer
+ *     `0x6331eb45…`, `to` the forwarder `0x5aF5194B…`: the opening is
+ *     **sponsored**. So it consumes *nothing* of our keys — neither gas nor
+ *     nonce. That is the fact that makes volume possible at all.
+ *   • **honor** — tx `0x3220b47e…`, 86,013 gas, L1 fee 6,845,289,219 wei,
+ *     total cost **0.000000523 ETH**, `from` the Settler. `refunded` 195,000,
+ *     `fee` 5,000: 97.5% of the 200,000 bond comes back.
+ *   • **slash** — same shape, and **barely more expensive**: 493e9 wei measured
+ *     against 477e9 for an honor. The original provisioning at 1.5 × honor
+ *     assumed the `reason` string weighed appreciably on the L1 fee; it is far
+ *     too short for that. See the constants below.
+ *   • **ERC-8004 registration** — a **new** line item, and it did not exist when
+ *     the three figures above were taken: `ERC8004_AGENT_IDS_FILE` is now set,
+ *     so `erc8004Sink` resolves an `agentId` and really does write to the
+ *     `ReputationRegistry`, on the Settler's key. The write policy is not
+ *     uniform (`daemon.ts`, `writePolicyFor`) and that is what makes the
+ *     provisioning asymmetric:
  *
- *       – `slashed`   → écriture **immédiate**, une transaction par saisie ;
- *       – `honored`   → **mise en lot**, une transaction par `ERC8004_BATCH_SIZE`
- *                       verdicts (25 par défaut) ou au `flush` de l'arrêt ;
- *       – `reclaimed` → jamais.
+ *       – `slashed`   → **immediate** write, one transaction per slash;
+ *       – `honored`   → **batched**, one transaction per `ERC8004_BATCH_SIZE`
+ *                       verdicts (25 by default) or on the shutdown `flush`;
+ *       – `reclaimed` → never.
  *
- *     Le gas d'une saisie double donc presque, tandis que celui d'un mandat
- *     honoré n'augmente que d'un vingt-cinquième de transaction. Provisionner
- *     l'inscription au même prix sur les deux postes surestimerait le coût du
- *     volume honoré d'un facteur 2 — et rendrait la borne annoncée fausse dans
- *     le sens pessimiste, ce qui est encore une borne fausse.
+ *     So the gas of a slash nearly doubles, while that of an honored warrant
+ *     grows by only one twenty-fifth of a transaction. Provisioning the
+ *     registration at the same price on both line items would overestimate the
+ *     cost of honored volume by a factor of 2 — and would make the announced
+ *     bound wrong in the pessimistic direction, which is still a wrong bound.
  *
- * Conséquences chiffrées, à `bond = 200 000` et `feeBps = 250` :
+ * Consequences in figures, at `bond = 200,000` and `feeBps = 250`:
  *
- *   coût d'un mandat **honoré**   = 5 000 unités = 0,005 USDC de frais
- *                                 + 477e9 wei de règlement
- *                                 + 806e9/25 ≈ 32e9 wei d'inscription en lot
+ *   cost of an **honored** warrant = 5,000 units = 0.005 USDC of fees
+ *                                 + 477e9 wei of settlement
+ *                                 + 806e9/25 ≈ 32e9 wei of batched registration
  *                                 ────────────────────── ≈ 510e9 wei
- *   coût d'un mandat **saisi**    = 200 000 unités = 0,2 USDC de principal
- *                                 + 494e9 wei de règlement
- *                                 + 806e9 wei d'inscription immédiate
- *                                 ────────────────────── ≈ 1 300e9 wei, soit 2,6 ×
+ *   cost of a **slashed** warrant  = 200,000 units = 0.2 USDC of principal
+ *                                 + 494e9 wei of settlement
+ *                                 + 806e9 wei of immediate registration
+ *                                 ────────────────────── ≈ 1,300e9 wei, i.e. 2.6 ×
  *
- * Autrement dit : **le capital se recycle, sauf sur les saisies.** Un mandat
- * honoré consomme 1/40e de sa caution ; un mandat saisi la consomme en entier.
- * Le budget doit donc traiter ces deux postes séparément, et c'est exactement
- * ce que fait `Budget` : un plafond de principal pour les saisies, un plafond
- * de frais pour le recyclage, un plafond de gas pour le règlement. Un plafond
- * unique en USDC laisserait 240 mandats honorés consommer autant que
- * 6 saisies — et masquerait celui des deux qui a vidé la clé.
+ * Put differently: **capital recycles, except on slashes.** An honored warrant
+ * consumes 1/40th of its bond; a slashed warrant consumes all of it. The budget
+ * must therefore treat these two line items separately, and that is exactly what
+ * `Budget` does: a principal cap for the slashes, a fee cap for the recycling, a
+ * gas cap for the settlement. A single USDC cap would let 240 honored warrants
+ * consume as much as 6 slashes — and would hide which of the two drained the key.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * 2. Dimensionnement du débit — le calcul, et sa borne réelle
+ * 2. Sizing the throughput — the computation, and its real bound
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * Quatre limites se superposent. La plus basse gouverne, et ce n'est pas celle
- * qu'on croit.
+ * Four limits stack up. The lowest one governs, and it is not the one you would
+ * expect.
  *
- * **(a) Le débit d'API KeeperHub.** 100 req/min authentifié annoncé,
- * 60 req/min documenté sur l'exécution directe (voir le commentaire de
- * `KeeperHubClient.request`). On retient la plus stricte : 60. Une ouverture
- * complète par `open-warrant.ts` coûte, en nominal :
+ * **(a) KeeperHub's API rate.** 100 req/min authenticated announced,
+ * 60 req/min documented on direct execution (see the comment on
+ * `KeeperHubClient.request`). We keep the stricter one: 60. A complete opening by
+ * `open-warrant.ts` costs, nominally:
  *
  *     1 × GET  /api/user/wallet                        (getWallet)
  *     1 × POST /api/execute/contract-call              (open)
  *     1 × GET  /api/execute/{id}/status                (resolveTransaction)
- *     1 × POST /api/execute/contract-call              (l'action)
+ *     1 × POST /api/execute/contract-call              (the action)
  *     1 × GET  /api/execute/{id}/status                (resolveTransaction)
  *     ────────────────────────────────────────────────────────────────
- *     5 requêtes par mandat, jusqu'à 11 si `resolveTransaction` épuise ses
- *     4 tentatives sur les deux appels.
+ *     5 requests per warrant, up to 11 if `resolveTransaction` exhausts its
+ *     4 attempts on both calls.
  *
- * Auxquelles s'ajoute le Settler : 1 GET par mandat **encore ouvert** et par
- * tour, soit `backlog × 60/intervalMs` req/min. À backlog 6 et tour de 15 s :
- * 24 req/min. Reste 36 req/min pour l'ouverture, soit
- * **⌊36 / 5⌋ = 7 mandats/min** — 11 en comptant les retries au pire :
- * ⌊36 / 11⌋ = 3 mandats/min. On dimensionne sur le pire cas.
+ * To which the Settler adds: 1 GET per **still-open** warrant per pass, i.e.
+ * `backlog × 60/intervalMs` req/min. At backlog 6 and a 15 s pass: 24 req/min.
+ * That leaves 36 req/min for the opening, i.e.
+ * **⌊36 / 5⌋ = 7 warrants/min** — 11 counting retries at worst:
+ * ⌊36 / 11⌋ = 3 warrants/min. We size on the worst case.
  *
- * **(b) La latence de KeeperHub.** `executeContractCall` est *bloquant côté
- * API* : la réponse n'arrive qu'une fois l'exécution terminée. Le commentaire de
- * `KeeperHubClient` annonce ≈ 23 s par appel, mesurés sur Ethereum Sepolia ;
- * **sur Base Sepolia, mesuré sur la campagne « smoke », un mandat complet — deux
- * appels bloquants, plus le démarrage de Node du sous-processus, plus l'attente
- * du reçu d'ouverture — prend 14,3 s et 18,4 s.** Soit ≈ 16 s, donc
- * **≈ 3,7 mandats/min par worker**, presque trois fois l'estimation dérivée de
- * Sepolia. Les blocs de 2 s de Base expliquent l'essentiel de l'écart.
+ * **(b) KeeperHub's latency.** `executeContractCall` is *blocking on the API
+ * side*: the response only arrives once the execution has finished. The comment
+ * on `KeeperHubClient` announces ≈ 23 s per call, measured on Ethereum Sepolia;
+ * **on Base Sepolia, measured on the "smoke" campaign, a complete warrant — two
+ * blocking calls, plus the subprocess's Node startup, plus waiting for the
+ * opening receipt — takes 14.3 s and 18.4 s.** That is ≈ 16 s, hence
+ * **≈ 3.7 warrants/min per worker**, almost three times the estimate derived
+ * from Sepolia. Base's 2 s blocks explain most of the gap.
  *
- * À `C` workers : ≈ 3,7 × C mandats/min. Saturer (a) demande donc C ≈ 1 dans le
- * pire cas en requêtes (3 mandats/min) et C ≈ 2 en nominal (7/min) : sur Base,
- * **c'est le débit d'API qui devient la contrainte avant la latence**, l'inverse
- * de ce que la mesure Sepolia laissait croire. Le seau à jetons n'est donc pas
- * une précaution théorique — c'est lui qui régule.
+ * At `C` workers: ≈ 3.7 × C warrants/min. Saturating (a) therefore takes C ≈ 1 in
+ * the worst case in requests (3 warrants/min) and C ≈ 2 nominally (7/min): on
+ * Base, **it is the API rate that becomes the constraint before latency does**,
+ * the opposite of what the Sepolia measurement suggested. The token bucket is
+ * therefore not a theoretical precaution — it is what regulates.
  *
- * **(c) Le débit du Settler.** Une seule clé, donc un seul nonce, donc un
- * règlement à la fois — paralléliser réintroduirait le conflit de nonce que
- * l'invariant I10 cherche à éviter. Mesuré : ouverture au bloc 44 804 490,
- * `honor` au bloc 44 804 505, soit 15 blocs ≈ 30 s de bout en bout, dont
- * 3 confirmations (≈ 6 s) et un tour de boucle. Le coût *marginal* d'un mandat
- * supplémentaire dans un même tour est l'évaluation plus l'inclusion d'une
- * transaction : les tours mesurés qui règlent effectivement durent 4,8 s
- * (`durationMs` du tick), contre 1,9 s pour un tour qui ne règle rien. Soit
- * **≈ 12 mandats/min** au mieux, et l'on retient 6 pour tenir compte des
- * lectures d'archive et de la variance du RPC public.
+ * **(c) The Settler's throughput.** A single key, hence a single nonce, hence one
+ * settlement at a time — parallelising would reintroduce the nonce conflict
+ * invariant I10 is trying to avoid. Measured: opening at block 44,804,490,
+ * `honor` at block 44,804,505, i.e. 15 blocks ≈ 30 s end to end, of which
+ * 3 confirmations (≈ 6 s) and one loop pass. The *marginal* cost of one extra
+ * warrant within the same pass is the evaluation plus the inclusion of one
+ * transaction: the measured passes that actually settle last 4.8 s (the tick's
+ * `durationMs`), against 1.9 s for a pass that settles nothing. That is
+ * **≈ 12 warrants/min** at best, and we keep 6 to account for archive reads and
+ * the variance of the public RPC.
  *
- * Conséquence, et c'est elle qui dicte le plafond de backlog : le Settler drainant
- * ≈ 6/min et le runner ouvrant ≈ 3,7 × C, tout `C > 2` produit un backlog qui
- * croît. Ce n'est pas grave — le plafond de backlog le rattrape et le runner
- * attend — mais cela veut dire que **le débit soutenable de la campagne est celui
- * du Settler, pas celui de l'ouverture**. Annoncer 11 mandats/min avec C = 3
- * serait faux : la mesure soutenue est de 6.
+ * Consequence, and it is what dictates the backlog cap: with the Settler draining
+ * ≈ 6/min and the runner opening ≈ 3.7 × C, any `C > 2` produces a backlog that
+ * grows. That is not a problem — the backlog cap catches it and the runner waits —
+ * but it means that **the campaign's sustainable throughput is the Settler's, not
+ * the opening's**. Announcing 11 warrants/min with C = 3 would be false: the
+ * sustained measurement is 6.
  *
- * **(d) Le capital en vol.** Et c'est la vraie borne. Chaque mandat ouvert
- * immobilise `bond` jusqu'à son règlement. Avec 1,995 USDC sur l'agent et
- * `bond = 0,2 USDC`, **au plus 9 mandats peuvent être ouverts simultanément** —
- * le dixième se heurterait à un solde insuffisant, c'est-à-dire à un
- * `receiveWithAuthorization` qui révèrte après que KeeperHub a payé le gas.
+ * **(d) Capital in flight.** And this is the real bound. Every open warrant locks
+ * up `bond` until it settles. With 1.995 USDC on the agent and
+ * `bond = 0.2 USDC`, **at most 9 warrants can be open simultaneously** — the
+ * tenth would hit an insufficient balance, that is, a
+ * `receiveWithAuthorization` that reverts after KeeperHub has paid the gas.
  *
- * D'où le dimensionnement retenu, et son ordre de dérivation :
+ * Hence the sizing we settled on, and the order it is derived in:
  *
- *     backlogCap L = min(⌊(soldeAgent − réserve) / bond⌋, plafond configuré)
- *     concurrence C = min(L, RUNNER_CONCURRENCY)
- *     débit soutenu = min(3,4 × C, débit du Settler ≈ 6, plafond du seau)
+ *     backlogCap L = min(⌊(agentBalance − reserve) / bond⌋, configured cap)
+ *     concurrency C = min(L, RUNNER_CONCURRENCY)
+ *     sustained rate = min(3.4 × C, Settler's rate ≈ 6, bucket cap)
  *
- * **Mesuré sur la campagne « borne »** (30/07/2026, 8 mandats, C = 2,
- * `backlogCap` 3) : 17 384 ms par mandat en moyenne sur les huit ouvertures
- * réussies (min 10 809, max 22 149), soit **3,45 mandats/min par worker** — la
- * valeur de 3,7 dérivée de la campagne « smoke » sur deux mandats était
- * optimiste de 7 %. À C = 2, cela donne 6,9 mandats/min d'ouverture, que le
- * Settler à ≈ 6/min ne suit déjà plus : la conclusion du § 2 (c) tient, **le
- * débit soutenable est celui du Settler**.
+ * **Measured on the "bound" campaign** (2026-07-30, 8 warrants, C = 2,
+ * `backlogCap` 3): 17,384 ms per warrant on average over the eight successful
+ * openings (min 10,809, max 22,149), i.e. **3.45 warrants/min per worker** — the
+ * value of 3.7 derived from the two-warrant "smoke" campaign was 7% optimistic.
+ * At C = 2 that gives 6.9 warrants/min of opening, which the Settler at ≈ 6/min
+ * already fails to keep up with: the conclusion of § 2 (c) holds, **the
+ * sustainable throughput is the Settler's**.
  *
  * ═════════════════════════════════════════════════════════════════════════════
- * 3. La borne, en régime soutenu : ce n'est ni le capital ni le débit
+ * 3. The bound, in sustained operation: neither capital nor throughput
  * ═════════════════════════════════════════════════════════════════════════════
  *
- * `volumeBound` répond à « combien avec le solde d'aujourd'hui ». La question
- * qui gouverne une démonstration de plusieurs jours est différente : **combien
- * par jour**, et là c'est le faucet qui borne, à 1 USDC et ≈ 0,0001 ETH par
- * adresse et par 24 h.
+ * `volumeBound` answers "how many with today's balance". The question that
+ * governs a multi-day demonstration is a different one: **how many per day**, and
+ * there it is the faucet that bounds, at 1 USDC and ≈ 0.0001 ETH per address per
+ * 24 h.
  *
- *     capital : 1 USDC / 5 000 unités de frais      = 200 mandats honorés / jour
- *     gas     : 0,0001 ETH / 532e9 wei par honoré   = 187 règlements / jour
+ *     capital: 1 USDC / 5,000 units of fees        = 200 honored warrants / day
+ *     gas    : 0.0001 ETH / 532e9 wei per honored  = 187 settlements / day
  *     ────────────────────────────────────────────────────────────────────────
- *     borne soutenue ≈ 187 mandats honorés / jour, **bornée par le gas**
+ *     sustained bound ≈ 187 honored warrants / day, **bounded by gas**
  *
- * Les deux postes sont à 7 % l'un de l'autre, ce qui n'est pas un hasard : c'est
- * le plafond du faucet qui les a rendus comparables, pas une propriété du
- * protocole. Et le poste qui mord est celui que l'inscription ERC-8004 a rendu
- * dominant — sans elle, le gas financerait 200 règlements et le capital serait
- * la contrainte. Sur les **saisies**, l'écart est brutal : 5 par jour côté
- * capital contre 75 côté gas, le principal détruit bornant quinze fois plus tôt.
+ * The two line items are within 7% of each other, which is no coincidence: it is
+ * the faucet's cap that made them comparable, not a property of the protocol. And
+ * the one that bites is the one the ERC-8004 registration made dominant — without
+ * it, gas would fund 200 settlements and capital would be the constraint. On
+ * **slashes**, the gap is brutal: 5 per day on the capital side against 75 on the
+ * gas side, destroyed principal binding fifteen times earlier.
  *
- * Le plafond de backlog joue trois rôles à la fois, et c'est ce qui le rend
- * juste : il borne le capital immobilisé, il borne la charge du Settler, et il
- * borne le risque d'expiration — `MIN_DURATION` vaut 900 s, un backlog de 6
- * drainé à 6/min se vide en une minute, soit quinze fois la marge.
+ * The backlog cap plays three roles at once, and that is what makes it the right
+ * knob: it bounds locked-up capital, it bounds the Settler's load, and it bounds
+ * expiry risk — `MIN_DURATION` is 900 s, a backlog of 6 drained at 6/min empties
+ * in one minute, i.e. fifteen times the margin.
  */
 
 import { usdc, eth } from './env.js'
 import type { Scenario } from './ledger.js'
 
 /**
- * Coûts de gas, en wei, **relevés sur les reçus** de la campagne « borne »
- * (30/07/2026, 8 mandats, chainId 84532), puis arrondis vers le haut.
+ * Gas costs, in wei, **taken from the receipts** of the "bound" campaign
+ * (2026-07-30, 8 warrants, chainId 84532), then rounded up.
  *
- *   honor              7 tx · 78 507 gas · 477 499 325 875 wei en moyenne
- *   slash              1 tx · 78 289 gas · 493 551 244 498 wei
- *   giveFeedback seul  1 tx · 131 948 gas · 805 661 985 040 wei
- *   giveFeedback lot   1 tx · 131 636 gas · 804 692 195 881 wei  (7 verdicts)
- *   reclaim            2 tx · 59 535 gas · 363 150 905 216 wei   (clé de l'agent)
+ *   honor               7 tx · 78,507 gas · 477,499,325,875 wei on average
+ *   slash               1 tx · 78,289 gas · 493,551,244,498 wei
+ *   giveFeedback alone  1 tx · 131,948 gas · 805,661,985,040 wei
+ *   giveFeedback batch  1 tx · 131,636 gas · 804,692,195,881 wei  (7 verdicts)
+ *   reclaim             2 tx · 59,535 gas · 363,150,905,216 wei   (agent's key)
  *
- * Deux surprises, et elles corrigent toutes les deux le provisionnement d'origine :
+ * Two surprises, and both correct the original provisioning:
  *
- *   • **une saisie ne coûte presque pas plus qu'un honor** — 493e9 contre 477e9,
- *     soit +3 %, là où le provisionnement d'origine supposait +50 %. La chaîne
- *     `reason` du slash est courte (« post-condition non satisfaite »), donc son
- *     surcoût de frais L1 est marginal. Provisionner 1,5 × honor gonflait le
- *     poste le plus rare de 60 %, ce qui n'est pas grave en soi, mais qui masquait
- *     le vrai poste dominant ;
- *   • **l'inscription ERC-8004 coûte plus cher que le règlement qu'elle décrit** —
- *     806e9 contre 477e9, soit 1,7 ×. Une saisie, qui déclenche une inscription
- *     immédiate, coûte donc 1 299e9 wei tout compris : **2,7 × un honor nu**. Et
- *     le coût du lot est indépendant de sa taille (804e9 pour 7 verdicts, contre
- *     806e9 pour 1) parce que le registre ne reçoit qu'une URI et un hash, jamais
- *     les documents. Le lot amortit donc linéairement : 806e9 / 25 ≈ 32e9 par
- *     mandat honoré à lot plein.
+ *   • **a slash costs almost no more than an honor** — 493e9 against 477e9, i.e.
+ *     +3%, where the original provisioning assumed +50%. The slash's `reason`
+ *     string is short ("post-condition not satisfied"), so its L1 fee surcharge is
+ *     marginal. Provisioning 1.5 × honor inflated the rarest line item by 60%,
+ *     which is not serious in itself, but which hid the truly dominant one;
+ *   • **the ERC-8004 registration costs more than the settlement it describes** —
+ *     806e9 against 477e9, i.e. 1.7 ×. A slash, which triggers an immediate
+ *     registration, therefore costs 1,299e9 wei all in: **2.7 × a bare honor**.
+ *     And the batch's cost is independent of its size (804e9 for 7 verdicts,
+ *     against 806e9 for 1) because the registry receives only a URI and a hash,
+ *     never the documents. So the batch amortises linearly: 806e9 / 25 ≈ 32e9 per
+ *     honored warrant at a full batch.
  *
- * Autrement dit, depuis que `ERC8004_AGENT_IDS_FILE` est renseignée, le gas d'une
- * campagne n'est plus dominé par le nombre de règlements mais par le nombre de
- * **saisies**. C'est exactement l'inverse de l'intuition, et c'est ce que la
- * borne annoncée doit refléter.
+ * Put differently, ever since `ERC8004_AGENT_IDS_FILE` has been set, a campaign's
+ * gas is no longer dominated by the number of settlements but by the number of
+ * **slashes**. That is exactly the opposite of the intuition, and it is what the
+ * announced bound has to reflect.
  */
 export const GAS_HONOR_WEI = 500_000_000_000n
 export const GAS_SLASH_WEI = 520_000_000_000n
 export const GAS_FEEDBACK_WEI = 810_000_000_000n
-/** `reclaim`, sur la clé de **l'agent** et non celle du Settler. Ne mélange pas. */
+/** `reclaim`, on the **agent's** key and not the Settler's. Do not mix the two. */
 export const GAS_RECLAIM_WEI = 380_000_000_000n
 
 export interface BudgetCaps {
-  /** Plafond de principal que les saisies ont le droit de détruire. */
+  /** Cap on the principal the slashes are allowed to destroy. */
   slashPrincipal: bigint
-  /** Plafond cumulé de frais sur les mandats honorés. */
+  /** Cumulative fee cap over the honored warrants. */
   fees: bigint
   /**
-   * Plancher de solde du Settler, en wei. **Invariant au redémarrage** : c'est
-   * lui, et non le plafond de consommation, qui empêche de vider la clé.
+   * Floor on the Settler's balance, in wei. **Invariant across restarts**: it is
+   * this, and not the spend cap, that keeps the key from being drained.
    */
   gasFloorWei: bigint
   /**
-   * Plafond de consommation de gas **pour ce processus**, mesuré depuis le
-   * solde relevé au démarrage. Ne survit pas à un redémarrage, et le dit.
+   * Gas spend cap **for this process**, measured from the balance read at
+   * startup. Does not survive a restart, and says so.
    */
   gasSpendWei: bigint
-  /** Réserve d'USDC intouchable sur l'agent, au-delà des cautions en vol. */
+  /** Untouchable USDC reserve on the agent, on top of the bonds in flight. */
   agentReserve: bigint
-  /** Nombre de mandats visé pour la campagne. */
+  /** Number of warrants targeted for the campaign. */
   target: number
-  /** Nombre de saisies visé. Le critère du hackathon en demande ≥ 3. */
+  /** Number of slashes targeted. The hackathon criterion asks for ≥ 3. */
   slashTarget: number
-  /** Durée maximale du processus, en millisecondes. */
+  /** Maximum process runtime, in milliseconds. */
   maxRuntimeMs: number
-  /** Plafond de mandats simultanément ouverts. Voir § 2 (d). */
+  /** Cap on simultaneously open warrants. See § 2 (d). */
   backlogCap: number
   /**
-   * `ERC8004_BATCH_SIZE` tel que le Settler le lira. N'entre dans aucune
-   * décision : sert uniquement à amortir le gas d'inscription des honorés dans
-   * la borne annoncée. Une valeur fausse ici ne fait pas dépenser, elle fait
-   * mal annoncer — ce qui, devant un jury, est le même défaut.
+   * `ERC8004_BATCH_SIZE` as the Settler will read it. Enters no decision: it
+   * serves only to amortise the honored warrants' registration gas within the
+   * announced bound. A wrong value here does not make the runner spend, it makes
+   * it announce badly — which, in front of a jury, is the same defect.
    */
   erc8004BatchSize: number
 }
 
-/** Ce que le runner sait de l'état du monde au moment de décider. */
+/** What the runner knows about the state of the world when it decides. */
 export interface BudgetState {
-  /** Mandats de la campagne déjà ouverts (tous statuts). */
+  /** Campaign warrants already opened (all statuses). */
   opened: number
-  /** Saisies **constatées onchain** sur la campagne. */
+  /** Slashes **observed onchain** on the campaign. */
   slashed: number
-  /** Mandats de la campagne dont on attend encore un scénario de saisie. */
+  /** Campaign warrants still awaiting a slash scenario. */
   divertedInFlight: number
-  /** Principal détruit par les saisies de la campagne, lu onchain. */
+  /** Principal destroyed by the campaign's slashes, read onchain. */
   destroyed: bigint
-  /** Frais payés par les mandats honorés de la campagne, lus onchain. */
+  /** Fees paid by the campaign's honored warrants, read onchain. */
   fees: bigint
-  /** Mandats encore ouverts, campagne comprise ou non : c'est la charge réelle. */
+  /** Warrants still open, campaign or not: this is the real load. */
   backlog: number
-  /** Solde USDC de l'agent. */
+  /** The agent's USDC balance. */
   agentUsdc: bigint
   /**
-   * Capital que les mandats **en vol** vont rendre à l'agent, en unités
-   * atomiques : `bond − fee` par mandat ouvert destiné à être honoré, `bond`
-   * entier par mandat ouvert déjà expiré (que le balayeur `reclaim` récupère
-   * sans frais), et **zéro** pour un mandat étiqueté `diverted`, dont la caution
-   * part au bénéficiaire.
+   * Capital the warrants **in flight** will return to the agent, in atomic
+   * units: `bond − fee` per open warrant meant to be honored, the whole `bond`
+   * per open warrant already expired (which the `reclaim` sweeper recovers at no
+   * fee), and **zero** for a warrant tagged `diverted`, whose bond goes to the
+   * beneficiary.
    *
-   * C'est le champ qui distingue « l'agent est à sec » de « l'agent attend son
-   * propre argent ». Voir le correctif nº 2 commenté dans `decide` : sans lui,
-   * un runner en régime nominal s'arrête définitivement pour une pénurie qui
-   * dure trente secondes.
+   * This is the field that tells "the agent is dry" apart from "the agent is
+   * waiting for its own money". See fix nº 2 commented in `decide`: without it, a
+   * runner in nominal operation stops for good over a shortage that lasts thirty
+   * seconds.
    */
   recoverable: bigint
-  /** Solde ETH du Settler. */
+  /** The Settler's ETH balance. */
   settlerWei: bigint
-  /** Solde ETH du Settler au démarrage du processus. */
+  /** The Settler's ETH balance at process startup. */
   settlerWeiAtStart: bigint
-  /** Millisecondes écoulées depuis le démarrage. */
+  /** Milliseconds elapsed since startup. */
   elapsedMs: number
-  /** Caution d'un mandat, en unités atomiques. */
+  /** A warrant's bond, in atomic units. */
   bond: bigint
-  /** Taux de frais figé par le contrat, en points de base. */
+  /** Fee rate frozen by the contract, in basis points. */
   feeBps: number
 }
 
@@ -286,193 +284,189 @@ export type Decision =
   | { kind: 'stop'; cap: StopCap; why: string }
 
 /**
- * Les arrêts possibles, nommés.
+ * The possible stops, named.
  *
- * Un runner qui s'arrête sans dire **lequel** de ses plafonds a été atteint est
- * inutilisable : on ne sait pas s'il faut recharger le faucet, réduire les
- * saisies, ou simplement le relancer parce que la cible est atteinte. Chaque
- * valeur de cet ensemble correspond à une action différente de l'exploitant.
+ * A runner that stops without saying **which** of its caps was reached is
+ * unusable: you cannot tell whether to top up from the faucet, reduce the
+ * slashes, or simply restart it because the target has been met. Every value in
+ * this set corresponds to a different action by the operator.
  *
- * Noter ce qui **n'est pas** dans cette liste : le plafond de principal des
- * saisies. Il borne les saisies, pas la campagne — voir le correctif commenté
- * dans `decide`. Un plafond qui n'empêche qu'une *variante* d'action ne doit pas
- * pouvoir arrêter le processus.
+ * Note what is **not** in this list: the slashes' principal cap. It bounds the
+ * slashes, not the campaign — see the fix commented in `decide`. A cap that only
+ * closes off one *variant* of an action must not be able to stop the process.
  *
- * Et noter ce qui y est resté mais ne s'y déclenche plus dans le même cas :
- * `capital-agent-insuffisant` ne vaut que si **rien** ne revient. Un solde
- * momentanément sous la caution alors que des mandats en vol vont rendre
- * `bond − fee` chacun n'est pas un épuisement, c'est une file d'attente.
+ * And note what stayed in but no longer fires in the same case:
+ * `agent-capital-insufficient` only holds if **nothing** is coming back. A
+ * balance momentarily below the bond while warrants in flight are each about to
+ * return `bond − fee` is not exhaustion, it is a queue.
  */
 export type StopCap =
-  | 'cible'
-  | 'budget-frais'
-  | 'plancher-gas-settler'
-  | 'budget-gas-processus'
-  | 'capital-agent-insuffisant'
-  | 'durée-maximale'
+  | 'target'
+  | 'fee-budget'
+  | 'settler-gas-floor'
+  | 'process-gas-budget'
+  | 'agent-capital-insufficient'
+  | 'max-runtime'
 
 /**
- * La décision, dans l'ordre où elle doit être prise.
+ * The decision, in the order it has to be taken.
  *
- * L'ordre n'est pas indifférent. Les arrêts *durs* (capital, gas) passent avant
- * les arrêts *doux* (cible atteinte) : un runner qui annoncerait « cible
- * atteinte » alors qu'il vient d'épuiser le gas du Settler mentirait sur la
- * raison, et l'exploitant relancerait pour rien. Et la dégradation d'une saisie
- * en mandat honoré passe avant l'arrêt : quand le quota de saisies est épuisé,
- * il reste du volume à produire, et il ne coûte que des frais.
+ * The order is not arbitrary. The *hard* stops (capital, gas) come before the
+ * *soft* ones (target reached): a runner announcing "target reached" when it has
+ * just exhausted the Settler's gas would be lying about the reason, and the
+ * operator would restart for nothing. And degrading a slash into an honored
+ * warrant comes before stopping: when the slash quota is exhausted, there is
+ * still volume to produce, and it costs nothing but fees.
  */
 export function decide(caps: BudgetCaps, s: BudgetState): Decision {
   const feePerHonor = (s.bond * BigInt(s.feeBps)) / 10_000n
 
-  // ── Arrêts durs : ce qui ne se répare pas en attendant ─────────────────────
+  // ── Hard stops: what waiting will not repair ───────────────────────────────
   if (s.settlerWei < caps.gasFloorWei) {
     return {
       kind: 'stop',
-      cap: 'plancher-gas-settler',
+      cap: 'settler-gas-floor',
       why:
-        `le Settler est à ${eth(s.settlerWei)} ETH, sous le plancher de ` +
-        `${eth(caps.gasFloorWei)} ETH. Continuer à ouvrir produirait des mandats que ` +
-        'personne ne réglerait, et ils expireraient vers reclaim(). ' +
-        'Recharger la clé du Settler (pnpm faucet), puis relancer.',
+        `the Settler is at ${eth(s.settlerWei)} ETH, below the floor of ` +
+        `${eth(caps.gasFloorWei)} ETH. Continuing to open would produce warrants nobody ` +
+        'would settle, and they would expire towards reclaim(). ' +
+        "Top up the Settler's key (pnpm faucet), then restart.",
     }
   }
   const gasSpent = s.settlerWeiAtStart > s.settlerWei ? s.settlerWeiAtStart - s.settlerWei : 0n
   if (gasSpent >= caps.gasSpendWei) {
     return {
       kind: 'stop',
-      cap: 'budget-gas-processus',
+      cap: 'process-gas-budget',
       why:
-        `ce processus a consommé ${eth(gasSpent)} ETH de gas de règlement, ` +
-        `plafond ${eth(caps.gasSpendWei)} ETH. Relever RUNNER_GAS_SPEND_WEI pour ` +
-        'continuer — le plancher de la clé, lui, est encore respecté.',
+        `this process has consumed ${eth(gasSpent)} ETH of settlement gas, ` +
+        `cap ${eth(caps.gasSpendWei)} ETH. Raise RUNNER_GAS_SPEND_WEI to carry on — ` +
+        "the key's own floor is still being respected.",
     }
   }
   /**
-   * ⚠ Correctif nº 2, même famille que le nº 1 commenté plus bas, et découvert
-   * en relisant la liste des arrêts avec la bonne question : « ce plafond
-   * mesure-t-il quelque chose de **consommé**, ou quelque chose d'**immobilisé** ? »
+   * ⚠ Fix nº 2, same family as nº 1 commented below, and found by re-reading the
+   * list of stops with the right question: "does this cap measure something
+   * **consumed**, or something **locked up**?"
    *
-   * Le solde USDC de l'agent est immobilisé, pas consommé. En régime nominal —
-   * `backlogCap` mandats en vol, chacun immobilisant `bond` — le solde libre
-   * descend mécaniquement sous une caution : c'est le cas *normal*, celui vers
-   * lequel le plafond de backlog fait converger le runner. Un arrêt dur ici
-   * signifie donc que le runner s'arrête définitivement pour une pénurie qui se
-   * résorbe au règlement suivant, soit ≈ 30 s plus tard, et qu'il rend un
-   * diagnostic — « recharger l'agent » — dont l'exploitant n'a aucun besoin.
+   * The agent's USDC balance is locked up, not consumed. In nominal operation —
+   * `backlogCap` warrants in flight, each locking up `bond` — the free balance
+   * mechanically drops below one bond: that is the *normal* case, the one the
+   * backlog cap makes the runner converge towards. A hard stop here therefore
+   * means the runner stops for good over a shortage that clears itself at the next
+   * settlement, i.e. ≈ 30 s later, and that it hands back a diagnosis — "top up
+   * the agent" — that the operator has no use for.
    *
-   * L'arrêt ne devient légitime que si **rien ne revient** : `recoverable` vaut
-   * alors 0, aucun mandat en vol ne rendra de capital, et attendre est une
-   * boucle infinie. Le distinguer coûte un champ d'état et évite de confondre
-   * « à sec » avec « en attente de son propre argent ».
+   * The stop only becomes legitimate if **nothing is coming back**: `recoverable`
+   * is then 0, no warrant in flight will return capital, and waiting is an
+   * infinite loop. Telling the two apart costs one state field and avoids
+   * confusing "dry" with "waiting for its own money".
    */
   if (s.agentUsdc < s.bond + caps.agentReserve) {
     if (s.recoverable > 0n) {
       return {
         kind: 'wait',
         why:
-          `solde libre ${usdc(s.agentUsdc)} USDC sous la caution ${usdc(s.bond)} + réserve ` +
-          `${usdc(caps.agentReserve)}, mais ${usdc(s.recoverable)} USDC reviennent des ` +
-          `${s.backlog} mandats en vol. On attend le règlement, on n'arrête pas la campagne.`,
+          `free balance ${usdc(s.agentUsdc)} USDC below the bond ${usdc(s.bond)} + reserve ` +
+          `${usdc(caps.agentReserve)}, but ${usdc(s.recoverable)} USDC are coming back from ` +
+          `the ${s.backlog} warrants in flight. We wait for the settlement, we do not stop the campaign.`,
       }
     }
     return {
       kind: 'stop',
-      cap: 'capital-agent-insuffisant',
+      cap: 'agent-capital-insufficient',
       why:
-        `l'agent détient ${usdc(s.agentUsdc)} USDC, il faut ${usdc(s.bond)} de caution ` +
-        `plus ${usdc(caps.agentReserve)} de réserve, et **rien n'est en vol** qui puisse ` +
-        "rendre du capital. L'autorisation EIP-3009 révèrterait à l'encaissement, après " +
-        'que KeeperHub a payé le gas d\'ouverture. Recharger l\'agent (pnpm faucet, ' +
-        '1 USDC / adresse / 24 h) : c\'est la borne dure du volume.',
+        `the agent holds ${usdc(s.agentUsdc)} USDC, it needs ${usdc(s.bond)} of bond ` +
+        `plus ${usdc(caps.agentReserve)} of reserve, and **nothing is in flight** that could ` +
+        'return capital. The EIP-3009 authorization would revert on collection, after ' +
+        'KeeperHub has paid the opening gas. Top up the agent (pnpm faucet, ' +
+        "1 USDC / address / 24 h): that is volume's hard bound.",
     }
   }
   if (s.elapsedMs >= caps.maxRuntimeMs) {
     return {
       kind: 'stop',
-      cap: 'durée-maximale',
+      cap: 'max-runtime',
       why:
-        `durée maximale atteinte (${Math.round(s.elapsedMs / 1000)} s). Les mandats en ` +
-        'vol restent réglables par le Settler : relancer le runner reprend le compte ' +
-        'où il est, le journal faisant foi.',
+        `maximum runtime reached (${Math.round(s.elapsedMs / 1000)} s). The warrants in ` +
+        'flight remain settleable by the Settler: restarting the runner resumes the count ' +
+        'where it stands, the ledger being authoritative.',
     }
   }
 
-  // ── Cible ──────────────────────────────────────────────────────────────────
+  // ── Target ─────────────────────────────────────────────────────────────────
   if (s.opened >= caps.target) {
     return {
       kind: 'stop',
-      cap: 'cible',
-      why: `cible de ${caps.target} mandats atteinte sur cette campagne (${s.opened} ouverts).`,
+      cap: 'target',
+      why: `target of ${caps.target} warrants reached on this campaign (${s.opened} opened).`,
     }
   }
 
-  // ── Attente : le backlog n'est pas un plafond, c'est une file ──────────────
+  // ── Waiting: the backlog is not a cap, it is a queue ───────────────────────
   if (s.backlog >= caps.backlogCap) {
     return {
       kind: 'wait',
       why:
-        `${s.backlog} mandats ouverts, plafond ${caps.backlogCap} : ` +
-        `${usdc(BigInt(s.backlog) * s.bond)} USDC immobilisés. On laisse le Settler drainer.`,
+        `${s.backlog} warrants open, cap ${caps.backlogCap}: ` +
+        `${usdc(BigInt(s.backlog) * s.bond)} USDC locked up. We let the Settler drain.`,
     }
   }
 
-  // ── Choix du scénario ──────────────────────────────────────────────────────
+  // ── Choosing the scenario ──────────────────────────────────────────────────
   //
-  // La règle est un **ratio**, pas un modulo. Un modulo (« une saisie tous les
-  // N ») se désynchronise dès qu'un mandat échoue à l'ouverture, et surtout il
-  // ne se recalcule pas à l'identique après un redémarrage — deux exécutions
-  // successives rejoueraient la même position. Le ratio, lui, ne dépend que de
-  // l'état constaté : « suis-je en retard sur la proportion de saisies visée ? ».
-  // Il converge, il est idempotent, et il reprend seul après interruption.
+  // The rule is a **ratio**, not a modulo. A modulo ("one slash every N") falls
+  // out of sync as soon as a warrant fails to open, and above all it does not
+  // recompute identically after a restart — two successive runs would replay the
+  // same position. The ratio depends only on the observed state: "am I behind on
+  // the targeted proportion of slashes?". It converges, it is idempotent, and it
+  // resumes on its own after an interruption.
   //
-  // Le mandat n° 1 est **toujours** honoré. Une saisie en premier détruirait
-  // 0,2 USDC — 10 % du capital de l'agent — avant qu'on sache que la chaîne
-  // d'exécution fonctionne de bout en bout. Le premier mandat est un test de
-  // fumée, et il doit être le moins cher des deux.
+  // Warrant nº 1 is **always** honored. A slash first would destroy 0.2 USDC —
+  // 10% of the agent's capital — before we know the execution chain works end to
+  // end. The first warrant is a smoke test, and it has to be the cheaper of the
+  // two.
   const slashesAcquired = s.slashed + s.divertedInFlight
   const behindOnSlashes = slashesAcquired * caps.target < caps.slashTarget * (s.opened + 1)
   const slashRoom = caps.slashPrincipal - s.destroyed - BigInt(s.divertedInFlight) * s.bond
 
   /**
-   * Les deux scénarios, chacun avec sa propre condition de faisabilité. Les
-   * garder symétriques est tout l'objet des deux correctifs commentés ci-dessous :
-   * **un plafond ne referme que le scénario qu'il finance.**
+   * The two scenarios, each with its own feasibility condition. Keeping them
+   * symmetric is the whole point of the two fixes commented below: **a cap closes
+   * off only the scenario it funds.**
    */
   const slashOwed = s.opened >= 1 && slashesAcquired < caps.slashTarget
   const slashAffordable = slashRoom >= s.bond
   const honoredAffordable = s.fees + feePerHonor <= caps.fees
 
   /**
-   * ⚠ Correctif nº 1, issu de l'exécution réelle, et il vaut d'être expliqué
-   * parce que la version fautive paraissait raisonnable.
+   * ⚠ Fix nº 1, straight out of a real run, and worth explaining because the
+   * faulty version looked reasonable.
    *
-   * Il y avait plus bas un arrêt `budget-principal-saisies`, déclenché dès que la
-   * cible de saisies **et** le plafond de principal étaient tous deux atteints.
-   * Lancé sur la campagne « hackathon » avec `slashTarget = 4` et
-   * `slashPrincipal = 0,8 USDC`, le runner s'est arrêté au 43e mandat sur 52,
-   * message à l'appui : « budget de principal des saisies épuisé (0,800000 USDC
-   * détruits sur 0,800000) et cible de saisies atteinte ». Vrai, et absurde : il
-   * restait 0,82 USDC de budget de frais, soit 164 mandats honorés, et il a
-   * renoncé à les produire pour protéger un principal qu'un mandat honoré ne
-   * touche pas — un honoré rend `bond − fee`, il ne détruit que 1/40e de la
-   * caution.
+   * There used to be a `slash-principal-budget` stop below, fired as soon as the
+   * slash target **and** the principal cap were both reached. Launched on the
+   * "hackathon" campaign with `slashTarget = 4` and `slashPrincipal = 0.8 USDC`,
+   * the runner stopped at the 43rd warrant out of 52, message and all: "slash
+   * principal budget exhausted (0.800000 USDC destroyed out of 0.800000) and slash
+   * target reached". True, and absurd: 0.82 USDC of fee budget was left, i.e. 164
+   * honored warrants, and it gave up producing them to protect principal that an
+   * honored warrant does not touch — an honored warrant returns `bond − fee`, it
+   * destroys only 1/40th of the bond.
    *
-   * Le plafond de saisies **borne les saisies, pas la campagne**. Épuisé, il ne
-   * doit rien faire d'autre que ramener tous les mandats suivants au scénario
-   * honoré. Seuls les quatre postes qui consomment réellement quelque chose ont
-   * le droit d'arrêter : le gas, les frais, le capital *irrécupérable*, le temps.
-   * Confondre « je ne peux plus saisir » avec « je ne peux plus rien faire » a
-   * coûté 9 mandats.
+   * The slash cap **bounds the slashes, not the campaign**. Once exhausted, it
+   * must do nothing beyond bringing every subsequent warrant back to the honored
+   * scenario. Only the four line items that really consume something are allowed
+   * to stop: gas, fees, *unrecoverable* capital, time. Confusing "I can no longer
+   * slash" with "I can no longer do anything" cost 9 warrants.
    *
-   * ⚠ Correctif nº 3, l'image en miroir du nº 1, et il n'aurait pas manqué de se
-   * produire : le plafond de **frais** referme le volume honoré, il n'a pas plus
-   * de raison de refermer les saisies. Sans le `|| !honoredAffordable` ci-dessous,
-   * un budget de frais épuisé arrêtait la campagne alors qu'une saisie restait
-   * due *et* finançable sur son propre budget de principal — la cible de saisies,
-   * qui est le critère du hackathon, restait manquée pour protéger un poste qui
-   * n'était pas en cause. Le ratio `behindOnSlashes` masquait le cas en régime
-   * nominal, ce qui en faisait précisément le genre de défaut qui se révèle sur
-   * la campagne de démonstration.
+   * ⚠ Fix nº 3, the mirror image of nº 1, and it would not have failed to happen:
+   * the **fee** cap closes off honored volume, it has no more reason to close off
+   * the slashes. Without the `|| !honoredAffordable` below, an exhausted fee budget
+   * stopped the campaign while a slash was still owed *and* fundable out of its own
+   * principal budget — the slash target, which is the hackathon's criterion, stayed
+   * missed to protect a line item that was not the one under pressure. The
+   * `behindOnSlashes` ratio hid the case in nominal operation, which made it
+   * exactly the kind of defect that reveals itself on the demonstration campaign.
    */
   const wantSlash = slashOwed && slashAffordable && (behindOnSlashes || !honoredAffordable)
 
@@ -481,24 +475,24 @@ export function decide(caps: BudgetCaps, s: BudgetState): Decision {
       kind: 'open',
       scenario: 'diverted',
       why:
-        `saisie ${slashesAcquired + 1}/${caps.slashTarget} — ` +
-        `principal restant pour les saisies ${usdc(slashRoom)} USDC` +
-        (honoredAffordable ? '' : ' (budget de frais épuisé : seules les saisies restent)'),
+        `slash ${slashesAcquired + 1}/${caps.slashTarget} — ` +
+        `principal left for the slashes ${usdc(slashRoom)} USDC` +
+        (honoredAffordable ? '' : ' (fee budget exhausted: only the slashes are left)'),
     }
   }
 
   if (!honoredAffordable) {
     return {
       kind: 'stop',
-      cap: 'budget-frais',
+      cap: 'fee-budget',
       why:
-        `budget de frais atteint : ${usdc(s.fees)} USDC consommés, plafond ` +
-        `${usdc(caps.fees)}, un mandat honoré de plus en coûterait ${usdc(feePerHonor)}. ` +
+        `fee budget reached: ${usdc(s.fees)} USDC consumed, cap ` +
+        `${usdc(caps.fees)}, one more honored warrant would cost ${usdc(feePerHonor)}. ` +
         (slashOwed
-          ? `Il reste ${caps.slashTarget - slashesAcquired} saisie(s) due(s) mais le principal ` +
-            `qui leur est réservé est épuisé lui aussi (${usdc(slashRoom)} restants). `
+          ? `${caps.slashTarget - slashesAcquired} slash(es) are still owed but the principal ` +
+            `reserved for them is exhausted too (${usdc(slashRoom)} left). `
           : '') +
-        "Relever RUNNER_FEE_BUDGET si le capital de l'agent le permet.",
+        "Raise RUNNER_FEE_BUDGET if the agent's capital allows it.",
     }
   }
 
@@ -507,59 +501,59 @@ export function decide(caps: BudgetCaps, s: BudgetState): Decision {
     scenario: 'honored',
     why:
       slashOwed && !slashAffordable
-        ? `saisie dégradée en mandat honoré : plafond de principal des saisies atteint ` +
-          `(${usdc(slashRoom)} USDC restants, une saisie en coûte ${usdc(s.bond)}). ` +
-          'Le volume continue, il ne coûte que des frais.'
-        : `mandat honoré — frais ${usdc(feePerHonor)}, caution rendue ${usdc(s.bond - feePerHonor)}`,
+        ? `slash degraded to an honored warrant: the slashes' principal cap is reached ` +
+          `(${usdc(slashRoom)} USDC left, one slash costs ${usdc(s.bond)}). ` +
+          'Volume carries on, it costs nothing but fees.'
+        : `honored warrant — fee ${usdc(feePerHonor)}, bond returned ${usdc(s.bond - feePerHonor)}`,
   }
 }
 
 /**
- * La borne réelle du volume atteignable, à état constant.
+ * The real bound on reachable volume, at constant state.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Ce que la première version annonçait de faux
+ * What the first version announced that was false
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Elle prenait `slashesRemaining` en paramètre — et l'appelant lui passait
- * `caps.slashTarget` tel quel. Sur une reprise de campagne où trois saisies
- * étaient déjà constatées onchain, la borne réservait donc trois cautions de
- * plus qu'il n'en fallait, soit 0,6 USDC, soit 120 cycles honorés escamotés de
- * l'annonce. Elle ignorait de surcroît le plafond de principal des saisies, qui
- * peut rendre la cible de saisies inatteignable indépendamment du capital.
+ * It took `slashesRemaining` as a parameter — and the caller passed it
+ * `caps.slashTarget` as is. On a campaign resumption where three slashes were
+ * already observed onchain, the bound therefore reserved three bonds more than
+ * needed, i.e. 0.6 USDC, i.e. 120 honored cycles conjured away from the
+ * announcement. It also ignored the slashes' principal cap, which can make the
+ * slash target unreachable independently of capital.
  *
- * Elle ignorait aussi le plafond de **frais**, alors que c'est le seul des deux
- * budgets USDC qui borne le volume honoré, et elle dérivait la borne de gas de
- * `gasSpendWei` seul — c'est-à-dire d'un plafond de politique, jamais du solde
- * réellement présent sur la clé du Settler. Un plafond de 0,00015 ETH sur une
- * clé qui en détient 0,00002 annonçait 187 règlements finançables là où il y en
- * avait 25 : la borne annoncée dépassait la borne physique d'un facteur 7.
+ * It ignored the **fee** cap too, even though that is the only one of the two
+ * USDC budgets that bounds honored volume, and it derived the gas bound from
+ * `gasSpendWei` alone — that is, from a policy cap, never from the balance
+ * actually present on the Settler's key. A cap of 0.00015 ETH on a key holding
+ * 0.00002 announced 187 fundable settlements where there were 25: the announced
+ * bound exceeded the physical bound by a factor of 7.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Le calcul, dans l'ordre où les contraintes mordent
+ * The computation, in the order the constraints bite
  * ─────────────────────────────────────────────────────────────────────────────
  *
- *   saisies    s = min(cible − acquises, ⌊principal restant / bond⌋)
- *   capital    utilisable u = solde − réserve − bond   (une caution reste en vol)
- *   honorés    h ≤ ⌊(u − s × bond) / fee⌋              (capital)
- *              h ≤ ⌊(plafond de frais − frais payés) / fee⌋   (budget de frais)
- *   gas        s × (slash + inscription) + h × (honor + inscription/lot) ≤ g
- *              avec g = min(plafond du processus, solde du Settler − plancher)
- *   cible      s + h ≤ cible − déjà ouverts
+ *   slashes    s = min(target − acquired, ⌊principal left / bond⌋)
+ *   capital    usable u = balance − reserve − bond   (one bond stays in flight)
+ *   honored    h ≤ ⌊(u − s × bond) / fee⌋            (capital)
+ *              h ≤ ⌊(fee cap − fees paid) / fee⌋     (fee budget)
+ *   gas        s × (slash + registration) + h × (honor + registration/batch) ≤ g
+ *              with g = min(process cap, Settler's balance − floor)
+ *   target     s + h ≤ target − already opened
  *
- * `binding` nomme celle des quatre qui a mordu la première. C'est le seul chiffre
- * de la sortie qui dise à l'exploitant *quoi recharger*.
+ * `binding` names whichever of the four bit first. It is the one figure in the
+ * output that tells the operator *what to top up*.
  */
 export interface VolumeBound {
-  /** Saisies encore finançables — cible et principal réservé pris ensemble. */
+  /** Slashes still fundable — target and reserved principal taken together. */
   slashes: number
-  /** Mandats honorés encore finançables. */
+  /** Honored warrants still fundable. */
   honored: number
   total: number
-  binding: 'cible' | 'capital' | 'frais' | 'gas'
-  /** Gas réellement disponible, en wei : plafond de processus ∧ solde − plancher. */
+  binding: 'target' | 'capital' | 'fees' | 'gas'
+  /** Gas actually available, in wei: process cap ∧ balance − floor. */
   gasUsableWei: bigint
-  /** Règlements que ce gas finance si **tous** sont honorés. Repère, pas un plan. */
+  /** Settlements this gas funds if **all** are honored. A landmark, not a plan. */
   settlementsPerGas: number
 }
 
@@ -574,17 +568,17 @@ export function volumeBound(
   const gasPerHonor = GAS_HONOR_WEI + GAS_FEEDBACK_WEI / BigInt(Math.max(1, caps.erc8004BatchSize))
   const gasPerSlash = GAS_SLASH_WEI + GAS_FEEDBACK_WEI
 
-  // (a) Saisies : la cible **et** le principal qui leur est réservé.
+  // (a) Slashes: the target **and** the principal reserved for them.
   const slashRoom = caps.slashPrincipal > s.destroyed ? caps.slashPrincipal - s.destroyed : 0n
   const slashesByTarget = Math.max(0, caps.slashTarget - s.slashed)
   const slashesByPrincipal = s.bond === 0n ? 0 : Number(slashRoom / s.bond)
   let slashes = Math.min(slashesByTarget, slashesByPrincipal)
 
-  // (b) Capital de l'agent. Une caution reste immobilisée en permanence.
+  // (b) The agent's capital. One bond stays locked up permanently.
   const usable =
     s.agentUsdc > caps.agentReserve + s.bond ? s.agentUsdc - caps.agentReserve - s.bond : 0n
-  // Le capital finance d'abord les saisies : c'est le poste destructif, et le
-  // sous-provisionner produirait une cible de saisies annoncée puis manquée.
+  // Capital funds the slashes first: that is the destructive line item, and
+  // under-provisioning it would produce a slash target announced then missed.
   const bondsForSlashes = BigInt(slashes) * s.bond
   if (bondsForSlashes > usable) {
     slashes = s.bond === 0n ? 0 : Number(usable / s.bond)
@@ -592,11 +586,11 @@ export function volumeBound(
   const afterSlashes = usable - BigInt(slashes) * s.bond
   const honoredByCapital = feePerHonor === 0n ? 0 : Number(afterSlashes / feePerHonor)
 
-  // (c) Budget de frais.
+  // (c) Fee budget.
   const feeRoom = caps.fees > s.fees ? caps.fees - s.fees : 0n
   const honoredByFees = feePerHonor === 0n ? 0 : Number(feeRoom / feePerHonor)
 
-  // (d) Gas du Settler : le plafond de politique **et** le solde physique.
+  // (d) The Settler's gas: the policy cap **and** the physical balance.
   const settlerRoom = s.settlerWei > caps.gasFloorWei ? s.settlerWei - caps.gasFloorWei : 0n
   const gasUsableWei = caps.gasSpendWei < settlerRoom ? caps.gasSpendWei : settlerRoom
   const gasForSlashes = BigInt(slashes) * gasPerSlash
@@ -606,7 +600,7 @@ export function volumeBound(
   const gasLeft = gasUsableWei - BigInt(slashes) * gasPerSlash
   const honoredByGas = Number(gasLeft / gasPerHonor)
 
-  // (e) Cible de campagne.
+  // (e) Campaign target.
   const roomToTarget = Math.max(0, caps.target - s.opened)
 
   let honored = Math.min(honoredByCapital, honoredByFees, honoredByGas)
@@ -614,11 +608,11 @@ export function volumeBound(
     honored === honoredByGas
       ? 'gas'
       : honored === honoredByFees
-        ? 'frais'
+        ? 'fees'
         : 'capital'
   if (slashes + honored > roomToTarget) {
     honored = Math.max(0, roomToTarget - slashes)
-    binding = 'cible'
+    binding = 'target'
   }
 
   return {

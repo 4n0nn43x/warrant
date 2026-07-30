@@ -148,7 +148,7 @@ R=0x8004b663056A597dfFE9eCcC1965a193B7388713   # ReputationRegistry, Base Sepoli
 ./scripts/replay-verdict.sh 0x953ad5be12adc437bb5c0142549bee85c70557e40807be39f7b94b107592f791 --registry $R
 ```
 
-Each run prints `VERDICT REPRODUIT` or `DIVERGENCE`, exit code included, after six checks: the escrow
+Each run prints `VERDICT REPRODUCED`, `VERDICT PARTIALLY REPRODUCED` or `DIVERGENCE`, exit code included, after six checks: the escrow
 `status`, the document's availability, `keccak256` of the served bytes against the committed
 `feedbackHash`, `conditionHash` / `actionHash` / `fundingRef` recomputed from the document, the action
 transaction, and a full replay of `checks[]` at the pinned block. `--registry` adds the last link —

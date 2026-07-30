@@ -1,19 +1,19 @@
 /**
- * Le transport HTTP streamable, testé sur une vraie socket.
+ * The streamable HTTP transport, tested over a real socket.
  *
- * `claude mcp add --transport http warrant …` est la première commande qu'un
- * builder tape. Si elle échoue, il n'y a pas de deuxième minute — d'où un test
- * qui monte le serveur, l'interroge avec le client HTTP officiel, et vérifie
- * que le flux de paiement traverse le transport intact.
+ * `claude mcp add --transport http warrant …` is the first command a builder
+ * types. If it fails, there is no second minute — hence a test that stands the
+ * server up, queries it with the official HTTP client, and checks that the
+ * payment flow crosses the transport intact.
  *
- * C'est aussi le seul endroit où l'ère **2026-07-28** est réellement exercée :
- * le client ne la sélectionne qu'après un probe `server/discover`, lequel
- * suppose un vrai transport HTTP (`server.test.ts`, en mémoire, reste en 2025).
- * Une partie des tests ci-dessous parle donc `fetch` directement, sans SDK :
- * pour les exigences de *transport* — en-têtes obligatoires, `-32020`, `405`,
- * `resultType`, `ttlMs` — le client officiel est un mauvais témoin, puisqu'il
- * pose les bons en-têtes tout seul et retire du résultat les champs de fil
- * avant de nous le rendre. On veut voir l'octet, pas la vue du SDK.
+ * This is also the only place where the **2026-07-28** era is genuinely
+ * exercised: the client only selects it after a `server/discover` probe, which
+ * presupposes a real HTTP transport (`server.test.ts`, in memory, stays on 2025).
+ * Some of the tests below therefore speak `fetch` directly, without the SDK: for
+ * the *transport* requirements — mandatory headers, `-32020`, `405`,
+ * `resultType`, `ttlMs` — the official client is a poor witness, since it sets
+ * the right headers by itself and strips the wire fields out of the result before
+ * handing it back to us. We want to see the byte, not the SDK's view of it.
  */
 
 import type { AddressInfo } from 'node:net'
@@ -61,12 +61,12 @@ afterAll(async () => {
 })
 
 /**
- * Un client épinglé sur 2026-07-28.
+ * A client pinned to 2026-07-28.
  *
- * Le défaut du SDK v2 est `mode: 'legacy'` — connecter sans rien préciser
- * parlerait 2025 et ne testerait pas ce qu'on croit tester. `pin` échoue
- * bruyamment si le serveur ne sait pas servir la révision, ce qui est
- * exactement l'assertion voulue.
+ * The v2 SDK default is `mode: 'legacy'` — connecting without specifying
+ * anything would speak 2025 and would not test what we think we are testing.
+ * `pin` fails loudly if the server cannot serve the revision, which is exactly
+ * the assertion we want.
  */
 async function connect() {
   const client = new Client(
@@ -77,7 +77,7 @@ async function connect() {
   return client
 }
 
-/** L'enveloppe `_meta` que 2026-07-28 rend obligatoire sur chaque requête. */
+/** The `_meta` envelope that 2026-07-28 makes mandatory on every request. */
 function envelope() {
   return {
     'io.modelcontextprotocol/protocolVersion': PROTOCOL_VERSION,
@@ -86,7 +86,7 @@ function envelope() {
   }
 }
 
-/** Un POST MCP brut : on choisit nous-mêmes chaque en-tête. */
+/** A raw MCP POST: we choose every header ourselves. */
 async function rawPost(
   body: Record<string, unknown>,
   headers: Record<string, string>,
@@ -102,28 +102,28 @@ async function rawPost(
   })
 }
 
-describe('transport HTTP streamable', () => {
-  it('répond à /health', async () => {
+describe('streamable HTTP transport', () => {
+  it('answers on /health', async () => {
     const res = await fetch(`${baseUrl}/health`)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ status: 'ok' })
   })
 
-  it('rend un 404 actionnable hors du chemin MCP', async () => {
+  it('returns an actionable 404 outside the MCP path', async () => {
     const res = await fetch(`${baseUrl}/nope`)
     expect(res.status).toBe(404)
     const body = (await res.json()) as { error: { hint: string } }
     expect(body.error.hint).toContain('claude mcp add')
   })
 
-  it('sert les quatre outils à travers HTTP', async () => {
+  it('serves the four tools over HTTP', async () => {
     const client = await connect()
     const { tools } = await client.listTools()
     expect(tools).toHaveLength(4)
     await client.close()
   })
 
-  it('porte le flux x402 de bout en bout sur HTTP', async () => {
+  it('carries the x402 flow end to end over HTTP', async () => {
     const client = await connect()
     const args = { actionSpec: ACTION_SPEC, beneficiary: TREASURY }
 
@@ -136,7 +136,7 @@ describe('transport HTTP streamable', () => {
     expect(JSON.parse((challenge.content[0] as { text: string }).text)).toEqual(required)
 
     const accepted = required.accepts[0]
-    if (!accepted) throw new Error('PaymentRequired sans offre')
+    if (!accepted) throw new Error('PaymentRequired with no offer')
     const settled = (await client.callTool({
       name: 'request_warrant',
       arguments: args,
@@ -155,7 +155,7 @@ describe('transport HTTP streamable', () => {
     await client.close()
   })
 
-  it('refuse une origine navigateur inconnue, avant tout routage', async () => {
+  it('refuses an unknown browser origin, before any routing', async () => {
     const res = await fetch(`${baseUrl}/health`, { headers: { origin: 'https://evil.example' } })
     expect(res.status).toBe(403)
     const body = (await res.json()) as { error: { code: string; hint: string } }
@@ -163,16 +163,16 @@ describe('transport HTTP streamable', () => {
     expect(body.error.hint).toContain('DNS rebinding')
   })
 
-  it('accepte une origine locale, et l’absence d’origine', async () => {
+  it('accepts a local origin, and the absence of an origin', async () => {
     const local = await fetch(`${baseUrl}/health`, { headers: { origin: 'http://localhost:5173' } })
     expect(local.status).toBe(200)
-    // Claude Code et le SDK n'envoient pas d'Origin : la spec ne vise que
-    // l'en-tête présent et invalide.
+    // Claude Code and the SDK send no Origin: the spec only targets the header
+    // when it is present and invalid.
     const none = await fetch(`${baseUrl}/health`)
     expect(none.status).toBe(200)
   })
 
-  it('reste sans état : deux clients successifs sont servis indépendamment', async () => {
+  it('stays stateless: two successive clients are served independently', async () => {
     const a = await connect()
     const b = await connect()
     const [ra, rb] = await Promise.all([a.listTools(), b.listTools()])
@@ -183,24 +183,24 @@ describe('transport HTTP streamable', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ce que la révision 2026-07-28 ajoute sur le fil.
+// What the 2026-07-28 revision adds on the wire.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('révision 2026-07-28 — le fil', () => {
-  it('sert la révision sans initialize ni Mcp-Session-Id', async () => {
+describe('2026-07-28 revision — the wire', () => {
+  it('serves the revision without initialize or Mcp-Session-Id', async () => {
     const res = await rawPost(
       { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } },
       { 'MCP-Protocol-Version': PROTOCOL_VERSION, 'Mcp-Method': 'tools/list' },
     )
 
     expect(res.status).toBe(200)
-    // Le protocole est sans état : le serveur ne frappe aucune session.
+    // The protocol is stateless: the server stamps no session.
     expect(res.headers.get('mcp-session-id')).toBeNull()
     const body = (await res.json()) as { result: { tools: unknown[] } }
     expect(body.result.tools).toHaveLength(4)
   })
 
-  it('pose resultType: "complete" sur tout résultat', async () => {
+  it('sets resultType: "complete" on every result', async () => {
     const list = await rawPost(
       { jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope() } },
       { 'MCP-Protocol-Version': PROTOCOL_VERSION, 'Mcp-Method': 'tools/list' },
@@ -209,9 +209,9 @@ describe('révision 2026-07-28 — le fil', () => {
       'complete',
     )
 
-    // Y compris — et c'est le cas qui compte — sur le challenge de paiement,
-    // qui est un résultat en erreur : `isError` et `resultType` sont deux axes
-    // indépendants. Le second dit que l'échange est terminé, pas qu'il a réussi.
+    // Including — and this is the case that matters — on the payment challenge,
+    // which is an erroring result: `isError` and `resultType` are two independent
+    // axes. The second says the exchange is over, not that it succeeded.
     const call = await rawPost(
       {
         jsonrpc: '2.0',
@@ -237,21 +237,21 @@ describe('révision 2026-07-28 — le fil', () => {
     expect(result.structuredContent.x402Version).toBe(2)
   })
 
-  it('annonce ttlMs et cacheScope sur tools/list', async () => {
+  it('announces ttlMs and cacheScope on tools/list', async () => {
     const res = await rawPost(
       { jsonrpc: '2.0', id: 4, method: 'tools/list', params: { _meta: envelope() } },
       { 'MCP-Protocol-Version': PROTOCOL_VERSION, 'Mcp-Method': 'tools/list' },
     )
     const { result } = (await res.json()) as { result: { ttlMs: number; cacheScope: string } }
 
-    // Nos quatre outils sont figés à la compilation : les recharger à chaque
-    // tour d'agent est du gaspillage pur.
+    // Our four tools are frozen at compile time: reloading them on every agent
+    // turn is pure waste.
     expect(result.ttlMs).toBe(3_600_000)
-    // La liste ne dépend d'aucune autorisation : un cache partagé est légitime.
+    // The list depends on no authorization: a shared cache is legitimate.
     expect(result.cacheScope).toBe('public')
   })
 
-  it('rejette un Mcp-Name qui ment sur le corps — 400 et -32020', async () => {
+  it('rejects an Mcp-Name that lies about the body — 400 and -32020', async () => {
     const res = await rawPost(
       {
         jsonrpc: '2.0',
@@ -262,9 +262,9 @@ describe('révision 2026-07-28 — le fil', () => {
       {
         'MCP-Protocol-Version': PROTOCOL_VERSION,
         'Mcp-Method': 'tools/call',
-        // Un intermédiaire qui routerait sur l'en-tête croirait à un appel
-        // payant là où le corps en appelle un gratuit — ou l'inverse. C'est
-        // exactement la divergence que la validation en-tête↔corps ferme.
+        // An intermediary routing on the header would believe this to be a paid
+        // call where the body calls a free one — or the other way round. That is
+        // exactly the divergence the header↔body validation closes.
         'Mcp-Name': 'request_warrant',
       },
     )
@@ -275,7 +275,7 @@ describe('révision 2026-07-28 — le fil', () => {
     expect(body.error.message).toContain('quote_risk')
   })
 
-  it('rejette un Mcp-Method qui ment sur le corps', async () => {
+  it('rejects an Mcp-Method that lies about the body', async () => {
     const res = await rawPost(
       { jsonrpc: '2.0', id: 6, method: 'tools/list', params: { _meta: envelope() } },
       { 'MCP-Protocol-Version': PROTOCOL_VERSION, 'Mcp-Method': 'tools/call' },
@@ -285,7 +285,7 @@ describe('révision 2026-07-28 — le fil', () => {
     expect(((await res.json()) as { error: { code: number } }).error.code).toBe(-32020)
   })
 
-  it('rejette une version d’en-tête qui ment sur l’enveloppe', async () => {
+  it('rejects a header version that lies about the envelope', async () => {
     const res = await rawPost(
       { jsonrpc: '2.0', id: 7, method: 'tools/list', params: { _meta: envelope() } },
       { 'MCP-Protocol-Version': '2025-11-25', 'Mcp-Method': 'tools/list' },
@@ -295,17 +295,17 @@ describe('révision 2026-07-28 — le fil', () => {
     expect(((await res.json()) as { error: { code: number } }).error.code).toBe(-32020)
   })
 
-  it('répond 405 sur GET et DELETE — plus de flux GET ni de session à clore', async () => {
+  it('answers 405 on GET and DELETE — no more GET stream, no session to close', async () => {
     for (const method of ['GET', 'DELETE'] as const) {
       const res = await fetch(mcpUrl, {
         method,
         headers: { accept: 'text/event-stream', 'MCP-Protocol-Version': PROTOCOL_VERSION },
       })
-      expect(res.status, `${method} aurait dû être refusé`).toBe(405)
+      expect(res.status, `${method} should have been refused`).toBe(405)
     }
   })
 
-  it('ignore Last-Event-ID : les flux ne sont pas reprenables', async () => {
+  it('ignores Last-Event-ID: the streams are not resumable', async () => {
     const res = await rawPost(
       { jsonrpc: '2.0', id: 8, method: 'tools/list', params: { _meta: envelope() } },
       {
@@ -315,7 +315,7 @@ describe('révision 2026-07-28 — le fil', () => {
       },
     )
 
-    // Ignoré, pas rejeté : la spec demande de ne pas en tenir compte.
+    // Ignored, not rejected: the spec asks that it be disregarded.
     expect(res.status).toBe(200)
     expect(((await res.json()) as { result: { tools: unknown[] } }).result.tools).toHaveLength(4)
   })
@@ -323,30 +323,30 @@ describe('révision 2026-07-28 — le fil', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('compatibilité descendante', () => {
+describe('backward compatibility', () => {
   /**
-   * La migration ne coupe personne. Un client 2025 n'envoie aucun en-tête
-   * d'enveloppe ; `createMcpHandler` le route vers un service 2025 sans session,
-   * porté par la même fabrique et donc par les mêmes quatre outils. Un jour
-   * après la publication de la révision, c'est encore l'essentiel du parc.
+   * The migration cuts nobody off. A 2025 client sends no envelope header;
+   * `createMcpHandler` routes it to a sessionless 2025 service, carried by the
+   * same factory and therefore by the same four tools. One day after the
+   * revision was published, that is still most of the installed base.
    */
-  it('sert un client sans en-tête d’enveloppe (ère 2025)', async () => {
+  it('serves a client with no envelope header (2025 era)', async () => {
     const res = await rawPost({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} }, {})
 
     expect(res.status).toBe(200)
-    // Le repli peut répondre en SSE : on lit le texte brut et on y cherche la
-    // charge utile, sans présumer du cadrage.
+    // The fallback may answer in SSE: we read the raw text and look for the
+    // payload in it, without presuming the framing.
     const text = await res.text()
     expect(text).toContain('quote_risk')
     expect(text).toContain('request_warrant')
-    // Le vocabulaire 2026 n'a rien à faire dans une réponse 2025 : un client
-    // qui ne le connaît pas ne doit pas avoir à l'ignorer.
+    // The 2026 vocabulary has no business in a 2025 response: a client that does
+    // not know it should not have to ignore it.
     expect(text).not.toContain('resultType')
     expect(text).not.toContain('cacheScope')
   })
 
-  it('le flux x402 fonctionne aussi pour un client 2025', async () => {
-    // Aucune option de négociation : c'est le défaut du SDK, donc 2025.
+  it('makes the x402 flow work for a 2025 client too', async () => {
+    // No negotiation option: this is the SDK default, hence 2025.
     const client = new Client({ name: 'warrant-2025-client', version: '0.0.0' })
     await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl)))
 

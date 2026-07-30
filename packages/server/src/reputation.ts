@@ -1,54 +1,55 @@
 /**
- * ERC-8004 — inscription des verdicts Warrant dans le Reputation Registry.
+ * ERC-8004 — inscribing Warrant verdicts into the Reputation Registry.
  *
- * Ce module fait trois choses, et rien d'autre :
+ * This module does three things, and nothing else:
  *
- *   1. il construit le **document de feedback off-chain** au format normalisé
- *      de la spec ERC-8004 (§ « Off-Chain Feedback File Structure »), y compris
- *      le champ `proofOfPayment` qui est le pont normalisé entre le paiement
- *      x402 et la réputation ;
- *   2. il calcule `feedbackHash = keccak256(canonicalize(doc))` avec la
- *      canonicalisation JCS de `@warrant/core` — la même que celle qui produit
- *      le `conditionHash` onchain, une seule implémentation, jamais deux ;
- *   3. il appelle `giveFeedback` depuis l'adresse du Settler.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * Vocabulaire — un feedback ERC-8004 n'est jamais une attestation signée
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * EIP-712 et ERC-1271 n'y servent qu'à `setAgentWallet`. Aucune signature n'est
- * attachée à un feedback : l'authenticité repose **uniquement sur `msg.sender`**,
- * ici l'adresse du Settler. Le mot « signed » de la spec qualifie la *valeur*
- * (`int128`, donc négative possible), pas le message. Il n'y a ni attestation
- * détachée, ni relais possible par un tiers : celui qui note est celui qui
- * envoie la transaction.
- *
- * La formulation exacte est donc : verdict **inscrit** dans le registre par
- * l'adresse du Settler, avec engagement `keccak256` sur son contenu.
- *
- * La vérifiabilité vient du couple `feedbackURI` + `feedbackHash` : n'importe
- * qui télécharge le document, le canonicalise, recalcule le `keccak256` et
- * compare — voir `verifyFeedbackHash`.
+ *   1. it builds the **off-chain feedback document** in the normalised format of
+ *      the ERC-8004 spec (§ "Off-Chain Feedback File Structure"), including the
+ *      `proofOfPayment` field, which is the standard bridge between the x402
+ *      payment and reputation;
+ *   2. it computes `feedbackHash = keccak256(canonicalize(doc))` with
+ *      `@warrant/core`'s JCS canonicalisation — the same one that produces the
+ *      onchain `conditionHash`: one implementation, never two;
+ *   3. it calls `giveFeedback` from the Settler's address.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Ce qui n'est pas lisible en storage
+ * Vocabulary — an ERC-8004 feedback is never a signed attestation
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * `endpoint`, `feedbackURI` et `feedbackHash` ne sont **pas stockés**. Ils ne
- * sont émis que dans l'event `NewFeedback`. `readFeedback` ne rend que `value`,
- * `valueDecimals`, `tag1`, `tag2` et `isRevoked`. Relire un verdict Warrant
- * exige donc d'indexer les logs — c'est ce que fait `@warrant/reputation-reader`.
+ * EIP-712 and ERC-1271 are used there only by `setAgentWallet`. No signature is
+ * attached to a feedback: authenticity rests **solely on `msg.sender`**, here the
+ * Settler's address. The word "signed" in the spec qualifies the *value*
+ * (`int128`, hence possibly negative), not the message. There is neither a
+ * detached attestation nor any possibility of relaying by a third party: whoever
+ * rates is whoever sends the transaction.
+ *
+ * So the exact wording is: a verdict **inscribed** into the registry by the
+ * Settler's address, with a `keccak256` commitment over its content.
+ *
+ * Verifiability comes from the `feedbackURI` + `feedbackHash` pair: anyone
+ * downloads the document, canonicalises it, recomputes the `keccak256` and
+ * compares — see `verifyFeedbackHash`.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * What is not readable from storage
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * `endpoint`, `feedbackURI` and `feedbackHash` are **not stored**. They are only
+ * emitted in the `NewFeedback` event. `readFeedback` returns only `value`,
+ * `valueDecimals`, `tag1`, `tag2` and `isRevoked`. Reading a Warrant verdict back
+ * therefore requires indexing the logs — which is what
+ * `@warrant/reputation-reader` does.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * Sources
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * ABI et invariants repris verbatim de `erc-8004/erc-8004-contracts@master` :
+ * ABI and invariants taken verbatim from `erc-8004/erc-8004-contracts@master`:
  *   - `abis/ReputationRegistry.json`, `abis/IdentityRegistry.json`
- *   - `contracts/ReputationRegistryUpgradeable.sol` (garde-fou anti-auto-notation)
- *   - `ERC8004SPEC.md` (structure du fichier de feedback, `proofOfPayment`)
+ *   - `contracts/ReputationRegistryUpgradeable.sol` (anti-self-rating guard)
+ *   - `ERC8004SPEC.md` (feedback file structure, `proofOfPayment`)
  *
- * Voir docs/10-erc8004.md.
+ * See docs/10-erc8004.md.
  */
 
 import {
@@ -70,20 +71,20 @@ import type {
 import { encodeFunctionData, stringToHex } from 'viem'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ABI — récupérée, jamais inventée
+// ABI — obtained, never invented
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `ReputationRegistry`, sous-ensemble utile de
+ * `ReputationRegistry`, the useful subset of
  * `erc-8004/erc-8004-contracts@master:abis/ReputationRegistry.json`.
  *
- * `giveFeedback` prend **huit** paramètres. `endpoint`, en sixième position,
- * est le piège : il est optionnel, il ne nous sert à rien, et l'omettre décale
- * `feedbackURI` et `feedbackHash`. On le passe en chaîne vide, jamais absent.
+ * `giveFeedback` takes **eight** parameters. `endpoint`, in sixth position, is the
+ * trap: it is optional, it is of no use to us, and omitting it shifts
+ * `feedbackURI` and `feedbackHash`. We pass it as an empty string, never absent.
  *
- * ⚠ Les registres sont **upgradeable** (UUPS derrière un ERC-1967). L'ABI est
- * figée ici, mais elle décrit l'implémentation courante : à revérifier contre
- * l'implémentation, pas seulement contre le proxy.
+ * ⚠ The registries are **upgradeable** (UUPS behind an ERC-1967). The ABI is
+ * frozen here, but it describes the current implementation: re-verify it against
+ * the implementation, not only against the proxy.
  */
 export const reputationRegistryAbi = [
   {
@@ -198,18 +199,19 @@ export const reputationRegistryAbi = [
 ] as const
 
 /**
- * `IdentityRegistry` (ERC-721), sous-ensemble utile.
+ * `IdentityRegistry` (ERC-721), the useful subset.
  *
- * ⚠ `isAuthorizedOrOwner` est présente dans l'implémentation déployée
- * (`contracts/IdentityRegistryUpgradeable.sol`, ligne 205) et c'est **elle** que
- * `ReputationRegistry.giveFeedback` appelle pour interdire l'auto-notation.
- * Elle est pourtant **absente de `abis/IdentityRegistry.json`** : le fichier
- * d'ABI publié est en retard sur la source. On la déclare explicitement, et
- * `canGiveFeedback` sait retomber sur la décomposition ERC-721 équivalente
- * (`ownerOf` / `getApproved` / `isApprovedForAll`) si l'appel échoue.
+ * ⚠ `isAuthorizedOrOwner` is present in the deployed implementation
+ * (`contracts/IdentityRegistryUpgradeable.sol`, line 205) and it is **that**
+ * function `ReputationRegistry.giveFeedback` calls in order to forbid
+ * self-rating. It is nevertheless **absent from `abis/IdentityRegistry.json`**:
+ * the published ABI file lags behind the source. We declare it explicitly, and
+ * `canGiveFeedback` knows how to fall back to the equivalent ERC-721
+ * decomposition (`ownerOf` / `getApproved` / `isApprovedForAll`) if the call
+ * fails.
  *
- * Un seul `register` est déclaré — la surcharge à deux arguments — pour ne pas
- * exposer viem à une résolution de surcharge ambiguë.
+ * Only one `register` is declared — the two-argument overload — so as not to
+ * expose viem to an ambiguous overload resolution.
  */
 export const identityRegistryAbi = [
   {
@@ -303,23 +305,23 @@ export const identityRegistryAbi = [
 ] as const
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constantes du mapping Warrant → ERC-8004
+// Constants of the Warrant → ERC-8004 mapping
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Rend tous les feedbacks Warrant filtrables par n'importe quel client ERC-8004. */
+/** Makes every Warrant feedback filterable by any ERC-8004 client. */
 export const FEEDBACK_TAG1 = 'warrant' as const
 
 /**
- * `endpoint`, sixième paramètre de `giveFeedback`. Toujours la chaîne vide :
- * Warrant ne note pas un point de terminaison HTTP, il note un mandat.
- * Jamais omis — l'omettre décalerait `feedbackURI` et `feedbackHash`.
+ * `endpoint`, the sixth parameter of `giveFeedback`. Always the empty string:
+ * Warrant does not rate an HTTP endpoint, it rates a warrant. Never omitted —
+ * omitting it would shift `feedbackURI` and `feedbackHash`.
  */
 export const FEEDBACK_ENDPOINT = '' as const
 
-/** `valueDecimals = 2` → `value = ±100` se lit `+1.00` / `−1.00`. */
+/** `valueDecimals = 2` → `value = ±100` reads as `+1.00` / `−1.00`. */
 export const VERDICT_VALUE_DECIMALS = 2 as const
 
-/** `int128 value`, en unités de 10⁻². Négatif = saisie. */
+/** `int128 value`, in units of 10⁻². Negative = slash. */
 export const VERDICT_VALUE = {
   honored: 100n,
   slashed: -100n,
@@ -331,30 +333,30 @@ export const MAX_VALUE_DECIMALS = 18
 /** `MAX_ABS_VALUE = 1e38` — ReputationRegistryUpgradeable.sol:12. */
 export const MAX_ABS_VALUE = 10n ** 38n
 
-/** Base d'URI par défaut du document de verdict. */
+/** Default URI base of the verdict document. */
 export const DEFAULT_FEEDBACK_URI_BASE = 'https://warrant.sh/v/'
 
-/** Clés de métadonnées écrites sur l'identité de l'agent (docs/10 § 4). */
+/** Metadata keys written onto the agent's identity (docs/10 § 4). */
 export const METADATA_KEYS = {
   escrow: 'warrant.escrow',
   since: 'warrant.since',
 } as const
 
-/** Verdicts possibles d'un mandat, `reclaimed` compris. */
+/** The possible verdicts of a warrant, `reclaimed` included. */
 export type WarrantVerdict = 'honored' | 'slashed' | 'reclaimed'
 
 /**
- * Document de verdict tel que le produit le Settler, élargi à `reclaimed`.
- * `VerdictDocument` de `@warrant/core` ne connaît que `honored` / `slashed` :
- * un mandat expiré ne produit pas de document publiable, mais il traverse
- * quand même `publishVerdict`, qui doit pouvoir le refuser explicitement.
+ * The verdict document as the Settler produces it, widened to `reclaimed`.
+ * `@warrant/core`'s `VerdictDocument` only knows `honored` / `slashed`: an expired
+ * warrant produces no publishable document, but it still travels through
+ * `publishVerdict`, which must be able to refuse it explicitly.
  */
 export type PublishableVerdictDocument = Omit<VerdictDocument, 'verdict'> & {
   verdict: WarrantVerdict
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Erreurs
+// Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class ReputationError extends Error {
@@ -364,7 +366,7 @@ export class ReputationError extends Error {
   }
 }
 
-/** Raison pour laquelle le soumetteur ne peut pas noter cet `agentId`. */
+/** The reason the submitter cannot rate this `agentId`. */
 export type AuthorizationBlocker =
   | 'owner'
   | 'operator'
@@ -373,9 +375,9 @@ export type AuthorizationBlocker =
   | 'unknown'
 
 /**
- * Le soumetteur ne peut pas écrire ce feedback. Levée **avant** toute
- * transaction : découvrir le problème après 150 mandats réglés et zéro feedback
- * publié n'est pas une option.
+ * The submitter cannot write this feedback. Thrown **before** any transaction:
+ * discovering the problem after 150 settled warrants and zero published feedback
+ * is not an option.
  */
 export class ReputationAuthorizationError extends ReputationError {
   readonly blocker: AuthorizationBlocker
@@ -400,7 +402,7 @@ export class ReputationAuthorizationError extends ReputationError {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Clients — interfaces structurelles minimales, pour rester mockables
+// Clients — minimal structural interfaces, so they stay mockable
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ReadContractRequest {
@@ -419,43 +421,43 @@ export interface WriteContractRequest {
   chain?: unknown
 }
 
-/** Sous-ensemble de `PublicClient` dont ce module a besoin. */
+/** The subset of `PublicClient` this module needs. */
 export interface ReputationPublicClient {
   readContract(request: ReadContractRequest): Promise<unknown>
 }
 
-/** Sous-ensemble de `WalletClient` dont ce module a besoin. */
+/** The subset of `WalletClient` this module needs. */
 export interface ReputationWalletClient {
   writeContract(request: WriteContractRequest): Promise<Hex>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le document de feedback off-chain
+// The off-chain feedback document
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Pont normalisé entre le paiement x402 et la réputation, tel que défini par
- * `ERC8004SPEC.md` : *« this can be used for x402 proof of payment »*.
+ * The standard bridge between the x402 payment and reputation, as defined by
+ * `ERC8004SPEC.md`: *"this can be used for x402 proof of payment"*.
  *
- * On l'utilise plutôt qu'un format maison précisément pour qu'un client
- * ERC-8004 qui ne connaît pas Warrant sache quand même relier le feedback au
- * règlement qui l'a financé.
+ * We use it rather than a home-grown format precisely so that an ERC-8004 client
+ * that knows nothing of Warrant can still tie the feedback back to the settlement
+ * that funded it.
  *
- * `txHash` est le hash de la transaction d'**ouverture** du mandat, et non le
- * `fundingRef` : depuis que `open()` tire lui-même le paiement EIP-3009, c'est
- * cette transaction qui déplace l'USDC, et `fundingRef` n'est plus qu'un nonce
- * — unique, mais ne désignant aucune transaction. Un consommateur qui résout
- * `txHash` chez un explorateur doit tomber sur un transfert réel.
+ * `txHash` is the hash of the warrant's **opening** transaction, not the
+ * `fundingRef`: since `open()` pulls the EIP-3009 payment itself, that is the
+ * transaction that moves the USDC, and `fundingRef` is now only a nonce — unique,
+ * but designating no transaction. A consumer that resolves `txHash` on an
+ * explorer must land on a real transfer.
  */
 export interface ProofOfPayment {
   fromAddress: Address
   toAddress: Address
-  /** Chaîne décimale, comme dans l'exemple de la spec (`"1"`). */
+  /** Decimal string, as in the spec's example (`"1"`). */
   chainId: string
   txHash: Hex
 }
 
-/** Projection déterministe d'un mandat réglé à l'intérieur du document. */
+/** Deterministic projection of a settled warrant inside the document. */
 export interface WarrantVerdictRecord {
   warrantId: Hex
   executionId: string
@@ -470,34 +472,34 @@ export interface WarrantVerdictRecord {
   verdict: 'honored' | 'slashed'
   evaluatedAtBlock: string
   rpcUrl: string
-  /** `null` quand le règlement n'a pas encore de hash — jamais absent. */
+  /** `null` when the settlement has no hash yet — never absent. */
   settlementTx: Hex | null
-  /** Présent seulement dans un document agrégé, où il est par mandat. */
+  /** Present only in an aggregated document, where it sits per warrant. */
   proofOfPayment?: ProofOfPayment
 }
 
-/** Champs communs, au format normalisé de `ERC8004SPEC.md`. */
+/** Fields common to both, in `ERC8004SPEC.md`'s normalised format. */
 export interface FeedbackDocumentBase {
-  // MUST FIELDS de la spec
+  // The spec's MUST FIELDS
   agentRegistry: string
   agentId: number
   clientAddress: string
   createdAt: string
   value: number
   valueDecimals: number
-  // OPTIONAL FIELDS que Warrant remplit
+  // The OPTIONAL FIELDS Warrant fills in
   tag1: typeof FEEDBACK_TAG1
   tag2: 'honored' | 'slashed'
   endpoint: string
 }
 
-/** Un mandat, un feedback. Le cas d'une saisie. */
+/** One warrant, one feedback. The slash case. */
 export interface SingleFeedbackDocument extends FeedbackDocumentBase {
   proofOfPayment?: ProofOfPayment
   warrant: WarrantVerdictRecord
 }
 
-/** N mandats honorés, un feedback agrégé. Le cas du lot (docs/10 § 5). */
+/** N honored warrants, one aggregated feedback. The batch case (docs/10 § 5). */
 export interface BatchFeedbackDocument extends FeedbackDocumentBase {
   warrantCount: number
   warrants: WarrantVerdictRecord[]
@@ -505,30 +507,31 @@ export interface BatchFeedbackDocument extends FeedbackDocumentBase {
 
 export type FeedbackDocument = SingleFeedbackDocument | BatchFeedbackDocument
 
-/** `eip155:<chainId>:<address>` — la forme CAIP-10 employée par la spec. */
+/** `eip155:<chainId>:<address>` — the CAIP-10 form the spec uses. */
 export function caip10(chainId: number, address: Address): string {
   return `eip155:${chainId}:${address.toLowerCase()}`
 }
 
 function lowerHex(value: string, path: string): Hex {
   if (!/^0x[0-9a-fA-F]*$/.test(value)) {
-    throw new ReputationError(`${path}: attendu un hex 0x…, reçu ${JSON.stringify(value)}`)
+    throw new ReputationError(`${path}: expected a 0x… hex string, got ${JSON.stringify(value)}`)
   }
   return value.toLowerCase() as Hex
 }
 
 /**
- * Reconstruit un enregistrement de mandat depuis une liste blanche.
+ * Rebuilds a warrant record from an allow-list.
  *
- * Deux exclusions volontaires :
- *   - `reputationTx` : le hash de la transaction ERC-8004 n'est connu qu'après
- *     l'écriture. L'inclure rendrait `feedbackHash` circulaire et invérifiable.
- *   - tout champ inattendu du document d'entrée : rien d'imprévu ne doit se
- *     glisser dans ce qui est haché.
+ * Two deliberate exclusions:
+ *   - `reputationTx`: the hash of the ERC-8004 transaction is only known after
+ *     the write. Including it would make `feedbackHash` circular and
+ *     unverifiable.
+ *   - any unexpected field of the input document: nothing unforeseen must slip
+ *     into what gets hashed.
  *
- * `settlementTx` absent devient `null` plutôt que d'être omis — même règle que
- * `@warrant/core` : aucun champ optionnel absent, sinon deux documents
- * sémantiquement identiques produiraient deux hashs (docs/07 § 4, règle 4).
+ * An absent `settlementTx` becomes `null` rather than being omitted — the same
+ * rule as `@warrant/core`: no absent optional field, otherwise two semantically
+ * identical documents would produce two hashes (docs/07 § 4, rule 4).
  */
 export function toVerdictRecord(
   doc: PublishableVerdictDocument,
@@ -536,8 +539,8 @@ export function toVerdictRecord(
 ): WarrantVerdictRecord {
   if (doc.verdict === 'reclaimed') {
     throw new ReputationError(
-      "un mandat 'reclaimed' ne produit aucun document de feedback : " +
-        "l'expiration n'est la faute de personne (docs/10 § 5)",
+      "a 'reclaimed' warrant produces no feedback document: expiry is nobody's " +
+        'fault (docs/10 § 5)',
     )
   }
 
@@ -584,13 +587,13 @@ function normalizeProof(p: ProofOfPayment): ProofOfPayment {
 export interface BuildFeedbackOptions {
   agentId: bigint | number
   chainId: number
-  /** Adresse du Settler — l'auteur onchain, et la seule preuve d'origine. */
+  /** The Settler's address — the onchain author, and the only proof of origin. */
   settler: Address
-  /** `IdentityRegistry` de la chaîne, pour le champ `agentRegistry`. */
+  /** The chain's `IdentityRegistry`, for the `agentRegistry` field. */
   identityRegistry: Address
-  /** Preuve de paiement x402 du mandat (`fundingRef`). */
+  /** The warrant's x402 proof of payment (`fundingRef`). */
   proofOfPayment?: ProofOfPayment
-  /** ISO 8601 UTC. Injecté pour rendre le hash reproductible en test. */
+  /** ISO 8601 UTC. Injected to make the hash reproducible in tests. */
   createdAt?: string
 }
 
@@ -598,9 +601,9 @@ function agentIdAsNumber(agentId: bigint | number): number {
   const n = typeof agentId === 'bigint' ? Number(agentId) : agentId
   if (!Number.isSafeInteger(n) || n < 0) {
     throw new ReputationError(
-      `agentId ${agentId} n'est pas un entier JSON sûr ; le document de feedback ` +
-        "de la spec le sérialise en nombre, pas en chaîne — l'implémentation " +
-        'devra être revue si le registre atteint 2⁵³ identités',
+      `agentId ${agentId} is not a safe JSON integer; the spec's feedback document ` +
+        'serialises it as a number, not as a string — this implementation will have ' +
+        'to be revisited if the registry ever reaches 2⁵³ identities',
     )
   }
   return n
@@ -628,9 +631,9 @@ function baseDocument(
 }
 
 /**
- * Construit le document de feedback d'un mandat unique.
+ * Builds the feedback document of a single warrant.
  *
- * @throws {ReputationError} sur un verdict `reclaimed` — il n'y a rien à publier.
+ * @throws {ReputationError} on a `reclaimed` verdict — there is nothing to publish.
  */
 export function buildFeedbackDocument(
   doc: PublishableVerdictDocument,
@@ -638,9 +641,8 @@ export function buildFeedbackDocument(
 ): SingleFeedbackDocument {
   if (doc.verdict === 'reclaimed') {
     throw new ReputationError(
-      "aucun feedback n'est publié pour un mandat 'reclaimed' : une défaillance " +
-        "d'infrastructure ne doit jamais dégrader la réputation d'un agent " +
-        '(docs/10 § 5)',
+      "no feedback is published for a 'reclaimed' warrant: an infrastructure " +
+        "failure must never degrade an agent's reputation (docs/10 § 5)",
     )
   }
 
@@ -653,11 +655,11 @@ export function buildFeedbackDocument(
 }
 
 /**
- * Construit le document agrégé d'un lot de mandats honorés.
+ * Builds the aggregated document of a batch of honored warrants.
  *
- * `proofOfPayment` reste au niveau de chaque mandat : un lot recouvre N
- * règlements x402 distincts, et en hisser un seul au niveau du document
- * laisserait croire qu'il les couvre tous.
+ * `proofOfPayment` stays at the level of each warrant: a batch covers N distinct
+ * x402 settlements, and hoisting a single one up to document level would suggest
+ * it covered them all.
  */
 export function buildBatchFeedbackDocument(
   docs: readonly PublishableVerdictDocument[],
@@ -666,13 +668,13 @@ export function buildBatchFeedbackDocument(
   },
 ): BatchFeedbackDocument {
   if (docs.length === 0) {
-    throw new ReputationError('lot vide : rien à publier')
+    throw new ReputationError('empty batch: nothing to publish')
   }
   const offenders = docs.filter((d) => d.verdict !== 'honored')
   if (offenders.length > 0) {
     throw new ReputationError(
-      "un lot n'agrège que des mandats honorés ; une saisie s'écrit " +
-        `immédiatement et seule (verdicts reçus : ${[...new Set(offenders.map((d) => d.verdict))].join(', ')})`,
+      'a batch only aggregates honored warrants; a slash is written immediately ' +
+        `and on its own (verdicts received: ${[...new Set(offenders.map((d) => d.verdict))].join(', ')})`,
     )
   }
 
@@ -690,32 +692,32 @@ export function buildBatchFeedbackDocument(
 /**
  * `feedbackHash = keccak256(utf8(canonicalize(doc)))`.
  *
- * Même canonicalisation JCS que le `conditionHash` onchain : une seule
- * implémentation, réimplémentable en Python ou en Go à l'octet près.
+ * The same JCS canonicalisation as the onchain `conditionHash`: one
+ * implementation, reimplementable byte-for-byte in Python or in Go.
  */
 export function feedbackHashOf(doc: FeedbackDocument): Hex {
   return hashCanonical(canonicalize(doc))
 }
 
-/** Forme canonique servie à `feedbackURI`. C'est elle qui est hachée. */
+/** The canonical form served at `feedbackURI`. It is the one that gets hashed. */
 export function canonicalFeedbackDocument(doc: FeedbackDocument): string {
   return canonicalize(doc)
 }
 
 /**
- * Vérification côté tiers : télécharger le document, le canonicaliser,
- * recalculer le `keccak256`, comparer à ce qui a été émis dans `NewFeedback`.
+ * Third-party verification: download the document, canonicalise it, recompute the
+ * `keccak256`, compare against what was emitted in `NewFeedback`.
  */
 export function verifyFeedbackHash(doc: FeedbackDocument, expected: Hex): boolean {
   return feedbackHashOf(doc) === expected.toLowerCase()
 }
 
-/** URI stable du document de verdict d'un mandat. */
+/** Stable URI of a warrant's verdict document. */
 export function feedbackUriFor(warrantId: Hex, base = DEFAULT_FEEDBACK_URI_BASE): string {
   return `${base}${warrantId.toLowerCase()}`
 }
 
-/** URI stable d'un lot, indexé par le hash de son contenu. */
+/** Stable URI of a batch, indexed by the hash of its content. */
 export function batchFeedbackUriFor(
   feedbackHash: Hex,
   base = DEFAULT_FEEDBACK_URI_BASE,
@@ -724,11 +726,11 @@ export function batchFeedbackUriFor(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Les huit arguments
+// The eight arguments
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le tuple positionnel de `giveFeedback`, dans l'ordre exact de l'ABI :
+ * The positional tuple of `giveFeedback`, in the exact order of the ABI:
  * `agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash`.
  */
 export type GiveFeedbackArgs = readonly [
@@ -743,8 +745,8 @@ export type GiveFeedbackArgs = readonly [
 ]
 
 /**
- * Assemble les huit arguments. Séparé de l'envoi pour que le mapping soit
- * testable à sec, sans client ni réseau.
+ * Assembles the eight arguments. Split from the send so that the mapping is
+ * testable dry, with neither client nor network.
  */
 export function giveFeedbackArgs(opts: {
   agentId: bigint | number
@@ -755,12 +757,12 @@ export function giveFeedbackArgs(opts: {
   const agentId = BigInt(opts.agentId)
   const value = VERDICT_VALUE[opts.verdict]
 
-  // Bornes reprises telles quelles de ReputationRegistryUpgradeable.sol.
+  // Bounds taken as-is from ReputationRegistryUpgradeable.sol.
   if (value < -MAX_ABS_VALUE || value > MAX_ABS_VALUE) {
-    throw new ReputationError(`value ${value} hors bornes ±1e38`)
+    throw new ReputationError(`value ${value} is outside the ±1e38 bounds`)
   }
   if (VERDICT_VALUE_DECIMALS > MAX_VALUE_DECIMALS) {
-    throw new ReputationError(`valueDecimals doit rester ≤ ${MAX_VALUE_DECIMALS}`)
+    throw new ReputationError(`valueDecimals must stay ≤ ${MAX_VALUE_DECIMALS}`)
   }
 
   return [
@@ -769,7 +771,7 @@ export function giveFeedbackArgs(opts: {
     VERDICT_VALUE_DECIMALS,
     FEEDBACK_TAG1,
     opts.verdict,
-    // Sixième position. Vide, jamais absent.
+    // Sixth position. Empty, never absent.
     FEEDBACK_ENDPOINT,
     opts.feedbackURI,
     lowerHex(opts.feedbackHash, 'feedbackHash'),
@@ -777,7 +779,7 @@ export function giveFeedbackArgs(opts: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le garde-fou anti-auto-notation
+// The anti-self-rating guard
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface IdentityContext {
@@ -789,21 +791,21 @@ export interface AuthorizationVerdict {
   ok: boolean
   blocker?: AuthorizationBlocker
   agentOwner?: Address
-  /** Comment la réponse a été obtenue — utile en diagnostic. */
+  /** How the answer was obtained — useful when diagnosing. */
   via: 'isAuthorizedOrOwner' | 'erc721-decomposition'
 }
 
 /**
- * Le soumetteur peut-il noter cet `agentId` ?
+ * Can the submitter rate this `agentId`?
  *
- * `giveFeedback` exige `!isAuthorizedOrOwner(msg.sender, agentId)` — le
- * soumetteur ne doit être ni owner, ni opérateur approuvé, ni approuvé sur le
- * jeton (ReputationRegistryUpgradeable.sol:110). On reproduit exactement le même
- * prédicat, en appelant d'abord la fonction que le registre appelle lui-même.
+ * `giveFeedback` requires `!isAuthorizedOrOwner(msg.sender, agentId)` — the
+ * submitter must be neither the owner, nor an approved operator, nor approved on
+ * the token (ReputationRegistryUpgradeable.sol:110). We reproduce exactly the same
+ * predicate, calling first the function the registry itself calls.
  *
- * Si cet appel échoue — l'implémentation courante peut différer, et la fonction
- * est absente de l'ABI publiée — on retombe sur la décomposition ERC-721
- * équivalente, celle qu'implémente `_isAuthorized` d'OpenZeppelin.
+ * If that call fails — the current implementation may differ, and the function is
+ * absent from the published ABI — we fall back to the equivalent ERC-721
+ * decomposition, the one OpenZeppelin's `_isAuthorized` implements.
  */
 export async function canGiveFeedback(
   agentId: bigint | number,
@@ -821,7 +823,7 @@ export async function canGiveFeedback(
       args: [who, id],
     })) as boolean
     if (!authorized) return { ok: true, via: 'isAuthorizedOrOwner' }
-    // Le registre refuserait. On cherche l'owner pour un message utile.
+    // The registry would refuse. We look up the owner for a useful message.
     const owner = await safeOwnerOf(id, ctx)
     return {
       ok: false,
@@ -830,14 +832,14 @@ export async function canGiveFeedback(
       via: 'isAuthorizedOrOwner',
     }
   } catch {
-    // Repli : décomposition ERC-721.
+    // Fallback: ERC-721 decomposition.
   }
 
   const lookup = await lookupOwner(id, ctx)
   if (lookup.kind !== 'found') {
-    // Distinguer les deux échecs compte : un agent inexistant est une situation
-    // normale (l'identité ERC-8004 est optionnelle), un RPC muet ne permet de
-    // conclure à rien — et dans le doute on n'écrit pas.
+    // Telling the two failures apart matters: a nonexistent agent is a normal
+    // situation (the ERC-8004 identity is optional), whereas a silent RPC lets us
+    // conclude nothing — and when in doubt we do not write.
     return {
       ok: false,
       blocker: lookup.kind === 'nonexistent' ? 'agent-not-registered' : 'unknown',
@@ -880,7 +882,7 @@ export async function canGiveFeedback(
       }
     }
   } catch {
-    // Indéterminé : on ne conclut pas à « autorisé », on refuse d'écrire.
+    // Indeterminate: we do not conclude it is authorised, we refuse to write.
     return {
       ok: false,
       blocker: 'unknown',
@@ -894,16 +896,16 @@ export async function canGiveFeedback(
 
 type OwnerLookup =
   | { kind: 'found'; owner: Address }
-  /** `ERC721NonexistentToken` — l'agentId n'a jamais été frappé. */
+  /** `ERC721NonexistentToken` — the agentId was never minted. */
   | { kind: 'nonexistent' }
-  /** La chaîne n'a pas répondu. On n'en conclut rien. */
+  /** The chain did not answer. We conclude nothing from it. */
   | { kind: 'unavailable'; error: string }
 
 /**
- * Un revert applicatif se reconnaît à son texte ; tout le reste (transport,
- * timeout, nœud saturé) reste « indéterminé ». Approximation assumée : viem
- * expose des classes d'erreur, mais on ne veut pas lier ce module à leur
- * hiérarchie ni la reproduire dans chaque mock de test.
+ * An application-level revert is recognised by its text; everything else
+ * (transport, timeout, saturated node) stays "indeterminate". A deliberate
+ * approximation: viem exposes error classes, but we do not want to couple this
+ * module to their hierarchy, nor to reproduce it in every test mock.
  */
 function looksLikeRevert(e: unknown): boolean {
   const text = `${e instanceof Error ? `${e.name} ${e.message}` : String(e)}`.toLowerCase()
@@ -942,18 +944,18 @@ async function safeOwnerOf(
 }
 
 const BLOCKER_MESSAGE: Record<AuthorizationBlocker, string> = {
-  owner: 'il en est le **owner**',
-  operator: 'il en est un **operator** approuvé',
-  approved: 'il est **approuvé** sur ce jeton',
-  'agent-not-registered': "cet agentId n'existe pas dans l'IdentityRegistry",
-  unknown: 'la vérification onchain a échoué',
+  owner: 'it is its **owner**',
+  operator: 'it is an approved **operator** of it',
+  approved: 'it is **approved** on that token',
+  'agent-not-registered': 'that agentId does not exist in the IdentityRegistry',
+  unknown: 'the onchain check failed',
 }
 
 /**
- * Refuse d'écrire si le soumetteur ne peut pas noter cet agent.
+ * Refuses to write if the submitter cannot rate this agent.
  *
- * À appeler **avant** la transaction. Sans elle, on découvrirait le problème
- * avec 150 mandats réglés et zéro feedback publié.
+ * To be called **before** the transaction. Without it, we would discover the
+ * problem with 150 settled warrants and zero published feedback.
  *
  * @throws {ReputationAuthorizationError}
  */
@@ -971,16 +973,16 @@ export async function assertCanGiveFeedback(
 
   const remedy =
     blocker === 'agent-not-registered'
-      ? "Enregistrer l'agent depuis sa propre adresse avant de le noter — " +
-        "l'enregistrement Warrant est optionnel et jamais bloquant (docs/10 § 4)."
+      ? 'Register the agent from its own address before rating it — Warrant ' +
+        'registration is optional and never blocking (docs/10 § 4).'
       : blocker === 'unknown'
-        ? "Dans le doute on n'écrit pas : un feedback qui reverterait est du gas " +
-          "perdu, et un feedback écrit à tort n'est pas rattrapable. Réessayer " +
-          'quand le RPC répond.'
-        : "L'agent doit être owner de son propre NFT ERC-8004, jamais Warrant, et " +
-        "le Settler doit être une adresse tierce, ni owner ni operator. Si l'agent " +
-        'a été enregistré depuis une adresse Warrant, aucun verdict ne pourra ' +
-        'jamais être inscrit pour lui (docs/10 § 4).'
+        ? 'When in doubt we do not write: a feedback that would revert is wasted ' +
+          'gas, and a feedback written by mistake cannot be taken back. Retry once ' +
+          'the RPC answers.'
+        : 'The agent must be the owner of its own ERC-8004 NFT, never Warrant, and ' +
+        'the Settler must be a third-party address, neither owner nor operator. If ' +
+        'the agent was registered from a Warrant address, no verdict will ever be ' +
+        'inscribable for it (docs/10 § 4).'
 
   throw new ReputationAuthorizationError({
     blocker,
@@ -988,28 +990,29 @@ export async function assertCanGiveFeedback(
     submitter: settler.toLowerCase() as Address,
     ...(verdict.agentOwner ? { agentOwner: verdict.agentOwner } : {}),
     message:
-      `giveFeedback reverterait ("Self-feedback not allowed") : le soumetteur ` +
-      `${settler.toLowerCase()} ne peut pas noter l'agentId ${id} car ${detail}` +
-      (verdict.agentOwner ? ` (owner actuel : ${verdict.agentOwner})` : '') +
+      `giveFeedback would revert ("Self-feedback not allowed"): submitter ` +
+      `${settler.toLowerCase()} cannot rate agentId ${id} because ${detail}` +
+      (verdict.agentOwner ? ` (current owner: ${verdict.agentOwner})` : '') +
       `. ${remedy}`,
   })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Politique d'écriture (docs/10 § 5)
+// Write policy (docs/10 § 5)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type WritePolicy = 'immediate' | 'batch' | 'never'
 
 /**
- * Quand écrire.
+ * When to write.
  *
- *   - `slashed`   → immédiatement. C'est le signal qui a de la valeur.
- *   - `honored`   → par lots. Écrire à chaque règlement doublerait le nombre de
- *                   transactions pour un signal peu informatif pris isolément.
- *   - `reclaimed` → **jamais**. Un mandat expiré n'est la faute de personne ;
- *                   noter négativement une défaillance de notre propre
- *                   infrastructure ferait de Warrant un vecteur de dénigrement.
+ *   - `slashed`   → immediately. That is the signal that carries value.
+ *   - `honored`   → in batches. Writing on every settlement would double the
+ *                   transaction count for a signal that is barely informative
+ *                   taken in isolation.
+ *   - `reclaimed` → **never**. An expired warrant is nobody's fault; rating our
+ *                   own infrastructure's failure negatively would turn Warrant
+ *                   into a vector of disparagement.
  */
 export function writePolicyFor(verdict: WarrantVerdict): WritePolicy {
   switch (verdict) {
@@ -1023,7 +1026,7 @@ export function writePolicyFor(verdict: WarrantVerdict): WritePolicy {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Écriture
+// Writing
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface PublishVerdictOptions extends BuildFeedbackOptions {
@@ -1031,27 +1034,27 @@ export interface PublishVerdictOptions extends BuildFeedbackOptions {
   walletClient: ReputationWalletClient
   publicClient: ReputationPublicClient
   chain?: unknown
-  /** Base d'URI du document de verdict. */
+  /** URI base of the verdict document. */
   feedbackURIBase?: string
-  /** URI explicite, si le document n'est pas servi à l'emplacement par défaut. */
+  /** Explicit URI, when the document is not served at the default location. */
   feedbackURI?: string
   /**
-   * `auto` (défaut) applique docs/10 § 5 : immédiat sur `slashed`, différé sur
-   * `honored`, jamais sur `reclaimed`. `immediate` force l'écriture d'un
-   * `honored` isolé — et ne peut **pas** forcer celle d'un `reclaimed`.
+   * `auto` (the default) applies docs/10 § 5: immediate on `slashed`, deferred on
+   * `honored`, never on `reclaimed`. `immediate` forces the write of an isolated
+   * `honored` — and **cannot** force that of a `reclaimed`.
    */
   mode?: 'auto' | 'immediate'
   /**
-   * Court-circuite la pré-vérification onchain. À n'utiliser que quand
-   * l'autorisation vient d'être vérifiée pour le même couple (agentId, settler).
+   * Short-circuits the onchain pre-check. To be used only when authorization has
+   * just been verified for the same (agentId, settler) pair.
    */
   skipAuthorizationCheck?: boolean
 }
 
 export type PublishSkipReason =
-  /** Verdict `reclaimed` : aucune écriture, jamais. */
+  /** `reclaimed` verdict: no write, ever. */
   | 'reclaimed'
-  /** Verdict `honored` : le document est prêt, l'écriture part avec le lot. */
+  /** `honored` verdict: the document is ready, the write goes out with the batch. */
   | 'batched'
 
 export type PublishResult =
@@ -1066,20 +1069,20 @@ export type PublishResult =
   | {
       written: false
       reason: PublishSkipReason
-      /** Absent sur `reclaimed` : il n'y a rien à publier, ni maintenant ni plus tard. */
+      /** Absent on `reclaimed`: there is nothing to publish, now or later. */
       document?: SingleFeedbackDocument
       feedbackURI?: string
       feedbackHash?: Hex
     }
 
 /**
- * Inscrit un verdict dans le Reputation Registry.
+ * Inscribes a verdict into the Reputation Registry.
  *
- * L'ordre est celui-ci, et il compte :
- *   1. politique d'écriture — un `reclaimed` s'arrête ici ;
- *   2. construction du document normalisé et de son `feedbackHash` ;
- *   3. vérification que le Settler peut noter cet agent ;
- *   4. `giveFeedback`, huit arguments, depuis l'adresse du Settler.
+ * The order is this one, and it matters:
+ *   1. write policy — a `reclaimed` stops here;
+ *   2. construction of the normalised document and of its `feedbackHash`;
+ *   3. verification that the Settler can rate this agent;
+ *   4. `giveFeedback`, eight arguments, from the Settler's address.
  */
 export async function publishVerdict(
   verdictDocument: PublishableVerdictDocument,
@@ -1087,12 +1090,12 @@ export async function publishVerdict(
 ): Promise<PublishResult> {
   const policy = writePolicyFor(verdictDocument.verdict)
 
-  // 1. `reclaimed` : rien, quel que soit le mode. Non négociable.
+  // 1. `reclaimed`: nothing, whatever the mode. Non-negotiable.
   if (policy === 'never') {
     return { written: false, reason: 'reclaimed' }
   }
 
-  // 2. Le document et son engagement.
+  // 2. The document and its commitment.
   const document = buildFeedbackDocument(verdictDocument, opts)
   const feedbackHash = feedbackHashOf(document)
   const feedbackURI =
@@ -1103,7 +1106,7 @@ export async function publishVerdict(
     return { written: false, reason: 'batched', document, feedbackURI, feedbackHash }
   }
 
-  // 3. Le Settler peut-il noter cet agent ?
+  // 3. Can the Settler rate this agent?
   if (!opts.skipAuthorizationCheck) {
     await assertCanGiveFeedback(opts.agentId, opts.settler, {
       publicClient: opts.publicClient,
@@ -1111,8 +1114,8 @@ export async function publishVerdict(
     })
   }
 
-  // 4. L'écriture. Le compte utilisé *est* la preuve d'origine : aucune
-  //    signature n'est attachée à un feedback ERC-8004.
+  // 4. The write. The account used *is* the proof of origin: no signature is
+  //    attached to an ERC-8004 feedback.
   const args = giveFeedbackArgs({
     agentId: opts.agentId,
     verdict: document.tag2,
@@ -1132,7 +1135,7 @@ export async function publishVerdict(
   return { written: true, txHash, feedbackURI, feedbackHash, document, args }
 }
 
-/** Inscrit un lot de mandats honorés en un seul feedback agrégé. */
+/** Inscribes a batch of honored warrants as a single aggregated feedback. */
 export async function publishBatch(
   verdictDocuments: readonly PublishableVerdictDocument[],
   opts: PublishVerdictOptions & {
@@ -1171,17 +1174,17 @@ export async function publishBatch(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le lot
+// The batch
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface BatchPolicy {
-  /** Nombre de mandats honorés au-delà duquel le lot part. */
+  /** Number of honored warrants beyond which the batch goes out. */
   maxBatchSize: number
-  /** Âge du plus ancien mandat en attente au-delà duquel le lot part. */
+  /** Age of the oldest pending warrant beyond which the batch goes out. */
   maxAgeMs: number
 }
 
-/** « toutes les N exécutions ou toutes les 24 h » (docs/10 § 5). */
+/** "every N executions or every 24 h" (docs/10 § 5). */
 export const DEFAULT_BATCH_POLICY: BatchPolicy = {
   maxBatchSize: 25,
   maxAgeMs: 24 * 60 * 60 * 1000,
@@ -1193,11 +1196,11 @@ interface Pending {
 }
 
 /**
- * File d'attente des mandats honorés, par `agentId`.
+ * Queue of honored warrants, keyed by `agentId`.
  *
- * Volontairement en mémoire et sans E/S : le Settler la persiste s'il le
- * souhaite. Ce qu'elle garantit, c'est que rien d'autre qu'un `honored` n'y
- * entre — une saisie s'écrit immédiatement, un `reclaimed` ne s'écrit jamais.
+ * Deliberately in memory and free of I/O: the Settler persists it if it wants to.
+ * What it guarantees is that nothing other than an `honored` gets in — a slash is
+ * written immediately, a `reclaimed` is never written.
  */
 export class VerdictBatcher {
   readonly policy: BatchPolicy
@@ -1209,12 +1212,12 @@ export class VerdictBatcher {
     this.clock = clock
   }
 
-  /** @throws {ReputationError} si le verdict n'est pas `honored`. */
+  /** @throws {ReputationError} if the verdict is not `honored`. */
   enqueue(agentId: bigint | number, doc: PublishableVerdictDocument): void {
     if (doc.verdict !== 'honored') {
       throw new ReputationError(
-        `seuls les mandats honorés sont mis en lot ; reçu '${doc.verdict}' ` +
-          "(une saisie s'écrit immédiatement, une expiration ne s'écrit jamais)",
+        `only honored warrants are batched; got '${doc.verdict}' ` +
+          '(a slash is written immediately, an expiry is never written)',
       )
     }
     const key = BigInt(agentId).toString()
@@ -1227,7 +1230,7 @@ export class VerdictBatcher {
     return this.queues.get(BigInt(agentId).toString())?.documents.length ?? 0
   }
 
-  /** `agentId` dont le lot a atteint la taille ou l'âge de déclenchement. */
+  /** The `agentId` values whose batch has reached the trigger size or age. */
   due(): bigint[] {
     const now = this.clock()
     const out: bigint[] = []
@@ -1242,7 +1245,7 @@ export class VerdictBatcher {
     return out
   }
 
-  /** Vide la file d'un agent et rend les documents en attente. */
+  /** Empties an agent's queue and returns the pending documents. */
   drain(agentId: bigint | number): PublishableVerdictDocument[] {
     const key = BigInt(agentId).toString()
     const q = this.queues.get(key)
@@ -1251,24 +1254,25 @@ export class VerdictBatcher {
     return q.documents
   }
 
-  /** Tous les `agentId` ayant au moins un mandat en attente. */
+  /** Every `agentId` with at least one pending warrant. */
   agents(): bigint[] {
     return [...this.queues.keys()].map((k) => BigInt(k))
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Identité — optionnelle, jamais bloquante
+// Identity — optional, never blocking
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `IdentityRegistry.register` **frappe le NFT au profit de `msg.sender`** : il
- * n'existe aucune surcharge `registerFor(owner, …)`. Warrant ne peut donc pas
- * enregistrer un agent « pour son compte » depuis sa propre adresse sans en
- * devenir le owner — ce qui interdirait ensuite au Settler de le noter à jamais.
+ * `IdentityRegistry.register` **mints the NFT to `msg.sender`**: there is no
+ * `registerFor(owner, …)` overload. Warrant therefore cannot register an agent
+ * "on its behalf" from its own address without becoming its owner — which would
+ * then forbid the Settler from ever rating it.
  *
- * Conséquence assumée : Warrant **prépare** la transaction, l'agent l'envoie.
- * C'est ce que rend cette fonction — un `{ to, data }` à signer par l'agent.
+ * The consequence we accept: Warrant **prepares** the transaction, the agent
+ * sends it. That is what this function returns — a `{ to, data }` for the agent to
+ * sign.
  */
 export function buildAgentRegistration(opts: {
   identityRegistry?: Address
@@ -1300,19 +1304,19 @@ export function buildAgentRegistration(opts: {
     }),
     value: 0n,
     note:
-      "cette transaction doit être envoyée par l'agent lui-même : `register` " +
-      "frappe le NFT au profit de `msg.sender`, et un agent dont Warrant serait " +
-      'owner ne pourrait plus jamais être noté par le Settler (docs/10 § 4)',
+      'this transaction must be sent by the agent itself: `register` mints the ' +
+      'NFT to `msg.sender`, and an agent that Warrant owned could never again be ' +
+      'rated by the Settler (docs/10 § 4)',
   }
 }
 
 /**
- * Calldata de mise à jour des métadonnées Warrant.
+ * Calldata for updating the Warrant metadata.
  *
- * `setMetadata` n'est ouverte qu'au owner et aux operators : ces appels sont
- * eux aussi à envoyer par l'agent, pas par Warrant. Les valeurs sont des
- * chaînes UTF-8 — la spec ne fixe aucun encodage pour `bytes metadataValue`, et
- * une chaîne reste lisible telle quelle dans un explorateur.
+ * `setMetadata` is open only to the owner and to operators: these calls, too, are
+ * for the agent to send, not Warrant. The values are UTF-8 strings — the spec
+ * fixes no encoding for `bytes metadataValue`, and a string stays readable as-is
+ * in an explorer.
  */
 export function buildWarrantMetadataCalls(opts: {
   identityRegistry?: Address
@@ -1338,20 +1342,20 @@ export function buildWarrantMetadataCalls(opts: {
 }
 
 export type IdentityStatus =
-  /** L'agent a un `agentId` utilisable et le Settler peut le noter. */
+  /** The agent has a usable `agentId` and the Settler can rate it. */
   | { status: 'usable'; agentId: bigint }
-  /** L'agent a un `agentId`, mais le Settler ne peut pas le noter. */
+  /** The agent has an `agentId`, but the Settler cannot rate it. */
   | { status: 'unnotable'; agentId: bigint; reason: string }
-  /** Pas d'identité ERC-8004. Warrant fonctionne quand même. */
+  /** No ERC-8004 identity. Warrant works all the same. */
   | { status: 'absent'; reason: string }
-  /** La chaîne n'a pas répondu. On n'en déduit rien. */
+  /** The chain did not answer. We infer nothing from it. */
   | { status: 'unavailable'; reason: string }
 
 /**
- * Établit ce qu'on peut faire de l'identité ERC-8004 d'un agent, **sans jamais
- * lever**. Un agent peut utiliser Warrant sans identité ERC-8004 : il n'aura
- * simplement pas de trace de réputation. Aucune de ces situations ne doit
- * empêcher un mandat de s'ouvrir ou de se régler.
+ * Establishes what can be done with an agent's ERC-8004 identity, **without ever
+ * throwing**. An agent can use Warrant with no ERC-8004 identity: it simply will
+ * not have a reputation trace. None of these situations must prevent a warrant
+ * from opening or from settling.
  */
 export async function inspectAgentIdentity(
   agentId: bigint | number | undefined,
@@ -1361,7 +1365,7 @@ export async function inspectAgentIdentity(
   if (agentId === undefined || agentId === null) {
     return {
       status: 'absent',
-      reason: "aucun agentId fourni — l'identité ERC-8004 est optionnelle",
+      reason: 'no agentId supplied — the ERC-8004 identity is optional',
     }
   }
   const id = BigInt(agentId)
@@ -1369,20 +1373,20 @@ export async function inspectAgentIdentity(
     const verdict = await canGiveFeedback(id, settler, ctx)
     if (verdict.ok) return { status: 'usable', agentId: id }
     if (verdict.blocker === 'agent-not-registered') {
-      return { status: 'absent', reason: `agentId ${id} inconnu de l'IdentityRegistry` }
+      return { status: 'absent', reason: `agentId ${id} unknown to the IdentityRegistry` }
     }
     if (verdict.blocker === 'unknown') {
       return {
         status: 'unavailable',
-        reason: `vérification onchain non concluante pour l'agentId ${id}`,
+        reason: `inconclusive onchain check for agentId ${id}`,
       }
     }
     return {
       status: 'unnotable',
       agentId: id,
       reason:
-        `le Settler ${settler.toLowerCase()} est ${verdict.blocker} de l'agentId ` +
-        `${id} : aucun verdict ne pourra être inscrit`,
+        `the Settler ${settler.toLowerCase()} is ${verdict.blocker} of agentId ` +
+        `${id}: no verdict will be inscribable`,
     }
   } catch (e) {
     return { status: 'unavailable', reason: errText(e) }

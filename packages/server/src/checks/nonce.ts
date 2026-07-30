@@ -1,31 +1,31 @@
 /**
- * `nonce_advanced` — nombre de transactions attribuées au compte sur la fenêtre
- * évaluée.
+ * `nonce_advanced` — number of transactions attributable to the account over the
+ * evaluated window.
  *
- * C'est un **delta**, jamais un nonce absolu :
+ * This is a **delta**, never an absolute nonce:
  *
  *     getTransactionCount(account, evaluateAt)
  *   - getTransactionCount(account, tx.blockNumber - 1)
  *
- * Le wallet d'exécution KeeperHub est réutilisé d'un mandat à l'autre ; son
- * nonce absolu est arbitrairement grand et n'a aucun sens comme post-condition.
- * Comparer un absolu produirait des saisies systématiques.
+ * The KeeperHub execution wallet is reused from one warrant to the next; its
+ * absolute nonce is arbitrarily large and means nothing as a post-condition.
+ * Comparing an absolute value would produce systematic slashes.
  *
- * `value: "1"` avec `op: "eq"` signifie donc « exactement une transaction émise
- * par ce compte sur la fenêtre » — l'action engagée, et rien d'autre.
+ * So `value: "1"` with `op: "eq"` means "exactly one transaction emitted by this
+ * account over the window" — the committed action, and nothing else.
  *
- * ⚠ **Indécidable sur une transaction sponsorisée.** Quand KeeperHub paie le
- * gas, la transaction est émise par un relayer via un forwarder : le nonce du
- * wallet de l'organisation n'avance pas du tout. Le delta vaudrait 0 et le
- * check échouerait alors que l'action a bien eu lieu.
+ * ⚠ **Undecidable on a sponsored transaction.** When KeeperHub pays the gas, the
+ * transaction is emitted by a relayer through a forwarder: the organisation
+ * wallet's nonce does not advance at all. The delta would be 0 and the check
+ * would fail even though the action did take place.
  *
- * Dans ce cas on lève `UnsupportedCheckError` — une lecture non concluante,
- * donc un retry puis une expiration vers `reclaim` — plutôt que de rendre
- * `pass: false`, qui serait une saisie injuste. Le doute bénéficie à l'agent.
+ * In that case we throw `UnsupportedCheckError` — an inconclusive read, hence a
+ * retry and then expiry towards `reclaim` — rather than return `pass: false`,
+ * which would be an unjust slash. Doubt benefits the agent.
  *
- * Conséquence produit : ce vérificateur ne doit pas figurer dans les
- * post-conditions par défaut tant que le sponsoring est actif. La politique le
- * réserve aux exécutions dont on sait qu'elles partent du wallet lui-même.
+ * Product consequence: this check must not appear in the default
+ * post-conditions while sponsoring is enabled. Policy reserves it for executions
+ * we know originate from the wallet itself.
  */
 
 import { compare, lower, parseDecimal } from './compare.js'
@@ -39,7 +39,7 @@ export async function checkNonceAdvanced(
 ): Promise<CheckResult> {
   const tx = env.transaction
 
-  // La transaction a-t-elle été émise par le compte surveillé lui-même ?
+  // Was the transaction emitted by the watched account itself?
   const emittedByAccount =
     typeof tx.from === 'string' && lower(tx.from) === lower(check.account)
 
@@ -51,11 +51,11 @@ export async function checkNonceAdvanced(
     })
     throw new UnsupportedCheckError(
       wrapped.viaForwarder
-        ? `nonce_advanced est indécidable sur une transaction sponsorisée : ` +
-          `elle est émise par le relayer ${lower(String(tx.from))} via un forwarder, ` +
-          `et le nonce de ${lower(check.account)} n'avance pas`
-        : `nonce_advanced attend une transaction émise par ${lower(check.account)}, ` +
-          `mais celle-ci vient de ${lower(String(tx.from))}`,
+        ? `nonce_advanced is undecidable on a sponsored transaction: it is emitted ` +
+          `by relayer ${lower(String(tx.from))} through a forwarder, and the nonce ` +
+          `of ${lower(check.account)} does not advance`
+        : `nonce_advanced expects a transaction emitted by ${lower(check.account)}, ` +
+          `but this one comes from ${lower(String(tx.from))}`,
     )
   }
 
@@ -71,7 +71,7 @@ export async function checkNonceAdvanced(
     ),
   ])
 
-  // viem rend un `number` ; on repasse en bigint immédiatement.
+  // viem returns a `number`; we move back to bigint immediately.
   const delta = BigInt(after) - BigInt(before)
 
   return {

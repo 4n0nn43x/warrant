@@ -1,20 +1,21 @@
 /**
- * `calldata_matches_commitment` — la transaction exécutée est bien celle
- * engagée.
+ * `calldata_matches_commitment` — the executed transaction really is the
+ * committed one.
  *
- * On reconstruit l'`ActionSpec` depuis la transaction onchain, on la normalise,
- * on la hache, et on compare à l'`actionHash` engagé à l'ouverture du mandat.
+ * We rebuild the `ActionSpec` from the onchain transaction, normalise it, hash
+ * it, and compare against the `actionHash` committed when the warrant was
+ * opened.
  *
- * Sans ce vérificateur, engager une action et en exécuter une autre serait
- * indétectable : on classerait correctement un calldata qui n'est pas celui qui
- * part sur la chaîne (docs/07 § 2.10, docs/13 § 5). Il est ajouté d'office par
- * le Gateway et n'est pas retirable.
+ * Without this check, committing to one action and executing another would be
+ * undetectable: we would correctly classify a calldata that is not the one going
+ * out on the chain (docs/07 § 2.10, docs/13 § 5). The Gateway adds it
+ * unconditionally, and it cannot be removed.
  *
- * ⚠ La transaction onchain n'est pas toujours l'appel demandé. Quand KeeperHub
- * sponsorise le gas, elle passe par un forwarder et `tx.to` désigne celui-ci,
- * pas le contrat cible. On décapsule donc avant de comparer — voir
- * `forwarder.ts`. Sans cette étape, ce check échouerait sur chaque mandat
- * sponsorisé, ce qui produirait une saisie injuste systématique.
+ * ⚠ The onchain transaction is not always the requested call. When KeeperHub
+ * sponsors the gas, it goes through a forwarder and `tx.to` designates that
+ * forwarder, not the target contract. So we unwrap before comparing — see
+ * `forwarder.ts`. Without that step this check would fail on every sponsored
+ * warrant, which would amount to a systematic unjust slash.
  */
 
 import { lower } from './compare.js'
@@ -48,14 +49,13 @@ export async function checkCalldataMatchesCommitment(
 }
 
 /**
- * Reconstruction normalisée : adresses en minuscules, `value` en chaîne
- * décimale, calldata en minuscules. La normalisation est faite ici pour que la
- * canonicalisation de `@warrant/core` n'ait pas à deviner quels champs sont des
- * adresses.
+ * Normalised reconstruction: addresses lowercased, `value` as a decimal string,
+ * calldata lowercased. Normalisation happens here so that `@warrant/core`'s
+ * canonicalisation never has to guess which fields are addresses.
  *
- * Une création de contrat (`to === null`) tombe sur l'adresse nulle : le hash
- * ne correspondra pas, ce qui est le verdict recherché — aucune `ActionSpec`
- * n'engage un déploiement en v1.
+ * A contract creation (`to === null`) falls back to the zero address: the hash
+ * will not match, which is exactly the verdict we want — no `ActionSpec` commits
+ * to a deployment in v1.
  */
 export function reconstructActionSpec(env: CheckEnv): {
   spec: ActionSpec
@@ -71,8 +71,8 @@ export function reconstructActionSpec(env: CheckEnv): {
   return {
     spec: {
       version: 1,
-      // `chainId` est absent des transactions legacy non protégées : on retombe
-      // sur la chaîne d'évaluation déclarée dans la ConditionSpec.
+      // `chainId` is absent from unprotected legacy transactions: we fall back to
+      // the evaluation chain declared in the ConditionSpec.
       chainId: tx.chainId ?? env.chainId,
       target: lower(call.target ?? ZERO_ADDRESS),
       value: call.value.toString(),

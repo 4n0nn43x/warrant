@@ -6,9 +6,9 @@ import {Deploy} from "../script/Deploy.s.sol";
 import {WarrantEscrow} from "../src/WarrantEscrow.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
 
-/// @title Garde-fous du script de déploiement
-/// @dev Le raccourci « une seule clé pour l'opener et le settler » annulerait I10 et rendrait
-///      faux tout le tableau de sécurité de `06-contrat-escrow.md` § 4. Le script doit refuser.
+/// @title Guardrails of the deployment script
+/// @dev The "one single key for both opener and settler" shortcut would void I10 and falsify
+///      the whole security table of `06-contrat-escrow.md` § 4. The script must refuse.
 contract DeployTest is Test {
     Deploy internal deployer;
     address internal token;
@@ -31,23 +31,23 @@ contract DeployTest is Test {
         assertTrue(escrow.opener() != escrow.settler());
     }
 
-    /// @dev I10 — le cas qu'on prend à 3 h du matin, et qui doit échouer bruyamment.
+    /// @dev I10 — the shortcut taken at 3 a.m., and which must fail loudly.
     function test_Deploy_RevertsWhenOpenerEqualsSettler() public {
         vm.expectRevert(Deploy.RolesMustBeDistinct.selector);
         deployer.run(token, treasury, opener, opener, 250);
     }
 
-    /// @dev Le garde du script est désormais REDONDANT avec celui du constructeur, et
-    ///      on le garde à ce titre. Ce test documente les deux couches : contourner
-    ///      le script — ce que rien n'empêche — ne contourne pas I10, il change
-    ///      seulement l'erreur obtenue. C'est la différence entre une convention
-    ///      opérationnelle et une garantie, et c'est ce que l'audit reprochait à la
-    ///      version précédente, où seule la première existait.
+    /// @dev The script's guard is now REDUNDANT with the constructor's, and that is
+    ///      exactly why it is kept. This test documents both layers: bypassing the
+    ///      script — which nothing prevents — does not bypass I10, it only changes
+    ///      which error you get. That is the difference between an operational
+    ///      convention and a guarantee, and it is what the audit held against the
+    ///      previous version, where only the former existed.
     function test_Deploy_ContractEnforcesI10EvenWithoutTheScript() public {
         vm.expectRevert(Deploy.RolesMustBeDistinct.selector);
         deployer.run(token, treasury, opener, opener, 250);
 
-        // Déploiement direct, script contourné : le constructeur refuse quand même.
+        // Direct deployment, script bypassed: the constructor refuses all the same.
         vm.expectRevert(WarrantEscrow.RolesMustDiffer.selector);
         new WarrantEscrow(token, treasury, opener, opener, 250);
     }

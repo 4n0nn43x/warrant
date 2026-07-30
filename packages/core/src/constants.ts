@@ -1,6 +1,6 @@
 /**
- * Constantes figées. Toute valeur ici est vérifiée contre une source primaire —
- * voir docs/14-references.md § 9.
+ * Frozen constants. Every value here is checked against a primary source — see
+ * docs/14-references.md § 9.
  */
 
 import type { Address } from './types.js'
@@ -14,14 +14,14 @@ export const CHAINS = {
 } as const
 
 export const ASSETS = {
-  /** USDC natif Circle sur Base. À ne pas confondre avec l'ancien USDbC bridgé. */
+  /** Circle-native USDC on Base. Not to be confused with the older bridged USDbC. */
   usdcBase: {
     address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' as Address,
     decimals: 6,
     eip3009: true,
     /**
-     * Domaine EIP-712 du token. `version` est lue onchain au démarrage plutôt
-     * que d'être crue sur parole — voir docs/05 § 3.
+     * The token's EIP-712 domain. `version` is read onchain at startup rather
+     * than taken on trust — see docs/05 § 3.
      */
     extra: { name: 'USDC', version: '2' },
   },
@@ -36,11 +36,11 @@ export const AAVE_V3_POOL_ETHEREUM =
   '0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2' as Address
 
 /**
- * ERC-8004. Adresses déterministes à préfixe vanity, identiques sur toutes les
- * chaînes de même type. Présence sur Base mainnet confirmée le 28/07/2026.
+ * ERC-8004. Deterministic vanity-prefixed addresses, identical across every
+ * chain of the same type. Presence on Base mainnet confirmed on 2026-07-28.
  *
- * Le ValidationRegistry n'a aucune adresse publiée, sur aucune chaîne : sa spec
- * est en refonte. Il est hors périmètre v1 (docs/10 § 2).
+ * The ValidationRegistry has no published address on any chain: its spec is
+ * being reworked. It is out of scope for v1 (docs/10 § 2).
  */
 export const ERC8004 = {
   mainnet: {
@@ -53,7 +53,7 @@ export const ERC8004 = {
   },
 } as const
 
-/** Sélecteurs ERC-20 et Aave V3 utilisés par le registre de classification. */
+/** ERC-20 and Aave V3 selectors used by the classification registry. */
 export const SELECTORS = {
   erc20Transfer: '0xa9059cbb' as const,
   erc20Approve: '0x095ea7b3' as const,

@@ -1,12 +1,12 @@
 /**
- * Fabrique de logs simulés, partagée par les tests.
+ * Factory for simulated logs, shared by the tests.
  *
- * Les logs sont encodés avec viem depuis les mêmes fragments d'ABI que ceux du
- * lecteur : ce ne sont pas des objets bricolés à la main, mais des logs qu'un
- * nœud produirait à l'octet près. Un décalage d'ABI ferait échouer les tests.
+ * The logs are encoded with viem from the very same ABI fragments the reader
+ * uses: they are not objects cobbled together by hand, but logs a node would
+ * produce byte for byte. An ABI drift would make the tests fail.
  *
- * Il n'est pas réexporté par `index.ts` : c'est un outil de test, pas une partie
- * de l'API publique.
+ * It is not re-exported by `index.ts`: it is a testing tool, not part of the
+ * public API.
  */
 
 import { encodeAbiParameters, encodeEventTopics } from 'viem'
@@ -39,7 +39,7 @@ function nextMeta(): Pick<RawLog, 'blockNumber' | 'logIndex' | 'transactionHash'
   }
 }
 
-/** Encode un log comme le ferait un nœud : topics indexés + data ABI. */
+/** Encodes a log the way a node would: indexed topics + ABI data. */
 function makeLog(
   address: Address,
   event: AbiEvent,
@@ -63,7 +63,7 @@ function makeLog(
   return { address, topics, data, ...nextMeta() }
 }
 
-/** `warrantId` déterministe à partir d'un entier. */
+/** Deterministic `warrantId` derived from an integer. */
 export function warrantId(n: number): Hex {
   return `0x${n.toString(16).padStart(64, '0')}` as Hex
 }
@@ -128,8 +128,8 @@ export function warrantOpenedLog(opts: {
 }
 
 /**
- * `WarrantHonored` porte `refunded` **net des frais** : la caution immobilisée
- * était `refunded + fee`. C'est elle qui compte au numérateur du score.
+ * `WarrantHonored` carries `refunded` **net of fees**: the bond that was locked up
+ * was `refunded + fee`. That is what counts in the score's numerator.
  */
 export function warrantHonoredLog(opts: {
   warrantId: Hex
@@ -154,11 +154,11 @@ export function warrantSlashedLog(opts: {
     id: opts.warrantId,
     execRef: `0x${'ee'.repeat(32)}` as Hex,
     amount: opts.bond,
-    reason: opts.reason ?? 'erc20_balance: attendu >=1000, observé 0',
+    reason: opts.reason ?? 'erc20_balance: expected >=1000, observed 0',
   })
 }
 
-/** Un mandat complet : ouverture, règlement, feedback. */
+/** A complete warrant: opening, settlement, feedback. */
 export function settledWarrantLogs(opts: {
   agentId: bigint
   n: number

@@ -1,4 +1,4 @@
-"""Les outils : projection fidèle, validation, nettoyage des entrées."""
+"""The tools: faithful projection, validation, input stripping."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def test_manifest_digest_is_published() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# La règle : dérivé, jamais déclaré
+# The rule: derived, never declared
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -109,9 +109,9 @@ def test_a_malformed_action_field_names_itself(action_spec: dict[str, Any]) -> N
     err = raised.value
     assert err.field == "$.actionSpec.target"
     assert err.code == "invalid_action_spec"
-    # Le hint de ce code est celui qui rappelle que catégorie et notionnel sont
-    # dérivés : c'est exactement là qu'un agent en a besoin.
-    assert "dérivés du calldata" in err.hint
+    # This code's hint is the one reminding the caller that category and notional
+    # are derived: that is exactly where an agent needs it.
+    assert "derived from the calldata" in err.hint
     assert err.docs.startswith("https://warrant.sh/docs")
 
 
@@ -152,9 +152,9 @@ def test_a_missing_warrant_is_named_as_such(client: Any) -> None:
 def test_an_unreachable_gateway_says_nothing_was_committed() -> None:
     from warrant_sdk import WarrantClient
 
-    # Port 1 : refus de connexion immédiat, aucune attente.
+    # Port 1: immediate connection refusal, no waiting.
     client = WarrantClient(base_url="http://127.0.0.1:1", private_key="")
     with pytest.raises(WarrantError) as raised:
         client.quote_risk({"actionSpec": {"version": 1, "chainId": 1, "target": "0x" + "11" * 20, "value": "0", "calldata": "0x", "registryRef": "0x" + "00" * 32}})
     assert raised.value.code == "gateway_unreachable"
-    assert "aucun mandat ni paiement" in raised.value.hint
+    assert "no warrant and no payment" in raised.value.hint

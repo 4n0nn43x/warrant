@@ -31,9 +31,9 @@ import {
 import type { RawLog } from './types.js'
 
 const AGENT_ID = 4242n
-const USDC = 1_000_000n // 1 USDC, 6 décimales
+const USDC = 1_000_000n // 1 USDC, 6 decimals
 
-/** Assemble les logs de N mandats réglés et les décode comme le ferait le lecteur. */
+/** Assembles the logs of N settled warrants and decodes them as the reader would. */
 function scenario(
   specs: readonly {
     n: number
@@ -62,11 +62,11 @@ function scenario(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Décodage
+// Decoding
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('décodage des logs', () => {
-  it('lit un NewFeedback complet, feedbackURI et feedbackHash compris', () => {
+describe('log decoding', () => {
+  it('reads a complete NewFeedback, feedbackURI and feedbackHash included', () => {
     const [f] = decodeNewFeedbackLogs([
       newFeedbackLog({ agentId: AGENT_ID, warrantId: warrantId(7), verdict: 'slashed' }),
     ])
@@ -77,15 +77,15 @@ describe('décodage des logs', () => {
     expect(f!.valueDecimals).toBe(2)
     expect(f!.tag1).toBe('warrant')
     expect(f!.tag2).toBe('slashed')
-    // endpoint est vide, et c'est le seul endroit de la chaîne où on le voit.
+    // endpoint is empty, and this is the only place on the chain where it shows.
     expect(f!.endpoint).toBe('')
     expect(f!.feedbackURI).toBe(`https://warrant.sh/v/${warrantId(7)}`)
     expect(f!.feedbackHash).toBe(`0x${'cc'.repeat(32)}`)
   })
 
-  it('reconstitue la caution honorée comme refunded + fee', () => {
-    // 100 USDC de caution, 50 bps de frais : l'agent est remboursé 99.5,
-    // mais il en avait immobilisé 100.
+  it('reconstructs the honored bond as refunded + fee', () => {
+    // A 100 USDC bond, 50 bps of fees: the agent is refunded 99.5, but it had
+    // locked up 100.
     const [s] = decodeSettlementLogs([
       warrantHonoredLog({ warrantId: warrantId(1), bond: 100n * USDC, feeBps: 50n }),
     ])
@@ -93,7 +93,7 @@ describe('décodage des logs', () => {
     expect(s!.verdict).toBe('honored')
   })
 
-  it('prend la totalité du montant sur une saisie', () => {
+  it('takes the whole amount on a slash', () => {
     const [s] = decodeSettlementLogs([
       warrantSlashedLog({ warrantId: warrantId(2), bond: 42n * USDC }),
     ])
@@ -101,7 +101,7 @@ describe('décodage des logs', () => {
     expect(s!.verdict).toBe('slashed')
   })
 
-  it('ignore les logs d’autres events', () => {
+  it('ignores logs of other events', () => {
     const mixed = [
       warrantOpenedLog({ warrantId: warrantId(3), bond: USDC }),
       warrantHonoredLog({ warrantId: warrantId(3), bond: USDC }),
@@ -113,13 +113,13 @@ describe('décodage des logs', () => {
 })
 
 describe('warrantIdsFromFeedbackURI', () => {
-  it('extrait l’identifiant d’une URI de mandat isolé', () => {
+  it('extracts the identifier from a single-warrant URI', () => {
     expect(warrantIdsFromFeedbackURI(`https://warrant.sh/v/${warrantId(9)}`)).toEqual([
       warrantId(9),
     ])
   })
 
-  it('ne rend rien pour l’URI d’un lot', () => {
+  it('returns nothing for a batch URI', () => {
     expect(
       warrantIdsFromFeedbackURI(`https://warrant.sh/v/batch/0x${'cc'.repeat(32)}`),
     ).toEqual([])
@@ -127,11 +127,11 @@ describe('warrantIdsFromFeedbackURI', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le score
+// The score
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('stakeWeightedScore', () => {
-  it('vaut 1 quand tout a été honoré', () => {
+  it('is 1 when everything has been honored', () => {
     const { feedbacks, settlements } = scenario([
       { n: 1, bond: 100n * USDC, verdict: 'honored' },
       { n: 2, bond: 250n * USDC, verdict: 'honored' },
@@ -143,9 +143,9 @@ describe('stakeWeightedScore', () => {
     expect(rep.slashedBond).toBe(0n)
   })
 
-  it('pondère par le capital, pas par le nombre de mandats', () => {
-    // Neuf petits mandats honorés, une grosse saisie : le compte dit 90 % de
-    // réussite, le capital dit tout autre chose.
+  it('weights by capital, not by warrant count', () => {
+    // Nine small honored warrants, one big slash: the count says 90 % success,
+    // the capital says something else entirely.
     const specs = Array.from({ length: 9 }, (_, i) => ({
       n: i + 1,
       bond: 10n * USDC,
@@ -169,7 +169,7 @@ describe('stakeWeightedScore', () => {
     expect(rep.totalAtRisk).toBe(1000n * USDC)
   })
 
-  it('vaut 0 quand tout a été saisi — sans jamais diviser par zéro', () => {
+  it('is 0 when everything has been slashed — without ever dividing by zero', () => {
     const { feedbacks, settlements } = scenario([
       { n: 1, bond: 5n * USDC, verdict: 'slashed' },
     ])
@@ -178,19 +178,19 @@ describe('stakeWeightedScore', () => {
     expect(rep.totalAtRisk).toBe(5n * USDC)
   })
 
-  it('rend null — et non 0 — quand Σ = 0', () => {
+  it('returns null — and not 0 — when Σ = 0', () => {
     const empty = computeAgentReputation(AGENT_ID, [])
     expect(empty.totalAtRisk).toBe(0n)
     expect(empty.stakeWeightedScore).toBeNull()
     expect(empty.stakeWeightedScoreWad).toBeNull()
     expect(empty.settledCount).toBe(0)
-    // Un agent sans historique n'a pas un mauvais score : il n'en a pas.
+    // An agent with no history does not have a bad score: it has none.
     expect(formatScore(empty.stakeWeightedScore)).toBe('n/a')
     expect(formatScore(0)).not.toBe('n/a')
   })
 
-  it('ne divise pas par zéro non plus quand aucun feedback ne se relie', () => {
-    // Des feedbacks existent, mais aucun mandat correspondant onchain.
+  it('does not divide by zero either when no feedback ties up', () => {
+    // Feedbacks exist, but no matching warrant onchain.
     const feedbacks = decodeNewFeedbackLogs([
       newFeedbackLog({ agentId: AGENT_ID, warrantId: warrantId(99) }),
     ])
@@ -199,7 +199,7 @@ describe('stakeWeightedScore', () => {
     expect(rep.crossReference.unmatched).toHaveLength(1)
   })
 
-  it('écarte les doublons de warrantId', () => {
+  it('discards duplicate warrantIds', () => {
     const { feedbacks, settlements } = scenario([
       { n: 1, bond: 100n * USDC, verdict: 'honored' },
     ])
@@ -213,9 +213,9 @@ describe('stakeWeightedScore', () => {
   })
 })
 
-describe('totalAtRisk sépare ce que le score confond', () => {
-  // C'est l'argument central : ERC-8004 ne dit pas combien un agent a risqué.
-  const petits = scenario(
+describe('totalAtRisk separates what the score conflates', () => {
+  // This is the central argument: ERC-8004 does not say how much an agent risked.
+  const small = scenario(
     Array.from({ length: 200 }, (_, i) => ({
       n: i + 1,
       bond: 5n * USDC,
@@ -223,7 +223,7 @@ describe('totalAtRisk sépare ce que le score confond', () => {
     })),
     1n,
   )
-  const gros = scenario(
+  const big = scenario(
     Array.from({ length: 20 }, (_, i) => ({
       n: 1000 + i,
       bond: 2500n * USDC,
@@ -232,62 +232,62 @@ describe('totalAtRisk sépare ce que le score confond', () => {
     2n,
   )
 
-  const petit = reputationFromEvents({
+  const modest = reputationFromEvents({
     agentId: 1n,
-    feedbacks: petits.feedbacks,
-    settlements: petits.settlements,
+    feedbacks: small.feedbacks,
+    settlements: small.settlements,
   })
-  const grand = reputationFromEvents({
+  const heavy = reputationFromEvents({
     agentId: 2n,
-    feedbacks: gros.feedbacks,
-    settlements: gros.settlements,
+    feedbacks: big.feedbacks,
+    settlements: big.settlements,
   })
 
-  it('donne le même score aux deux agents', () => {
-    expect(petit.stakeWeightedScore).toBe(1)
-    expect(grand.stakeWeightedScore).toBe(1)
-    expect(petit.stakeWeightedScoreWad).toBe(grand.stakeWeightedScoreWad)
+  it('gives both agents the same score', () => {
+    expect(modest.stakeWeightedScore).toBe(1)
+    expect(heavy.stakeWeightedScore).toBe(1)
+    expect(modest.stakeWeightedScoreWad).toBe(heavy.stakeWeightedScoreWad)
   })
 
-  it('mais les distingue par le capital réellement immobilisé', () => {
-    expect(petit.honoredCount).toBe(200)
-    expect(petit.totalAtRisk).toBe(1_000n * USDC)
-    expect(formatBond(petit.totalAtRisk, 6)).toBe('1000.000000')
+  it('but tells them apart by the capital actually locked up', () => {
+    expect(modest.honoredCount).toBe(200)
+    expect(modest.totalAtRisk).toBe(1_000n * USDC)
+    expect(formatBond(modest.totalAtRisk, 6)).toBe('1000.000000')
 
-    expect(grand.honoredCount).toBe(20)
-    expect(grand.totalAtRisk).toBe(50_000n * USDC)
-    expect(formatBond(grand.totalAtRisk, 6)).toBe('50000.000000')
+    expect(heavy.honoredCount).toBe(20)
+    expect(heavy.totalAtRisk).toBe(50_000n * USDC)
+    expect(formatBond(heavy.totalAtRisk, 6)).toBe('50000.000000')
 
-    expect(grand.totalAtRisk).toBe(petit.totalAtRisk * 50n)
-    // 200 petits mandats ne valent pas 50 000 $ de cautions honorées, et c'est
-    // exactement ce que `getSummary` du registre est incapable de dire.
-    expect(grand.totalAtRisk > petit.totalAtRisk).toBe(true)
+    expect(heavy.totalAtRisk).toBe(modest.totalAtRisk * 50n)
+    // 200 small warrants are not worth $50,000 of honored bonds, and that is
+    // exactly what the registry's `getSummary` is incapable of saying.
+    expect(heavy.totalAtRisk > modest.totalAtRisk).toBe(true)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le recoupement
+// The cross-reference
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('crossReference', () => {
-  it('n’accepte que les feedbacks des clients attendus', () => {
-    const honnete = settledWarrantLogs({
+  it('accepts only the feedbacks of the expected clients', () => {
+    const honest = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
       bond: 100n * USDC,
       verdict: 'honored',
     })
-    // Un tiers inscrit un feedback `warrant` pour le même agent, en pointant
-    // vers un mandat qui existe : sans liste de clients, on le compterait.
-    const forge = newFeedbackLog({
+    // A third party writes a `warrant` feedback for the same agent, pointing at a
+    // warrant that does exist: with no client list, we would count it.
+    const forged = newFeedbackLog({
       agentId: AGENT_ID,
       warrantId: warrantId(1),
       client: IMPOSTOR,
       feedbackIndex: 1n,
     })
 
-    const feedbacks = decodeNewFeedbackLogs([honnete.feedback, forge])
-    const settlements = decodeSettlementLogs([honnete.settlement])
+    const feedbacks = decodeNewFeedbackLogs([honest.feedback, forged])
+    const settlements = decodeSettlementLogs([honest.settlement])
 
     const scoped = crossReference({
       agentId: AGENT_ID,
@@ -298,32 +298,33 @@ describe('crossReference', () => {
     expect(scoped.warrants).toHaveLength(1)
 
     const open = crossReference({ agentId: AGENT_ID, feedbacks, settlements })
-    expect(open.warrants).toHaveLength(1) // dédoublonné par warrantId…
-    // …mais le feedback de l'imposteur a bien été pris en compte, faute de filtre.
+    expect(open.warrants).toHaveLength(1) // deduplicated by warrantId…
+    // …but the impostor's feedback was indeed taken into account, for want of a
+    // filter.
     expect(open.warrants[0]!.warrantId).toBe(warrantId(1))
   })
 
-  it('ignore les feedbacks dont tag1 n’est pas « warrant »', () => {
+  it('ignores feedbacks whose tag1 is not "warrant"', () => {
     const w = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
       bond: USDC,
       verdict: 'honored',
     })
-    const autre = newFeedbackLog({
+    const other = newFeedbackLog({
       agentId: AGENT_ID,
       warrantId: warrantId(1),
       tag1: 'starred',
     })
     const xref = crossReference({
       agentId: AGENT_ID,
-      feedbacks: decodeNewFeedbackLogs([autre]),
+      feedbacks: decodeNewFeedbackLogs([other]),
       settlements: decodeSettlementLogs([w.settlement]),
     })
     expect(xref.warrants).toHaveLength(0)
   })
 
-  it('ignore les feedbacks d’un autre agentId', () => {
+  it('ignores feedbacks from another agentId', () => {
     const w = settledWarrantLogs({
       agentId: 999n,
       n: 1,
@@ -338,7 +339,7 @@ describe('crossReference', () => {
     expect(xref.warrants).toHaveLength(0)
   })
 
-  it('écarte un feedback révoqué', () => {
+  it('discards a revoked feedback', () => {
     const w = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
@@ -358,8 +359,8 @@ describe('crossReference', () => {
     expect(rep.stakeWeightedScore).toBeNull()
   })
 
-  it('signale une divergence entre le verdict inscrit et le règlement onchain', () => {
-    // Le feedback dit `honored`, l'escrow a saisi. L'escrow fait foi.
+  it('reports a divergence between the written verdict and the onchain settlement', () => {
+    // The feedback says `honored`, the escrow slashed. The escrow is authoritative.
     const feedbacks = decodeNewFeedbackLogs([
       newFeedbackLog({ agentId: AGENT_ID, warrantId: warrantId(1), verdict: 'honored' }),
     ])
@@ -373,16 +374,16 @@ describe('crossReference', () => {
     expect(xref.warrants[0]!.verdict).toBe('slashed')
   })
 
-  it('recoupe l’attribution avec WarrantOpened.agent', () => {
-    const bon = settledWarrantLogs({
+  it('cross-checks attribution against WarrantOpened.agent', () => {
+    const genuine = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
       bond: 100n * USDC,
       verdict: 'honored',
       agent: AGENT_WALLET,
     })
-    // Le Settler rattache à cet agent un mandat ouvert par quelqu'un d'autre.
-    const usurpe = settledWarrantLogs({
+    // The Settler attributes to this agent a warrant opened by somebody else.
+    const usurped = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 2,
       bond: 900n * USDC,
@@ -392,9 +393,9 @@ describe('crossReference', () => {
 
     const xref = crossReference({
       agentId: AGENT_ID,
-      feedbacks: decodeNewFeedbackLogs([bon.feedback, usurpe.feedback]),
-      settlements: decodeSettlementLogs([bon.settlement, usurpe.settlement]),
-      openings: decodeOpeningLogs([bon.opened, usurpe.opened]),
+      feedbacks: decodeNewFeedbackLogs([genuine.feedback, usurped.feedback]),
+      settlements: decodeSettlementLogs([genuine.settlement, usurped.settlement]),
+      openings: decodeOpeningLogs([genuine.opened, usurped.opened]),
       agentAddresses: [AGENT_WALLET],
     })
 
@@ -403,7 +404,7 @@ describe('crossReference', () => {
     expect(computeAgentReputation(AGENT_ID, xref.warrants).totalAtRisk).toBe(100n * USDC)
   })
 
-  it('résout les identifiants d’un lot via warrantIdsOf', () => {
+  it('resolves the identifiers of a batch through warrantIdsOf', () => {
     const a = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
@@ -416,25 +417,25 @@ describe('crossReference', () => {
       bond: 30n * USDC,
       verdict: 'honored',
     })
-    const lot = decodeNewFeedbackLogs([
+    const batch = decodeNewFeedbackLogs([
       newFeedbackLog({
         agentId: AGENT_ID,
         feedbackURI: `https://warrant.sh/v/batch/0x${'cc'.repeat(32)}`,
       }),
     ])
 
-    // Sans résolution, l'URI d'un lot ne donne aucun mandat.
+    // Without resolution, a batch URI yields no warrant.
     expect(
       crossReference({
         agentId: AGENT_ID,
-        feedbacks: lot,
+        feedbacks: batch,
         settlements: decodeSettlementLogs([a.settlement, b.settlement]),
       }).warrants,
     ).toHaveLength(0)
 
     const rep = reputationFromEvents({
       agentId: AGENT_ID,
-      feedbacks: lot,
+      feedbacks: batch,
       settlements: decodeSettlementLogs([a.settlement, b.settlement]),
       warrantIdsOf: () => [warrantId(1), warrantId(2)],
     })
@@ -442,8 +443,8 @@ describe('crossReference', () => {
     expect(rep.totalAtRisk).toBe(40n * USDC)
   })
 
-  it('ne compte jamais un mandat expiré : WarrantReclaimed n’est pas décodé', () => {
-    // Aucun feedback n'est publié pour un reclaim, et aucun règlement non plus.
+  it('never counts an expired warrant: WarrantReclaimed is not decoded', () => {
+    // No feedback is published for a reclaim, and no settlement either.
     const rep = reputationFromEvents({
       agentId: AGENT_ID,
       feedbacks: [],
@@ -454,14 +455,14 @@ describe('crossReference', () => {
   })
 })
 
-describe('formatage', () => {
-  it('formate une caution dans ses décimales', () => {
+describe('formatting', () => {
+  it('formats a bond in its decimals', () => {
     expect(formatBond(1_234_567n, 6)).toBe('1.234567')
     expect(formatBond(0n, 6)).toBe('0.000000')
     expect(formatBond(42n, 0)).toBe('42')
   })
 
-  it('n’affiche jamais 0,0000 pour une absence de score', () => {
+  it('never displays 0.0000 for an absent score', () => {
     expect(formatScore(null)).toBe('n/a')
     expect(formatScore(0)).toBe('0.0000')
     expect(formatScore(0.0909090909, 4)).toBe('0.0909')

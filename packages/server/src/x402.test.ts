@@ -44,12 +44,11 @@ import {
 } from './x402.js'
 
 /**
- * Une signature de 65 octets dont le dernier vaut 0x1b = 27.
+ * A 65-byte signature whose last byte is 0x1b = 27.
  *
- * `v` ne peut être que 27 ou 28 — c'est ce qu'`ecrecover` accepte. L'ancien
- * remplissage `0x2d…2d` de ces tests donnait v = 45, que le contrat aurait
- * refusé : une signature de la bonne *longueur* n'est pas une signature de la
- * bonne *forme*.
+ * `v` can only be 27 or 28 — that is what `ecrecover` accepts. The old `0x2d…2d`
+ * filler in these tests gave v = 45, which the contract would have refused: a
+ * signature of the right *length* is not a signature of the right *shape*.
  */
 const SIGNATURE = `0x${'aa'.repeat(32)}${'bb'.repeat(32)}1b` as Hex
 
@@ -91,28 +90,28 @@ function payload(over: Partial<PaymentPayload> = {}): PaymentPayload {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('x402 v2 — noms de fil', () => {
-  it('utilise les en-têtes v2, jamais le X-PAYMENT de la v1', () => {
+describe('x402 v2 — wire names', () => {
+  it('uses the v2 headers, never v1’s X-PAYMENT', () => {
     expect(HEADER_PAYMENT_REQUIRED).toBe('PAYMENT-REQUIRED')
     expect(HEADER_PAYMENT_SIGNATURE).toBe('PAYMENT-SIGNATURE')
     expect(HEADER_PAYMENT_RESPONSE).toBe('PAYMENT-RESPONSE')
     expect(HEADER_PAYMENT_SIGNATURE).not.toBe('X-PAYMENT')
   })
 
-  it('utilise les en-têtes RFC 9110 pour MPP', () => {
+  it('uses the RFC 9110 headers for MPP', () => {
     expect(HEADER_WWW_AUTHENTICATE).toBe('WWW-Authenticate')
     expect(HEADER_AUTHORIZATION).toBe('Authorization')
     expect(HEADER_PAYMENT_RECEIPT).toBe('Payment-Receipt')
   })
 
-  it('encode et décode un en-tête en base64 sans perte', () => {
+  it('encodes and decodes a header in base64 without loss', () => {
     const encoded = encodeHeaderObject({ a: 1, é: 'ü' })
     expect(encoded).toMatch(/^[A-Za-z0-9+/=]+$/)
     expect(decodeHeaderObject(encoded)).toEqual({ a: 1, é: 'ü' })
   })
 
-  it('refuse un en-tête illisible plutôt que de replier sur un objet vide', () => {
-    expect(() => decodeHeaderObject('pas-du-json-encodé')).toThrow(WireFormatError)
+  it('rejects an unreadable header rather than falling back to an empty object', () => {
+    expect(() => decodeHeaderObject('not-encoded-json')).toThrow(WireFormatError)
   })
 })
 
@@ -130,72 +129,73 @@ describe('PaymentRequired', () => {
     extra: { name: 'USDC', version: '2' },
   })
 
-  it('annonce la version 2', () => {
+  it('announces version 2', () => {
     expect(required.x402Version).toBe(2)
   })
 
-  it('annonce le réseau en CAIP-2, pas un chainId nu', () => {
+  it('announces the network in CAIP-2, not a bare chainId', () => {
     expect(required.accepts[0]?.network).toBe('eip155:8453')
     expect(required.accepts[0]?.network).toMatch(/^eip155:\d+$/)
   })
 
-  it('annonce `eip3009-receive`, et NON le défaut normatif du schéma exact', () => {
+  it('announces `eip3009-receive`, and NOT the normative default of the exact scheme', () => {
     expect(required.accepts[0]?.scheme).toBe('exact')
     expect(required.accepts[0]?.extra?.assetTransferMethod).toBe(DEFAULT_TRANSFER_METHOD)
 
-    // Cette assertion est là pour empêcher qu'on « corrige » le correctif.
-    // La spec dit « if present, MUST be "eip3009" », et `eip3009` y désigne
-    // `transferWithAuthorization`. L'escrow, lui, consomme
-    // `receiveWithAuthorization`. Annoncer `eip3009` ferait signer le mauvais
-    // typehash à tout client conforme, et `open()` révèrterait — vérifié contre
-    // le facilitateur CDP, qui répond 400 invalid_exact_evm_payload_signature.
-    // La non-conformité est donc délibérée, et elle est explicite plutôt que
-    // cachée derrière un champ standard qui mentirait.
+    // This assertion exists to stop anyone from "fixing" the fix. The spec says
+    // `if present, MUST be "eip3009"`, and `eip3009` there designates
+    // `transferWithAuthorization`. The escrow, for its part, consumes
+    // `receiveWithAuthorization`. Announcing `eip3009` would make every
+    // conforming client sign the wrong typehash, and `open()` would revert —
+    // verified against the CDP facilitator, which answers 400
+    // invalid_exact_evm_payload_signature. The non-conformance is therefore
+    // deliberate, and it is explicit rather than hidden behind a standard field
+    // that would lie.
     expect(DEFAULT_TRANSFER_METHOD).toBe('eip3009-receive')
     expect(DEFAULT_TRANSFER_METHOD).not.toBe('eip3009')
   })
 
-  it('porte le domaine EIP-712 du token dans extra', () => {
+  it('carries the token’s EIP-712 domain in extra', () => {
     expect(required.accepts[0]?.extra).toMatchObject({ name: 'USDC', version: '2' })
   })
 
-  it('annonce le typehash `receive`, et non le défaut du schéma exact', () => {
-    // Le seul champ du 402 qu'un client ne peut pas deviner : les deux
-    // typehashes EIP-3009 portent exactement les mêmes champs, et signer le
-    // mauvais ne se découvre qu'au revert du token.
+  it('announces the `receive` typehash, not the exact scheme’s default', () => {
+    // The one field of the 402 a client cannot guess: the two EIP-3009 typehashes
+    // carry exactly the same fields, and signing the wrong one is only discovered
+    // when the token reverts.
     expect(required.accepts[0]?.extra?.primaryType).toBe('ReceiveWithAuthorization')
     expect(RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE).toBe('ReceiveWithAuthorization')
     expect(required.accepts[0]?.extra?.primaryType).not.toBe('TransferWithAuthorization')
   })
 
-  it('serre la fenêtre de paiement à 60 s', () => {
+  it('tightens the payment window to 60 s', () => {
     expect(required.accepts[0]?.maxTimeoutSeconds).toBe(60)
   })
 })
 
 describe('assertPayloadMatches', () => {
-  it('accepte un payload conforme', () => {
+  it('accepts a conforming payload', () => {
     expect(() => assertPayloadMatches(payload(), REQUIREMENTS)).not.toThrow()
   })
 
-  it('refuse un montant différent de celui exigé', () => {
+  it('rejects an amount other than the required one', () => {
     const p = payload({ accepted: { ...REQUIREMENTS, amount: '1' } })
     expect(() => assertPayloadMatches(p, REQUIREMENTS)).toThrow(PaymentRejected)
   })
 
-  it('refuse une autorisation dont la valeur ne vaut pas le montant exigé', () => {
+  it('rejects an authorization whose value does not equal the required amount', () => {
     const p = payload()
     p.payload.authorization.value = '1'
-    expect(() => assertPayloadMatches(p, REQUIREMENTS)).toThrow(/amount|montant/i)
+    expect(() => assertPayloadMatches(p, REQUIREMENTS)).toThrow(/amount/i)
   })
 
-  it('refuse une destination détournée', () => {
+  it('rejects a diverted destination', () => {
     const p = payload()
     p.payload.authorization.to = `0x${'ee'.repeat(20)}`
     expect(() => assertPayloadMatches(p, REQUIREMENTS)).toThrow(PaymentRejected)
   })
 
-  it('refuse un autre réseau, un autre actif, un autre scheme', () => {
+  it('rejects another network, another asset, another scheme', () => {
     for (const over of [
       { network: 'eip155:1' },
       { asset: `0x${'99'.repeat(20)}` },
@@ -206,12 +206,12 @@ describe('assertPayloadMatches', () => {
     }
   })
 
-  it('refuse une version de protocole autre que 2', () => {
+  it('rejects any protocol version other than 2', () => {
     const p = payload({ x402Version: 1 as unknown as typeof X402_VERSION })
     expect(() => assertPayloadMatches(p, REQUIREMENTS)).toThrow(/x402Version/)
   })
 
-  it('compare les adresses sans tenir compte de la casse EIP-55', () => {
+  it('compares addresses regardless of EIP-55 casing', () => {
     const p = payload({ accepted: { ...REQUIREMENTS, asset: USDC_BASE.toUpperCase() } })
     expect(() => assertPayloadMatches(p, REQUIREMENTS)).not.toThrow()
   })
@@ -236,8 +236,8 @@ function stubFetch(routes: Record<string, unknown>, seen: string[] = []) {
   return impl
 }
 
-describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
-  it('lit `isValid` sur /verify', async () => {
+describe('facilitator — /verify and /settle are not symmetric', () => {
+  it('reads `isValid` on /verify', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({ '/verify': { isValid: true, payer: AGENT } }),
@@ -248,7 +248,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     })
   })
 
-  it('lit `success` sur /settle', async () => {
+  it('reads `success` on /settle', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({
@@ -266,7 +266,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     })
   })
 
-  it("refuse un /verify qui répondrait `success` — le piège d'asymétrie", async () => {
+  it('rejects a /verify that would answer `success` — the asymmetry trap', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({ '/verify': { success: true, payer: AGENT } }),
@@ -274,7 +274,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     await expect(client.verify(payload(), REQUIREMENTS)).rejects.toThrow(FacilitatorError)
   })
 
-  it("refuse un /settle qui répondrait `isValid`", async () => {
+  it('rejects a /settle that would answer `isValid`', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({ '/settle': { isValid: true, transaction: TX } }),
@@ -282,7 +282,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     await expect(client.settle(payload(), REQUIREMENTS)).rejects.toThrow(FacilitatorError)
   })
 
-  it('propage isValid=false sans le confondre avec une erreur', async () => {
+  it('propagates isValid=false without confusing it with an error', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({
@@ -295,7 +295,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     })
   })
 
-  it('appelle bien /verify puis /settle sur le facilitateur configuré', async () => {
+  it('does call /verify then /settle on the configured facilitator', async () => {
     const seen: string[] = []
     const client = new FacilitatorClient({
       url: 'https://facilitator.test/',
@@ -312,7 +312,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
     expect(seen).toEqual(['/verify', '/settle'])
   })
 
-  it('lève une FacilitatorError sur un statut HTTP non 2xx', async () => {
+  it('throws a FacilitatorError on a non-2xx HTTP status', async () => {
     const client = new FacilitatorClient({
       url: 'https://facilitator.test',
       fetchImpl: stubFetch({}),
@@ -322,7 +322,7 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
 })
 
 describe('settlementTxOf', () => {
-  it('est le hash de la transaction de règlement, en minuscules', () => {
+  it('is the settlement transaction hash, lowercased', () => {
     const settlement: SettlementResponse = {
       success: true,
       transaction: TX.toUpperCase() as Hex,
@@ -332,7 +332,7 @@ describe('settlementTxOf', () => {
     expect(settlementTxOf(settlement)).toBe(TX)
   })
 
-  it('refuse un règlement sans hash exploitable', () => {
+  it('rejects a settlement with no usable hash', () => {
     expect(() =>
       settlementTxOf({
         success: true,
@@ -345,17 +345,17 @@ describe('settlementTxOf', () => {
 })
 
 describe('fundingRef = nonce EIP-3009', () => {
-  it("est le nonce de l'autorisation, en minuscules — pas un hash de transaction", () => {
+  it('is the authorization nonce, lowercased — not a transaction hash', () => {
     const nonce = `0x${'F3'.repeat(32)}` as Hex
     expect(fundingRefOfAuthorization({ ...payload().payload.authorization, nonce })).toBe(
       `0x${'f3'.repeat(32)}`,
     )
   })
 
-  it('refuse un nonce qui ne fait pas 32 octets', () => {
-    // Le contrat l'accepterait — l'encodeur ABI complèterait à gauche — mais la
-    // valeur signée par l'agent ne serait alors pas celle soumise au token.
-    for (const nonce of ['0xf3', `0x${'f3'.repeat(33)}`, 'pas-un-hex']) {
+  it('rejects a nonce that is not 32 bytes', () => {
+    // The contract would accept it — the ABI encoder would left-pad — but the
+    // value the agent signed would then not be the one submitted to the token.
+    for (const nonce of ['0xf3', `0x${'f3'.repeat(33)}`, 'not-hex']) {
       expect(() =>
         fundingRefOfAuthorization({
           ...payload().payload.authorization,
@@ -367,7 +367,7 @@ describe('fundingRef = nonce EIP-3009', () => {
 })
 
 describe('escrowAuthorizationOf', () => {
-  it('découpe la signature en v, r, s et coerce les entiers', () => {
+  it('splits the signature into v, r, s and coerces the integers', () => {
     const auth = escrowAuthorizationOf(payload().payload)
     expect(auth).toEqual({
       from: AGENT,
@@ -381,11 +381,11 @@ describe('escrowAuthorizationOf', () => {
     })
   })
 
-  it("n'expose pas `to` : le contrat passe address(this), il ne le déclare pas", () => {
+  it('does not expose `to`: the contract passes address(this), it does not declare it', () => {
     expect(escrowAuthorizationOf(payload().payload)).not.toHaveProperty('to')
   })
 
-  it('refuse une signature qui ne fait pas 65 octets', () => {
+  it('rejects a signature that is not 65 bytes', () => {
     for (const signature of [`0x${'aa'.repeat(64)}`, `0x${'aa'.repeat(66)}`, '0x']) {
       expect(() =>
         escrowAuthorizationOf({
@@ -396,9 +396,9 @@ describe('escrowAuthorizationOf', () => {
     }
   })
 
-  it('refuse un v que ecrecover ne saurait pas recouvrer', () => {
-    // 0x2d = 45. C'est la valeur que produisait l'ancien remplissage de test :
-    // longueur correcte, `v` impossible.
+  it('rejects a v that ecrecover could not recover from', () => {
+    // 0x2d = 45. That is the value the old test filler produced: correct length,
+    // impossible `v`.
     expect(() =>
       escrowAuthorizationOf({
         ...payload().payload,
@@ -407,9 +407,9 @@ describe('escrowAuthorizationOf', () => {
     ).toThrow(PaymentRejected)
   })
 
-  it('normalise un dernier octet 0/1 en 27/28', () => {
-    // viem rend `yParity` sans `v` sur cette forme ; le token fait un
-    // `ecrecover`, qui veut 27 ou 28.
+  it('normalises a trailing byte of 0/1 into 27/28', () => {
+    // viem returns `yParity` without `v` on this shape; the token does an
+    // `ecrecover`, which wants 27 or 28.
     expect(
       escrowAuthorizationOf({
         ...payload().payload,
@@ -424,7 +424,7 @@ describe('escrowAuthorizationOf', () => {
     ).toBe(28)
   })
 
-  it('refuse une autorisation dont les champs ne sont pas exploitables', () => {
+  it('rejects an authorization whose fields are not usable', () => {
     const base = payload().payload
     expect(() =>
       escrowAuthorizationOf({ ...base, authorization: { ...base.authorization, from: 'x' } }),
@@ -432,7 +432,7 @@ describe('escrowAuthorizationOf', () => {
     expect(() =>
       escrowAuthorizationOf({
         ...base,
-        authorization: { ...base.authorization, value: 'beaucoup' },
+        authorization: { ...base.authorization, value: 'lots' },
       }),
     ).toThrow(PaymentRejected)
   })
@@ -451,7 +451,7 @@ const REQUEST: MppRequestBody = {
 function store(now = () => 1_785_000_000) {
   let n = 0
   return new ChallengeStore<{ bond: string }>({
-    secret: 'secret-de-test',
+    secret: 'test-secret',
     ttlSeconds: 300,
     now,
     salt: () => `salt-${n++}`,
@@ -481,10 +481,10 @@ function credentialFor(challenge: ReturnType<typeof issue>): MppCredential {
   }
 }
 
-describe('Challenge MPP', () => {
+describe('MPP Challenge', () => {
   const challenge = issue(store())
 
-  it('porte les paramètres requis, intent charge', () => {
+  it('carries the required parameters, intent charge', () => {
     expect(challenge.realm).toBe('warrant.sh')
     expect(challenge.method).toBe('tempo')
     expect(challenge.intent).toBe('charge')
@@ -493,27 +493,27 @@ describe('Challenge MPP', () => {
     expect(challenge.expires).toMatch(/^\d{4}-\d{2}-\d{2}T/)
   })
 
-  it('encode `request` en JSON JCS base64url', () => {
+  it('encodes `request` as base64url JCS JSON', () => {
     expect(challenge.request).not.toMatch(/[+/=]/)
     expect(decodeJcs(challenge.request)).toEqual(REQUEST)
-    // JCS trie les clés : la forme est déterministe, donc rejouable.
+    // JCS sorts the keys: the shape is deterministic, hence replayable.
     expect(b64decode(challenge.request)).toBe(
       '{"amount":"25000000","currency":"' + USDC_BASE + '","recipient":"' + VAULT + '"}',
     )
   })
 
-  it("s'écrit et se relit en en-tête WWW-Authenticate", () => {
+  it('writes and reads back as a WWW-Authenticate header', () => {
     const header = formatChallengeHeader(challenge)
     expect(header.startsWith('Payment ')).toBe(true)
     expect(header).toContain('intent="charge"')
     expect(parseChallengeHeader(header)).toEqual(challenge)
   })
 
-  it("refuse un en-tête d'un autre schéma d'authentification", () => {
+  it('rejects a header from another authentication scheme', () => {
     expect(() => parseChallengeHeader('Bearer abc')).toThrow(WireFormatError)
   })
 
-  it('lie son id aux paramètres : deux montants différents, deux ids', () => {
+  it('binds its id to the parameters: two different amounts, two ids', () => {
     const s = store()
     const a = s.issue({
       realm: 'warrant.sh',
@@ -532,21 +532,21 @@ describe('Challenge MPP', () => {
     expect(a.id).not.toBe(b.id)
   })
 
-  it('ne produit jamais deux fois le même id pour la même action', () => {
+  it('never produces the same id twice for the same action', () => {
     const s = store()
     expect(issue(s).id).not.toBe(issue(s).id)
   })
 })
 
-describe('Credential MPP', () => {
-  it("s'écrit et se relit en en-tête Authorization: Payment", () => {
+describe('MPP Credential', () => {
+  it('writes and reads back as an Authorization: Payment header', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     const header = `Payment ${encodeCredential(credential)}`
     expect(decodeCredentialHeader(header)).toEqual(credential)
   })
 
-  it('est consommé une fois, et une seule', () => {
+  it('is consumed once, and only once', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     expect(s.consume(credential).context.bond).toBe('25000000')
@@ -558,10 +558,10 @@ describe('Credential MPP', () => {
     }
   })
 
-  it('refuse un Challenge inconnu', () => {
+  it('rejects an unknown Challenge', () => {
     const s = store()
     const credential = credentialFor(issue(s))
-    credential.challenge = { ...credential.challenge, id: 'jamais-émis' }
+    credential.challenge = { ...credential.challenge, id: 'never-issued' }
     try {
       s.consume(credential)
       expect.unreachable()
@@ -570,7 +570,7 @@ describe('Credential MPP', () => {
     }
   })
 
-  it('refuse un Challenge expiré', () => {
+  it('rejects an expired Challenge', () => {
     let t = 1_785_000_000
     const s = store(() => t)
     const credential = credentialFor(issue(s))
@@ -583,7 +583,7 @@ describe('Credential MPP', () => {
     }
   })
 
-  it('refuse un Challenge réécho avec un montant modifié', () => {
+  it('rejects a Challenge echoed back with a modified amount', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     credential.challenge = {
@@ -598,12 +598,12 @@ describe('Credential MPP', () => {
     }
   })
 
-  it("refuse un `opaque` qui n'est pas renvoyé inchangé", () => {
+  it('rejects an `opaque` that is not sent back unchanged', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     credential.challenge = {
       ...credential.challenge,
-      opaque: encodeJcs({ route: '/v1/autre' }),
+      opaque: encodeJcs({ route: '/v1/other' }),
     }
     try {
       s.consume(credential)
@@ -613,7 +613,7 @@ describe('Credential MPP', () => {
     }
   })
 
-  it('purge les Challenges expirés', () => {
+  it('purges the expired Challenges', () => {
     let t = 1_785_000_000
     const s = store(() => t)
     issue(s)
@@ -624,8 +624,8 @@ describe('Credential MPP', () => {
   })
 })
 
-describe('pont MPP → x402', () => {
-  it('reconstruit un PaymentPayload que le facilitateur peut vérifier', () => {
+describe('MPP → x402 bridge', () => {
+  it('rebuilds a PaymentPayload the facilitator can verify', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     const built = paymentPayloadFromCredential(
@@ -635,12 +635,12 @@ describe('pont MPP → x402', () => {
     )
     expect(built.x402Version).toBe(2)
     expect(() => assertPayloadMatches(built, REQUIREMENTS)).not.toThrow()
-    // Même autorisation que sur le rail x402 : c'est ce qui rend le règlement,
-    // donc le fundingRef, identique des deux côtés.
+    // The same authorization as on the x402 rail: that is what makes the
+    // settlement, and hence the fundingRef, identical on both sides.
     expect(built.payload.authorization).toEqual(payload().payload.authorization)
   })
 
-  it('refuse les payloads `hash` et `proof`, hors périmètre v1', () => {
+  it('rejects the `hash` and `proof` payloads, out of v1 scope', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     for (const type of ['hash', 'proof'] as const) {
@@ -651,7 +651,7 @@ describe('pont MPP → x402', () => {
     }
   })
 
-  it("refuse un payload `transaction` sans autorisation signée", () => {
+  it('rejects a `transaction` payload with no signed authorization', () => {
     const s = store()
     const credential = credentialFor(issue(s))
     expect(() =>
@@ -663,15 +663,15 @@ describe('pont MPP → x402', () => {
     ).toThrow(PaymentRejected)
   })
 
-  it("extrait l'adresse d'un source DID PKH comme d'une adresse nue", () => {
+  it('extracts the address from a PKH DID source as from a bare address', () => {
     expect(addressFromSource(`did:pkh:eip155:4217:${AGENT}`)).toBe(AGENT)
     expect(addressFromSource(AGENT.toUpperCase())).toBe(AGENT)
-    expect(addressFromSource('anonyme')).toBeUndefined()
+    expect(addressFromSource('anonymous')).toBeUndefined()
   })
 })
 
-describe('Receipt MPP', () => {
-  it("s'encode en base64url et se relit", () => {
+describe('MPP Receipt', () => {
+  it('encodes to base64url and reads back', () => {
     const receipt = {
       challengeId: 'abc',
       method: 'tempo' as const,
@@ -687,12 +687,12 @@ describe('Receipt MPP', () => {
 })
 
 describe('RFC 9457', () => {
-  it('produit un Problem Details typé', () => {
-    const p = problem('challenge_replayed', 409, 'Credential déjà utilisé', 'détail', {
+  it('produces a typed Problem Details', () => {
+    const p = problem('challenge_replayed', 409, 'Credential already used', 'detail', {
       rail: 'mpp',
     })
     expect(p.type).toBe('https://warrant.sh/problems/challenge_replayed')
-    expect(p).toMatchObject({ title: 'Credential déjà utilisé', status: 409, rail: 'mpp' })
+    expect(p).toMatchObject({ title: 'Credential already used', status: 409, rail: 'mpp' })
     expect(PROBLEM_CONTENT_TYPE).toBe('application/problem+json')
   })
 })

@@ -86,9 +86,9 @@ def warrant_tools(
                 name=bridge.name,
                 description=bridge.description,
                 args_schema=bridge.args_schema,
-                # Le modèle reçoit le JSON rendu par le pont, y compris pour une
-                # erreur : c'est ce qui lui permet de se corriger au tour suivant
-                # plutôt que d'interrompre la boucle de l'agent.
+                # The model receives the JSON the bridge returns, errors
+                # included: that is what lets it correct itself on the next turn
+                # instead of breaking the agent's loop.
                 handle_tool_error=False,
                 return_direct=False,
             )

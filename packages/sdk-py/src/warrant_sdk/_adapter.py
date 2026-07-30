@@ -1,13 +1,12 @@
-"""Le pont partagé entre LangChain et CrewAI.
+"""The bridge shared by LangChain and CrewAI.
 
-Les deux frameworks veulent la même chose — un nom, une description, un modèle
-Pydantic d'arguments, une fonction — et diffèrent seulement sur la classe qui les
-emballe. Tout ce qui est commun est donc ici, une seule fois : les deux
-adaptateurs qui suivent font moins de cinquante lignes chacun, et il n'existe
-aucun endroit où l'un pourrait se comporter autrement que l'autre.
+Both frameworks want the same thing — a name, a description, a Pydantic argument
+model, a function — and differ only in the class that wraps them. So everything
+common lives here, once: the two adapters that follow are under fifty lines each,
+and there is nowhere for one to behave differently from the other.
 
-Contrainte de conception héritée de `ai.ts` : un adaptateur ne contient **aucune**
-logique métier. S'il grossit, c'est que quelque chose appartient à `tools.py`.
+A design constraint inherited from `ai.ts`: an adapter contains **no** business
+logic. If it grows, that means something belongs in `tools.py`.
 """
 
 from __future__ import annotations
@@ -109,8 +108,9 @@ class ToolBridge:
                 data = {**data, "settlement": outcome.settlement}
             return _json(data)
 
-        # Rendu, pas levé : le modèle doit pouvoir lire l'exigence de paiement et
-        # décider. C'est le pendant du choix de rendre quote_risk gratuit.
+        # Returned, not raised: the model must be able to read the payment
+        # requirement and decide. This is the counterpart of the choice to make
+        # quote_risk free.
         return _json(
             {
                 "paymentRequired": outcome.payment_required,
@@ -160,6 +160,7 @@ def bridges(
 
 
 def _json(value: Any) -> str:
-    # `ensure_ascii=False` : les descriptions et les verdicts portent des accents,
-    # et une séquence \uXXXX dans un prompt est du bruit que le modèle recopie mal.
+    # `ensure_ascii=False`: descriptions and verdicts can carry non-ASCII
+    # characters, and a \uXXXX escape in a prompt is noise that models reproduce
+    # badly.
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)

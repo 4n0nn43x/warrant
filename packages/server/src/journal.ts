@@ -1,56 +1,56 @@
 /**
- * Journal des mandats — la persistance qui manquait au Gateway.
+ * Warrant journal — the persistence the Gateway was missing.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Le choix, et pourquoi ce n'est pas « la chaîne toute seule »
+ * The choice, and why it is not "the chain on its own"
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Le Settler règle des mandats ouverts avant son propre démarrage : un store en
- * mémoire est donc disqualifié d'office. Deux candidats restaient.
+ * The Settler settles warrants that were opened before it started: an in-memory
+ * store is therefore disqualified outright. Two candidates remained.
  *
- * **Tout dériver des events onchain.** Séduisant — sans état, robuste, dans
- * l'esprit du projet. Mais `WarrantOpened` ne transporte que `conditionHash` et
- * `actionHash`, c'est-à-dire des *engagements*, pas des *specs*. Or l'évaluateur
- * a besoin de la `ConditionSpec` complète pour savoir quelles lectures faire, et
- * un hash n'est pas inversible. Un Settler purement onchain ne pourrait rien
- * évaluer : il regarderait des mandats dont il ne saurait pas ce qu'ils
- * promettent.
+ * **Derive everything from the onchain events.** Tempting — stateless, robust, in
+ * the spirit of the project. But `WarrantOpened` carries only `conditionHash`
+ * and `actionHash`, that is to say *commitments*, not *specs*. And the evaluator
+ * needs the full `ConditionSpec` to know which reads to perform, while a hash is
+ * not invertible. A purely onchain Settler could evaluate nothing: it would be
+ * staring at warrants without knowing what they promise.
  *
- * **Tout croire d'un fichier.** Symétriquement disqualifié : un journal local
- * qu'on croit sur parole ferait de l'écriture disque une surface de confiance,
- * et un fichier édité à la main pourrait faire saisir une caution.
+ * **Believe everything a file says.** Symmetrically disqualified: a local journal
+ * taken at its word would turn a disk write into a trust surface, and a
+ * hand-edited file could get a bond slashed.
  *
- * D'où le partage retenu, qui est celui du reste du projet — la chaîne fait
- * autorité, le hors-chaîne est vérifié contre elle :
+ * Hence the division that was retained, the same as everywhere else in the
+ * project — the chain is authoritative, the off-chain side is verified against
+ * it:
  *
- *   • **la chaîne** fait autorité sur ce qui *existe* et sur son *statut* :
- *     `WarrantOpened` donne la liste, `warrants(id)` donne `status`, `expiry`,
- *     `bond`, `agent`, et les deux engagements ;
- *   • **le journal** fournit ce que la chaîne ne peut pas rendre : la
- *     `ConditionSpec`, l'`ActionSpec`, la classification, l'`executionId` ;
- *   • et le journal n'est **jamais cru** : `conditionHash(spec)` et
- *     `actionHash(spec)` sont recalculés et comparés aux engagements onchain
- *     avant toute évaluation. Une ligne falsifiée ne produit pas un mauvais
- *     verdict, elle produit un refus d'évaluer — donc une expiration vers
- *     `reclaim`, qui rembourse l'agent. Le doute continue de lui bénéficier.
+ *   • **the chain** is authoritative on what *exists* and on its *status*:
+ *     `WarrantOpened` gives the list, `warrants(id)` gives `status`, `expiry`,
+ *     `bond`, `agent`, and the two commitments;
+ *   • **the journal** supplies what the chain cannot return: the
+ *     `ConditionSpec`, the `ActionSpec`, the classification, the `executionId`;
+ *   • and the journal is **never believed**: `conditionHash(spec)` and
+ *     `actionHash(spec)` are recomputed and compared against the onchain
+ *     commitments before any evaluation. A forged line does not produce a wrong
+ *     verdict, it produces a refusal to evaluate — hence an expiry towards
+ *     `reclaim`, which refunds the agent. Doubt keeps benefiting the agent.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi JSONL append-only plutôt que SQLite
+ * Why append-only JSONL rather than SQLite
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Un `append` d'une ligne close par `\n` sur un fichier ouvert en `O_APPEND` est
- * atomique tant qu'il tient sous `PIPE_BUF`, et un lecteur qui ne consomme que
- * jusqu'au dernier `\n` ne voit jamais d'écriture partielle. C'est exactement la
- * discipline de deux processus distincts — le Gateway écrit, le Settler suit —
- * sans verrou, sans schéma, sans dépendance native, et le fichier reste lisible
- * par un humain le jour où il faut comprendre ce qui s'est passé. SQLite
- * apporterait des transactions dont ce cas d'usage n'a pas l'emploi, au prix
- * d'un binaire natif à installer.
+ * An `append` of a line terminated by `\n` to a file opened with `O_APPEND` is
+ * atomic as long as it stays under `PIPE_BUF`, and a reader that only consumes up
+ * to the last `\n` never sees a partial write. That is exactly the discipline two
+ * distinct processes need — the Gateway writes, the Settler follows — with no
+ * lock, no schema, no native dependency, and the file stays readable by a human
+ * on the day someone has to understand what happened. SQLite would bring
+ * transactions this use case has no use for, at the price of a native binary to
+ * install.
  *
- * Le prix assumé : pas de compactage. Un mandat réécrit laisse ses versions
- * précédentes dans le fichier ; la dernière ligne gagne au rechargement.
- * À l'échelle d'un hackathon, et même de plusieurs milliers de mandats, un
- * fichier texte de quelques mégaoctets ne pose aucun problème.
+ * The price we accept: no compaction. A rewritten warrant leaves its earlier
+ * versions in the file; the last line wins on reload. At hackathon scale, and
+ * even at several thousand warrants, a text file of a few megabytes is a
+ * non-issue.
  */
 
 import {
@@ -66,9 +66,9 @@ import { dirname } from 'node:path'
 import type { Hex } from '@warrant/core'
 import type { WarrantRecord, WarrantStore } from './gateway.js'
 
-/** Une ligne du journal qu'on n'a pas su relire. Jamais silencieuse. */
+/** A journal line we could not read back. Never silent. */
 export interface JournalDefect {
-  /** Numéro de ligne dans le fichier, à partir de 1. */
+  /** Line number in the file, starting at 1. */
   line: number
   raw: string
   error: string
@@ -77,11 +77,11 @@ export interface JournalDefect {
 export interface WarrantJournalOptions {
   path: string
   /**
-   * Appelé pour chaque ligne illisible. Défaut : un `console.warn`.
+   * Called for every unreadable line. Defaults to a `console.warn`.
    *
-   * Une ligne corrompue n'interrompt jamais le chargement — un journal
-   * partiellement lisible vaut mieux qu'un daemon qui refuse de démarrer et
-   * laisse expirer tous les mandats en cours.
+   * A corrupted line never interrupts loading — a partially readable journal
+   * beats a daemon that refuses to start and lets every warrant in flight
+   * expire.
    */
   onDefect?: (defect: JournalDefect) => void
 }
@@ -91,27 +91,27 @@ export interface WarrantJournal extends WarrantStore {
   get(id: Hex): WarrantRecord | undefined
   list(): WarrantRecord[]
   /**
-   * Consomme les lignes ajoutées depuis le dernier appel et rend le nombre de
-   * mandats mis à jour.
+   * Consumes the lines appended since the last call and returns the number of
+   * warrants that were updated.
    *
-   * C'est ce qui permet au Settler de *suivre* un journal qu'un autre processus
-   * alimente, sans relire le fichier entier à chaque tour de boucle : on ne lit
-   * que ce qui a été ajouté, et jamais au-delà du dernier `\n` — une ligne en
-   * cours d'écriture n'est donc jamais vue à moitié.
+   * This is what lets the Settler *follow* a journal another process is feeding,
+   * without re-reading the whole file on every loop iteration: we read only what
+   * was appended, and never past the last `\n` — so a line still being written is
+   * never seen half-formed.
    */
   refresh(): number
-  /** Lignes illisibles rencontrées depuis l'ouverture. */
+  /** Unreadable lines encountered since the journal was opened. */
   defects(): JournalDefect[]
   readonly path: string
 }
 
 /**
- * Ouvre — et crée si besoin — un journal de mandats sur disque.
+ * Opens — and creates if needed — a warrant journal on disk.
  *
- * Satisfait `WarrantStore` : le Gateway peut l'utiliser tel quel à la place de
- * `memoryWarrantStore()`, sans qu'aucune autre ligne ne change. C'est
- * volontaire — la persistance ne doit pas être une variante du Gateway, juste
- * un store différent.
+ * Satisfies `WarrantStore`: the Gateway can use it as-is in place of
+ * `memoryWarrantStore()`, without a single other line changing. That is
+ * deliberate — persistence must not be a variant of the Gateway, just a
+ * different store.
  */
 export function fileWarrantStore(opts: WarrantJournalOptions | string): WarrantJournal {
   const options: WarrantJournalOptions = typeof opts === 'string' ? { path: opts } : opts
@@ -120,18 +120,18 @@ export function fileWarrantStore(opts: WarrantJournalOptions | string): WarrantJ
     options.onDefect ??
     ((d: JournalDefect) =>
       console.warn(
-        JSON.stringify({ msg: 'journal: ligne illisible', path, line: d.line, error: d.error }),
+        JSON.stringify({ msg: 'journal: unreadable line', path, line: d.line, error: d.error }),
       ))
 
   mkdirSync(dirname(path), { recursive: true })
 
   const records = new Map<string, WarrantRecord>()
   const seenDefects: JournalDefect[] = []
-  /** Octets déjà consommés. Le suivi incrémental repart d'ici. */
+  /** Bytes already consumed. Incremental following resumes from here. */
   let consumed = 0
-  /** Numéro de la prochaine ligne, pour situer un défaut dans le fichier. */
+  /** Number of the next line, so a defect can be located in the file. */
   let lineNo = 0
-  /** Reste d'une ligne non terminée par `\n` — l'écrivain n'a pas fini. */
+  /** Remainder of a line not terminated by `\n` — the writer has not finished. */
   let pending = ''
 
   function consumeAppendedBytes(): number {
@@ -140,8 +140,8 @@ export function fileWarrantStore(opts: WarrantJournalOptions | string): WarrantJ
     try {
       const size = fstatSync(fd).size
       if (size < consumed) {
-        // Le fichier a rétréci : troncature ou rotation. On repart de zéro
-        // plutôt que de lire un décalage qui ne veut plus rien dire.
+        // The file shrank: truncation or rotation. We start over rather than read
+        // at an offset that no longer means anything.
         consumed = 0
         lineNo = 0
         pending = ''
@@ -157,7 +157,7 @@ export function fileWarrantStore(opts: WarrantJournalOptions | string): WarrantJ
       const text = pending + buffer.subarray(0, read).toString('utf8')
       const lastBreak = text.lastIndexOf('\n')
       if (lastBreak === -1) {
-        // Aucune ligne complète : on garde tout pour le prochain tour.
+        // No complete line: we keep everything for the next round.
         pending = text
         return 0
       }
@@ -192,13 +192,13 @@ export function fileWarrantStore(opts: WarrantJournalOptions | string): WarrantJ
   return {
     path,
     put(record: WarrantRecord): void {
-      // Écriture d'abord, mémoire ensuite : si le disque refuse, l'appelant
-      // reçoit l'exception et le mandat n'est pas cru enregistré.
+      // Write first, memory second: if the disk refuses, the caller gets the
+      // exception and the warrant is not believed to be recorded.
       appendFileSync(path, `${serializeRecord(record)}\n`, 'utf8')
       records.set(record.id.toLowerCase(), record)
-      // La ligne qu'on vient d'écrire sera relue par `refresh()` : la relire est
-      // sans effet (même id, même contenu), et la sauter demanderait de suivre
-      // un décalage d'octets qu'on ne contrôle pas en cas d'écriture concurrente.
+      // The line we just wrote will be read back by `refresh()`: re-reading it is
+      // a no-op (same id, same content), and skipping it would mean tracking a
+      // byte offset we do not control under concurrent writes.
     },
     get(id: Hex): WarrantRecord | undefined {
       return records.get(id.toLowerCase())
@@ -224,24 +224,24 @@ function parseLine(raw: string): ParsedLine {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
-  // Contrôle minimal : sans identifiant ni specs, la ligne ne sert à rien au
-  // Settler, et la garder en mémoire masquerait le problème.
+  // Minimal check: without an id and specs, the line is useless to the Settler,
+  // and keeping it in memory would mask the problem.
   if (typeof parsed.id !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(parsed.id)) {
-    return { ok: false, error: 'id absent ou malformé' }
+    return { ok: false, error: 'id missing or malformed' }
   }
   if (!parsed.conditionSpec || !parsed.actionSpec) {
-    return { ok: false, error: 'conditionSpec ou actionSpec absente' }
+    return { ok: false, error: 'conditionSpec or actionSpec missing' }
   }
   return { ok: true, record: parsed as WarrantRecord }
 }
 
 /**
- * Sérialisation d'un enregistrement.
+ * Serialisation of a record.
  *
- * `bigint` converti en chaîne décimale plutôt que de laisser `JSON.stringify`
- * lever : `WarrantRecord` n'en contient pas aujourd'hui, mais une ligne perdue
- * pour une erreur de type serait un mandat que le Settler ne réglerait jamais.
- * On préfère un journal qui accepte que le champ ne soit pas exactement typé.
+ * `bigint` is converted to a decimal string rather than letting `JSON.stringify`
+ * throw: `WarrantRecord` contains none today, but a line lost to a type error
+ * would be a warrant the Settler never settles. We prefer a journal that
+ * tolerates a field not being exactly typed.
  */
 export function serializeRecord(record: WarrantRecord): string {
   return JSON.stringify(record, (_key, value) =>

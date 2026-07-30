@@ -1,24 +1,23 @@
 /**
- * Settler — l'orchestration du règlement.
+ * Settler — the orchestration of settlement.
  *
- * Enchaînement, et l'ordre compte :
- *   1. lire l'exécution via l'API KeeperHub  → localise et date
- *   2. attendre N confirmations sur un RPC indépendant
- *   3. réévaluer la post-condition en lecture onchain au bloc cible
- *   4. honor / slash, puis publier le verdict
+ * The sequence, and the order matters:
+ *   1. read the execution through the KeeperHub API  → locates and timestamps it
+ *   2. wait for N confirmations on an independent RPC
+ *   3. re-evaluate the post-condition as an onchain read at the target block
+ *   4. honor / slash, then publish the verdict
  *
- * L'étape 3 est ce qui rend le verdict rejouable : l'audit trail KeeperHub sert
- * à trouver la transaction, jamais à décider. Voir docs/08 § 4.
+ * Step 3 is what makes the verdict replayable: the KeeperHub audit trail serves
+ * to *find* the transaction, never to decide. See docs/08 § 4.
  *
- * Deux règles de conduite traversent tout ce fichier :
+ * Two rules of conduct run through this whole file:
  *
- *   « Une transaction qui échoue n'est pas une post-condition violée. »
- *     Un échec d'exécution laisse le mandat expirer vers `reclaim`. L'agent
- *     n'est jamais puni pour une défaillance d'infrastructure.
+ *   "A transaction that fails is not a violated post-condition."
+ *     An execution failure lets the warrant expire towards `reclaim`. The agent
+ *     is never punished for an infrastructure failure.
  *
- *   « Le doute bénéficie à l'agent, jamais au protocole. »
- *     Toute erreur de lecture mène à un retry puis à l'expiration, jamais à une
- *     saisie.
+ *   "Doubt benefits the agent, never the protocol."
+ *     Every read error leads to a retry and then to expiry, never to a slash.
  */
 
 import type { Address, Hex } from '@warrant/core'
@@ -28,17 +27,17 @@ import { warrantEscrowAbi } from './escrow-abi.js'
 import { RpcReadError } from './checks/errors.js'
 import type { Execution, KeeperHubClient } from './keeperhub.js'
 
-/** Décision du Settler pour un mandat donné. */
+/** The Settler's decision for a given warrant. */
 export type SettlementAction =
   | { kind: 'honor'; execRef: Hex }
   | { kind: 'slash'; execRef: Hex; reason: string }
-  /** Ne rien faire et laisser `reclaim` rembourser l'agent après expiration. */
+  /** Do nothing and let `reclaim` refund the agent once the warrant expires. */
   | { kind: 'let-expire'; reason: string }
 
 export interface SettlementDecision {
   warrantId: Hex
   action: SettlementAction
-  /** Absent quand on laisse expirer avant toute évaluation. */
+  /** Absent when we let the warrant expire before any evaluation took place. */
   evaluation?: {
     verdict: 'honored' | 'slashed'
     evaluatedAtBlock: string
@@ -48,12 +47,12 @@ export interface SettlementDecision {
 }
 
 /**
- * Marge de sécurité avant expiration en dessous de laquelle le Settler
- * s'abstient d'émettre une transaction de règlement.
+ * Safety margin before expiry below which the Settler abstains from emitting a
+ * settlement transaction.
  *
- * Depuis l'invariant I9, `honor` et `slash` révertent passé `expiry` : une
- * transaction envoyée trop tard est du gas perdu, et sa place est prise par le
- * `reclaim` de l'agent. Voir docs/13 § 3, R9.
+ * By invariant I9, `honor` and `slash` revert past `expiry`: a transaction sent
+ * too late is wasted gas, and its place is taken by the agent's `reclaim`. See
+ * docs/13 § 3, R9.
  */
 export const SETTLEMENT_MARGIN_SECONDS = 60
 
@@ -76,7 +75,7 @@ export interface EvaluateFn {
 
 export interface DecideOptions {
   warrantId: Hex
-  /** Expiration du mandat, en secondes epoch. */
+  /** Warrant expiry, in epoch seconds. */
   expiry: number
   confirmations: number
   execution: Execution
@@ -86,21 +85,21 @@ export interface DecideOptions {
 }
 
 /**
- * Décide du sort d'un mandat. Fonction sans effet de bord onchain : elle rend
- * une décision, elle ne la soumet pas. C'est ce qui la rend testable et
- * rejouable.
+ * Decides the fate of a warrant. A function with no onchain side effect: it
+ * returns a decision, it does not submit it. That is what makes it testable and
+ * replayable.
  */
 export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
   const { warrantId, execution, expiry, confirmations } = opts
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000))
 
-  // 1. Échec d'exécution → jamais une saisie.
+  // 1. Execution failure → never a slash.
   if (execution.status === 'failed') {
     return {
       warrantId,
       action: {
         kind: 'let-expire',
-        reason: `exécution KeeperHub en échec (outcome=${execution.outcome ?? 'inconnu'})`,
+        reason: `KeeperHub execution failed (outcome=${execution.outcome ?? 'unknown'})`,
       },
     }
   }
@@ -110,23 +109,23 @@ export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
       warrantId,
       action: {
         kind: 'let-expire',
-        reason: `exécution non terminée (status=${execution.status})`,
+        reason: `execution not finished (status=${execution.status})`,
       },
     }
   }
 
-  // 2. Sans txHash, il n'y a rien à évaluer. On ne devine pas.
+  // 2. With no txHash there is nothing to evaluate. We do not guess.
   if (!execution.txHash) {
     return {
       warrantId,
       action: {
         kind: 'let-expire',
-        reason: "l'audit trail ne rapporte aucun txHash pour cette exécution",
+        reason: 'the audit trail reports no txHash for this execution',
       },
     }
   }
 
-  // 3. Confirmations, sur un RPC indépendant de KeeperHub.
+  // 3. Confirmations, on an RPC independent of KeeperHub.
   let blockNumber: bigint
   try {
     const receipt = await opts.publicClient.waitForTransactionReceipt({
@@ -139,12 +138,12 @@ export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
       warrantId,
       action: {
         kind: 'let-expire',
-        reason: `confirmations non obtenues: ${errText(e)}`,
+        reason: `confirmations not obtained: ${errText(e)}`,
       },
     }
   }
 
-  // 4. Évaluation. Une erreur de lecture n'est pas une violation.
+  // 4. Evaluation. A read error is not a violation.
   let evaluation: Awaited<ReturnType<EvaluateFn>>
   try {
     evaluation = await opts.evaluate({ txHash: execution.txHash, blockNumber })
@@ -154,14 +153,14 @@ export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
         warrantId,
         action: {
           kind: 'let-expire',
-          reason: `lecture onchain non concluante: ${errText(e)}`,
+          reason: `inconclusive onchain read: ${errText(e)}`,
         },
       }
     }
     throw e
   }
 
-  // 5. La fenêtre de règlement est-elle encore ouverte ? (invariant I9)
+  // 5. Is the settlement window still open? (invariant I9)
   if (now() + SETTLEMENT_MARGIN_SECONDS >= expiry) {
     return {
       warrantId,
@@ -169,7 +168,7 @@ export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
       action: {
         kind: 'let-expire',
         reason:
-          "fenêtre de règlement trop proche de l'expiration — honor/slash reverteraient",
+          'settlement window too close to expiry — honor/slash would revert',
       },
     }
   }
@@ -191,14 +190,14 @@ export async function decide(opts: DecideOptions): Promise<SettlementDecision> {
   }
 }
 
-/** Résumé court des vérifications échouées, écrit dans l'event onchain. */
+/** Short summary of the failed checks, written into the onchain event. */
 export function summarizeFailures(
   checks: { kind: string; expected: string; observed: string; pass: boolean }[],
 ): string {
   const failed = checks.filter((c) => !c.pass)
-  if (failed.length === 0) return 'aucune vérification échouée'
+  if (failed.length === 0) return 'no failed check'
   return failed
-    .map((c) => `${c.kind}: attendu ${c.expected}, observé ${c.observed}`)
+    .map((c) => `${c.kind}: expected ${c.expected}, observed ${c.observed}`)
     .join(' | ')
     .slice(0, 400)
 }
@@ -210,7 +209,7 @@ export interface SubmitOptions {
   chain: WalletClient['chain']
 }
 
-/** Soumet la décision onchain. Séparé de `decide` pour rester rejouable à sec. */
+/** Submits the decision onchain. Split from `decide` so a dry replay stays possible. */
 export async function submit(
   decision: SettlementDecision,
   opts: SubmitOptions,
@@ -240,7 +239,7 @@ export async function submit(
   })
 }
 
-/** Boucle complète : suivre l'exécution, décider, soumettre. */
+/** The full loop: follow the execution, decide, submit. */
 export async function settle(opts: {
   warrantId: Hex
   executionId: string
@@ -260,7 +259,7 @@ export async function settle(opts: {
       warrantId: opts.warrantId,
       action: {
         kind: 'let-expire',
-        reason: `audit trail illisible: ${errText(e)}`,
+        reason: `audit trail unreadable: ${errText(e)}`,
       },
     }
   }

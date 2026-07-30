@@ -61,15 +61,15 @@ from warrant_sdk.x402 import (
     warrant_id_of,
 )
 
-# Base Sepolia, les vraies valeurs : la seule chaîne EVM que le facilitateur
-# public x402 sert. Un exemple qui tournerait sur des adresses inventées
-# apprendrait au lecteur des adresses inventées.
+# Base Sepolia, the real values: the only EVM chain the public x402 facilitator
+# serves. An example running on invented addresses would teach the reader invented
+# addresses.
 CHAIN_ID = 84532
 USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 ESCROW = "0x3ae9ad53686383c80889F550065e810f72c2ff4e"
 BENEFICIARY = "0x000000000000000000000000000000000000dEaD"
 
-#: Sélecteur → catégorie et taux. Le principe du registre, en miniature.
+#: Selector → category and rate. The registry's principle, in miniature.
 CATEGORIES: dict[str, tuple[str, int]] = {
     "0xa9059cbb": ("erc20.transfer", 50),
     "0x095ea7b3": ("erc20.approve", 150),
@@ -149,7 +149,7 @@ def _check_row(check: dict[str, Any]) -> dict[str, Any]:
     elif kind == "calldata_matches_commitment":
         expected = f"actionHash of the executed tx eq {check['actionHash']}"
         observed = str(check["actionHash"])
-    else:  # pragma: no cover — le mock n'engage que deux sortes de vérifications
+    else:  # pragma: no cover — the mock only commits to two kinds of check
         expected = json.dumps(check, sort_keys=True)
         observed = expected
     return {"kind": kind, "expected": expected, "observed": observed, "pass": True}
@@ -181,8 +181,8 @@ class MockGateway:
         self.asset_version = asset_version
         self.resource_url = resource_url
         self.warrants: dict[str, dict[str, Any]] = {}
-        #: Ce que le Gateway a réellement reçu — sert à prouver le nettoyage des
-        #: entrées : un `category` envoyé par un client n'arrive jamais ici.
+        #: What the Gateway actually received — used to prove input stripping: a
+        #: `category` sent by a client never arrives here.
         self.seen: list[dict[str, Any]] = []
         self._nonces: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
@@ -210,9 +210,9 @@ class MockGateway:
             "chainId": action_spec.get("chainId"),
             "evaluateAt": "tx+1",
             "confirmations": 3,
-            # `op` / `value`, comme le DSL de `@warrant/core` — pas un `min`
-            # inventé ici : un exemple qui renomme un champ du DSL apprend au
-            # lecteur un DSL qui n'existe pas.
+            # `op` / `value`, like the `@warrant/core` DSL — not a `min` invented
+            # here: an example that renames a DSL field teaches the reader a DSL
+            # that does not exist.
             "checks": [
                 {"kind": "calldata_matches_commitment", "actionHash": action_hash},
                 {
@@ -235,7 +235,7 @@ class MockGateway:
             "category": category,
             "bond": str(bond),
             "riskBps": risk_bps,
-            # Atomique, 1e6 = 1 USD — l'unité du vrai Gateway. Voir
+            # Atomic, 1e6 = 1 USD — the real Gateway's unit. See
             # `_notional_from_calldata`.
             "notionalUSD": str(notional),
             "registryRef": action_spec.get("registryRef"),
@@ -283,15 +283,16 @@ class MockGateway:
                     "extra": {
                         "name": self.asset_name,
                         "version": self.asset_version,
-                        # `eip3009-receive`, pas `eip3009` : le second désigne
-                        # `transferWithAuthorization` dans la spec x402, et
-                        # l'annoncer ici ferait signer le mauvais typehash à un
-                        # client conforme. Même valeur que le vrai Gateway
-                        # (`DEFAULT_TRANSFER_METHOD` dans server/src/x402.ts).
+                        # `eip3009-receive`, not `eip3009`: the latter designates
+                        # `transferWithAuthorization` in the x402 spec, and
+                        # announcing it here would make a conformant client sign
+                        # the wrong typehash. Same value as the real Gateway
+                        # (`DEFAULT_TRANSFER_METHOD` in server/src/x402.ts).
                         "assetTransferMethod": RECEIVE_AUTHORIZATION_TRANSFER_METHOD,
-                        # Toujours émis : c'est la seule information du 402 qui
-                        # n'est pas devinable, et l'omettre laisserait le client
-                        # sur le défaut du schéma `exact`, qui est le mauvais.
+                        # Always emitted: this is the only piece of information in
+                        # the 402 that cannot be guessed, and omitting it would
+                        # leave the client on the `exact` scheme's default, which is
+                        # the wrong one.
                         "primaryType": RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE,
                     },
                 }
@@ -359,7 +360,7 @@ class MockGateway:
         if not auth or not signature:
             return 402, self.challenge(priced, error="malformed_payload: no EIP-3009 authorization"), None
 
-        # 1. La signature. C'est ici que le mauvais typehash se fait prendre.
+        # 1. The signature. This is where the wrong typehash gets caught.
         recovered = self._recover(auth, signature)
         if recovered is None or recovered.lower() != str(auth.get("from", "")).lower():
             return (
@@ -380,8 +381,8 @@ class MockGateway:
 
         agent = recovered.lower()
 
-        # 2. Le montant. Exactement égal : c'est le seul point où la caution est
-        #    réellement contrainte, le reste n'est que du transport.
+        # 2. The amount. Exactly equal: this is the only point where the bond is
+        #    actually constrained, the rest is merely transport.
         if int(auth.get("value", -1)) != int(priced["bond"]):
             return (
                 402,
@@ -392,9 +393,9 @@ class MockGateway:
                 None,
             )
 
-        # 3. Le nonce vaut le termsHash. Le contrat refait ce contrôle et c'est
-        #    lui qui fait autorité ; on le refait ici parce qu'un revert onchain ne
-        #    dit pas *quel* terme a divergé, alors qu'on connaît les six.
+        # 3. The nonce equals the termsHash. The contract redoes this check and it
+        #    is the authoritative one; we redo it here because an onchain revert
+        #    does not say *which* term diverged, whereas we know all six.
         warrant_id = warrant_id_of(agent, warrant_nonce, priced["actionHash"])
         expected = terms_hash_of(
             warrant_id=warrant_id,
@@ -421,8 +422,8 @@ class MockGateway:
             )
 
         opened_at = int(time.time())
-        # Règlement immédiat : le mock n'a pas de bloc d'évaluation à attendre. Un
-        # vrai Gateway laisse le mandat `Open` et le daemon de règlement tranche.
+        # Immediate settlement: the mock has no evaluation block to wait for. A
+        # real Gateway leaves the warrant `Open` and the settlement daemon decides.
         checks = [_check_row(check) for check in priced["conditionSpec"]["checks"]]
         view = {
             "warrantId": warrant_id,
@@ -494,7 +495,7 @@ class MockGateway:
                 },
             )
             return str(Account.recover_message(signable, signature=bytes.fromhex(signature.removeprefix("0x"))))
-        except Exception:  # noqa: BLE001 — une signature illisible est un refus, pas un crash
+        except Exception:  # noqa: BLE001 — an unreadable signature is a refusal, not a crash
             return None
 
     def list_warrants(self, query: dict[str, str]) -> dict[str, Any]:
@@ -558,9 +559,9 @@ def make_handler(gateway: MockGateway, *, quiet: bool = False) -> type[BaseHTTPR
             if parsed.path == "/healthz":
                 return self._send(200, {"ok": True, "now": int(time.time())})
             if parsed.path == "/openapi.json":
-                # Le document réel, figé par le générateur depuis
-                # `packages/server/src/openapi.ts`. Le servir ici fait que
-                # `GET /openapi.json` dit la vérité même en mock.
+                # The real document, frozen by the generator from
+                # `packages/server/src/openapi.ts`. Serving it here means
+                # `GET /openapi.json` tells the truth even under the mock.
                 return self._send(200, json.loads(_OPENAPI.read_text(encoding="utf-8")))
             if parsed.path.startswith("/v1/warrants/"):
                 warrant_id = parsed.path.rsplit("/", 1)[-1]
@@ -598,7 +599,7 @@ def make_handler(gateway: MockGateway, *, quiet: bool = False) -> type[BaseHTTPR
                 header = _header(self.headers, "PAYMENT-SIGNATURE")
                 if not header:
                     challenge = gateway.challenge(gateway.price(body.get("actionSpec") or {}))
-                    # Corps `{}` : toute l'information est dans l'en-tête, comme
+                    # Body `{}`: all the information is in the header, as
                     # l'exige x402 v2.
                     return self._send(
                         402, {}, {"PAYMENT-REQUIRED": _b64(challenge)}

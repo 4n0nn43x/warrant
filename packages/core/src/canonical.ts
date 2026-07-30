@@ -1,35 +1,34 @@
 /**
- * Canonicalisation JSON — RFC 8785 (JCS).
+ * JSON canonicalization — RFC 8785 (JCS).
  *
- * Ce module est la piece la plus critique du projet : le `conditionHash` depose
- * onchain doit etre recalculable a l'octet pres par n'importe qui, en
- * TypeScript, en Python ou en Go. Une divergence de serialisation entre le
- * client et le serveur rendrait tout mandat inevaluable (docs/07 § 4).
+ * This module is the most critical piece of the project: the `conditionHash`
+ * posted onchain must be recomputable byte for byte by anyone, in TypeScript,
+ * in Python or in Go. A serialization divergence between client and server
+ * would make every warrant unevaluable (docs/07 § 4).
  *
- * Regles implementees, dans l'ordre du RFC :
+ * Rules implemented, in the order of the RFC:
  *
- *  - §3.2.1 — pas d'espace de mise en forme, separateurs `,` et `:` nus.
- *  - §3.2.2.2 — echappement minimal : \b \t \n \f \r \" et l'antislash ; les
- *    autres caracteres de controle U+0000..U+001F en `\u00xx` (hexadecimal
- *    minuscule), tout le reste litteral en UTF-8. Les surrogates isoles — non
- *    representables en UTF-8 — sont echappes en `\udxxx`, comme le fait le
- *    `JSON.stringify` « well-formed » d'ECMAScript.
- *  - §3.2.2.3 — nombres serialises par `Number::toString` d'ECMAScript, avec
- *    `-0` serialise `0`.
- *  - §3.2.3 — cles d'objet triees par ordre lexicographique des **unites de
- *    code UTF-16**. C'est exactement l'ordre du comparateur `<` de JavaScript
- *    sur les chaines ; il differe de l'ordre par points de code pour les
- *    caracteres hors BMP, et c'est voulu par le RFC.
+ *  - §3.2.1 — no formatting whitespace, bare `,` and `:` separators.
+ *  - §3.2.2.2 — minimal escaping: \b \t \n \f \r \" and the backslash; the
+ *    other control characters U+0000..U+001F as `\u00xx` (lowercase hex),
+ *    everything else literal in UTF-8. Lone surrogates — not representable in
+ *    UTF-8 — are escaped as `\udxxx`, exactly as ECMAScript's "well-formed"
+ *    `JSON.stringify` does.
+ *  - §3.2.2.3 — numbers serialized by ECMAScript's `Number::toString`, with
+ *    `-0` serialized as `0`.
+ *  - §3.2.3 — object keys sorted by lexicographic order of their **UTF-16 code
+ *    units**. That is exactly the order of JavaScript's `<` comparator on
+ *    strings; it differs from code point order for characters outside the BMP,
+ *    and the RFC means it to.
  *
- * Ce qui est refuse explicitement, plutot que silencieusement transforme comme
- * le ferait `JSON.stringify` : `undefined`, les fonctions, les symboles, `NaN`,
- * `±Infinity`, `bigint`, les objets non simples (Date, Map, Set, wrappers…) et
- * les cycles.
+ * What is refused explicitly, rather than silently transformed as
+ * `JSON.stringify` would: `undefined`, functions, symbols, `NaN`, `±Infinity`,
+ * `bigint`, non-plain objects (Date, Map, Set, wrappers…) and cycles.
  */
 
-/** Erreur de canonicalisation. Porte toujours le chemin du champ fautif. */
+/** Canonicalization error. Always carries the path of the offending field. */
 export class CanonicalizationError extends Error {
-  /** Chemin JSONPath-like du noeud fautif, p. ex. `$.checks[0].value`. */
+  /** JSONPath-like path of the offending node, e.g. `$.checks[0].value`. */
   readonly path: string
 
   constructor(message: string, path: string) {
@@ -40,9 +39,9 @@ export class CanonicalizationError extends Error {
 }
 
 /**
- * Echappements courts imposes par RFC 8785 § 3.2.2.2, indexes par unite de
- * code. On indexe par code plutot que par caractere pour que la table reste
- * lisible dans le source.
+ * Short escapes mandated by RFC 8785 § 3.2.2.2, indexed by code unit. We index
+ * by code rather than by character so that the table stays readable in the
+ * source.
  */
 const SHORT_ESCAPES: Readonly<Record<number, string>> = {
   0x08: '\\b',
@@ -59,10 +58,10 @@ function unicodeEscape(codeUnit: number): string {
 }
 
 /**
- * Serialise une chaine JSON selon RFC 8785 § 3.2.2.2.
+ * Serializes a JSON string per RFC 8785 § 3.2.2.2.
  *
- * Exporte pour les tests : c'est le point ou une divergence inter-langages est
- * la plus probable.
+ * Exported for the tests: this is the spot where a cross-language divergence is
+ * most likely.
  */
 export function serializeString(value: string): string {
   let out = '"'
@@ -78,7 +77,7 @@ export function serializeString(value: string): string {
       continue
     }
     if (cu >= 0xd800 && cu <= 0xdbff) {
-      // Surrogate haut : valide seulement s'il est suivi d'un surrogate bas.
+      // High surrogate: valid only if a low surrogate follows.
       const next = value.charCodeAt(i + 1)
       if (next >= 0xdc00 && next <= 0xdfff) {
         out += value.charAt(i) + value.charAt(i + 1)
@@ -89,7 +88,7 @@ export function serializeString(value: string): string {
       continue
     }
     if (cu >= 0xdc00 && cu <= 0xdfff) {
-      // Surrogate bas orphelin.
+      // Orphan low surrogate.
       out += unicodeEscape(cu)
       continue
     }
@@ -99,11 +98,11 @@ export function serializeString(value: string): string {
 }
 
 /**
- * Serialise un nombre selon RFC 8785 § 3.2.2.3 : `Number::toString`
- * d'ECMAScript, a l'exception de `-0` qui doit sortir `0`.
+ * Serializes a number per RFC 8785 § 3.2.2.3: ECMAScript's `Number::toString`,
+ * except for `-0`, which must come out as `0`.
  *
- * `String(n)` en JavaScript *est* `Number::toString` ; on ne reimplemente donc
- * pas l'algorithme de conversion, on se contente de traiter le zero negatif.
+ * `String(n)` in JavaScript *is* `Number::toString`; we therefore do not
+ * reimplement the conversion algorithm, we only handle negative zero.
  */
 export function serializeNumber(value: number, path = '$'): string {
   if (Number.isNaN(value)) {
@@ -115,7 +114,7 @@ export function serializeNumber(value: number, path = '$'): string {
       path,
     )
   }
-  // Couvre 0 et -0 : RFC 8785 impose la meme serialisation pour les deux.
+  // Covers 0 and -0: RFC 8785 mandates the same serialization for both.
   if (value === 0) return '0'
   return String(value)
 }
@@ -188,8 +187,8 @@ function encode(value: unknown, path: string, stack: object[]): string {
       )
     }
 
-    // RFC 8785 § 3.2.3 : tri par unites de code UTF-16. Le comparateur `<` de
-    // JavaScript sur les chaines fait exactement cela.
+    // RFC 8785 § 3.2.3: sort by UTF-16 code units. JavaScript's `<` comparator
+    // on strings does exactly that.
     const keys = Object.keys(obj).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
     const parts: string[] = []
@@ -206,10 +205,10 @@ function encode(value: unknown, path: string, stack: object[]): string {
 }
 
 /**
- * Canonicalise une valeur JSON selon RFC 8785 et retourne la chaine UTF-8
- * correspondante.
+ * Canonicalizes a JSON value per RFC 8785 and returns the corresponding UTF-8
+ * string.
  *
- * @throws {CanonicalizationError} sur toute valeur non representable.
+ * @throws {CanonicalizationError} on any non-representable value.
  */
 export function canonicalize(value: unknown): string {
   return encode(value, '$', [])

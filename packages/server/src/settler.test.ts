@@ -31,7 +31,7 @@ const publicClient = {
 
 const failingClient = {
   waitForTransactionReceipt: async () => {
-    throw new Error('timeout en attente de confirmations')
+    throw new Error('timed out waiting for confirmations')
   },
 }
 
@@ -59,7 +59,7 @@ function failingChecks() {
       observed: '-9000',
       pass: false,
     },
-    { kind: 'no_new_approvals', expected: 'aucune', observed: 'aucune', pass: true },
+    { kind: 'no_new_approvals', expected: 'none', observed: 'none', pass: true },
   ]
 }
 
@@ -71,8 +71,8 @@ const base = {
   now: () => NOW,
 }
 
-describe('decide — une transaction qui échoue n’est pas une post-condition violée', () => {
-  it('laisse expirer quand KeeperHub rapporte un échec d’exécution', async () => {
+describe('decide — a transaction that fails is not a violated post-condition', () => {
+  it('lets the warrant expire when KeeperHub reports an execution failure', async () => {
     const d = await decide({
       ...base,
       execution: execution({ status: 'failed', outcome: 'reverted' }),
@@ -82,7 +82,7 @@ describe('decide — une transaction qui échoue n’est pas une post-condition 
     expect(d.evaluation).toBeUndefined()
   })
 
-  it('laisse expirer quand l’exécution n’est pas terminée', async () => {
+  it('lets the warrant expire while the execution is not finished', async () => {
     const d = await decide({
       ...base,
       execution: execution({ status: 'running' }),
@@ -91,7 +91,7 @@ describe('decide — une transaction qui échoue n’est pas une post-condition 
     expect(d.action.kind).toBe('let-expire')
   })
 
-  it('laisse expirer quand l’audit trail ne rapporte aucun txHash', async () => {
+  it('lets the warrant expire when the audit trail reports no txHash', async () => {
     const d = await decide({
       ...base,
       execution: { executionId: 'exec_abc', status: 'success', raw: {} },
@@ -103,7 +103,7 @@ describe('decide — une transaction qui échoue n’est pas une post-condition 
     }
   })
 
-  it('laisse expirer quand les confirmations ne viennent pas', async () => {
+  it('lets the warrant expire when the confirmations never come', async () => {
     const d = await decide({
       ...base,
       publicClient: failingClient,
@@ -114,26 +114,26 @@ describe('decide — une transaction qui échoue n’est pas une post-condition 
   })
 })
 
-describe('decide — le doute bénéficie à l’agent', () => {
-  it('une erreur de lecture RPC ne produit JAMAIS de slash', async () => {
+describe('decide — doubt benefits the agent', () => {
+  it('an RPC read error NEVER produces a slash', async () => {
     const d = await decide({
       ...base,
       execution: execution(),
       evaluate: async () => {
-        throw new RpcReadError('noeud injoignable')
+        throw new RpcReadError('node unreachable')
       },
     })
     expect(d.action.kind).toBe('let-expire')
     expect(d.action.kind).not.toBe('slash')
   })
 
-  it('une erreur non-RPC remonte au lieu d’être avalée', async () => {
+  it('a non-RPC error propagates instead of being swallowed', async () => {
     await expect(
       decide({
         ...base,
         execution: execution(),
         evaluate: async () => {
-          throw new TypeError('bug de programmation')
+          throw new TypeError('programming bug')
         },
       }),
     ).rejects.toBeInstanceOf(TypeError)
@@ -141,7 +141,7 @@ describe('decide — le doute bénéficie à l’agent', () => {
 })
 
 describe('decide — verdicts', () => {
-  it('post-condition tenue → honor, avec execRef', async () => {
+  it('post-condition held → honor, with execRef', async () => {
     const d = await decide({
       ...base,
       execution: execution(),
@@ -154,7 +154,7 @@ describe('decide — verdicts', () => {
     expect(d.evaluation?.checks).toHaveLength(1)
   })
 
-  it('post-condition violée → slash, avec les checks échoués en raison', async () => {
+  it('post-condition violated → slash, with the failed checks as the reason', async () => {
     const d = await decide({
       ...base,
       execution: execution(),
@@ -164,12 +164,12 @@ describe('decide — verdicts', () => {
     if (d.action.kind === 'slash') {
       expect(d.action.reason).toContain('erc20_balance')
       expect(d.action.reason).toContain('erc20_balance_delta')
-      // Les checks passés ne polluent pas la raison.
+      // Passing checks do not pollute the reason.
       expect(d.action.reason).not.toContain('no_new_approvals')
     }
   })
 
-  it('publie checks[] intégralement, y compris les vérifications passées', async () => {
+  it('publishes checks[] in full, passing checks included', async () => {
     const d = await decide({
       ...base,
       execution: execution(),
@@ -180,8 +180,8 @@ describe('decide — verdicts', () => {
   })
 })
 
-describe('decide — fenêtre de règlement (invariant I9)', () => {
-  it('s’abstient quand l’expiration est trop proche, même sur un verdict slashed', async () => {
+describe('decide — settlement window (invariant I9)', () => {
+  it('abstains when expiry is too close, even on a slashed verdict', async () => {
     const d = await decide({
       ...base,
       expiry: NOW + SETTLEMENT_MARGIN_SECONDS - 1,
@@ -189,11 +189,11 @@ describe('decide — fenêtre de règlement (invariant I9)', () => {
       evaluate: evaluateTo('slashed', failingChecks()),
     })
     expect(d.action.kind).toBe('let-expire')
-    // L'évaluation est tout de même publiée : le verdict reste auditable.
+    // The evaluation is published all the same: the verdict stays auditable.
     expect(d.evaluation?.verdict).toBe('slashed')
   })
 
-  it('s’abstient aussi sur un verdict honored trop tardif', async () => {
+  it('abstains on a too-late honored verdict as well', async () => {
     const d = await decide({
       ...base,
       expiry: NOW + 1,
@@ -203,7 +203,7 @@ describe('decide — fenêtre de règlement (invariant I9)', () => {
     expect(d.action.kind).toBe('let-expire')
   })
 
-  it('règle normalement juste au-dessus de la marge', async () => {
+  it('settles normally just above the margin', async () => {
     const d = await decide({
       ...base,
       expiry: NOW + SETTLEMENT_MARGIN_SECONDS + 1,
@@ -215,26 +215,26 @@ describe('decide — fenêtre de règlement (invariant I9)', () => {
 })
 
 describe('execRef', () => {
-  it('est déterministe', () => {
+  it('is deterministic', () => {
     expect(execRef('exec_abc', TX_HASH)).toBe(execRef('exec_abc', TX_HASH))
   })
 
-  it('sépare deux exécutions différentes sur la même transaction', () => {
+  it('separates two different executions on the same transaction', () => {
     expect(execRef('exec_a', TX_HASH)).not.toBe(execRef('exec_b', TX_HASH))
   })
 
-  it('sépare deux transactions différentes sur la même exécution', () => {
+  it('separates two different transactions on the same execution', () => {
     const other = `0x${'33'.repeat(32)}` as Hex
     expect(execRef('exec_a', TX_HASH)).not.toBe(execRef('exec_a', other))
   })
 })
 
 describe('summarizeFailures', () => {
-  it('ne liste que les échecs', () => {
+  it('lists only the failures', () => {
     expect(summarizeFailures(failingChecks())).not.toContain('no_new_approvals')
   })
 
-  it('borne la longueur pour tenir dans un event', () => {
+  it('bounds the length so it fits in an event', () => {
     const many = Array.from({ length: 50 }, (_, i) => ({
       kind: `check_${i}`,
       expected: 'x'.repeat(50),
@@ -244,7 +244,7 @@ describe('summarizeFailures', () => {
     expect(summarizeFailures(many).length).toBeLessThanOrEqual(400)
   })
 
-  it('reste explicite quand rien n’a échoué', () => {
-    expect(summarizeFailures(passingChecks())).toMatch(/aucune/)
+  it('stays explicit when nothing failed', () => {
+    expect(summarizeFailures(passingChecks())).toMatch(/no failed check/)
   })
 })

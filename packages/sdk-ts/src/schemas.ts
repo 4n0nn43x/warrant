@@ -1,22 +1,21 @@
 /**
- * Schémas d'entrée des outils.
+ * Tool input schemas.
  *
- * Le point de conception qui compte tient en une phrase : **aucun schéma
- * n'accepte de `category` ni de `notional`**. Les deux sont dérivés du calldata
- * par le Classifieur (docs/13 § 5). Un agent qui pourrait déclarer sa propre
- * catégorie pourrait choisir son propre tarif de risque, et le modèle de menace
- * s'effondrerait.
+ * The design point that matters fits in one sentence: **no schema accepts a
+ * `category` or a `notional`**. Both are derived from the calldata by the
+ * Classifier (docs/13 § 5). An agent able to declare its own category could
+ * choose its own risk rate, and the threat model would collapse.
  *
- * Cela se traduit en deux garanties complémentaires :
+ * That translates into two complementary guarantees:
  *
- * 1. le champ n'existe pas dans le JSON Schema publié par `tools/list` — un
- *    agent bien élevé ne l'envoie donc jamais ;
- * 2. Zod **retire** silencieusement toute clé inconnue au parsing — un agent
- *    mal élevé qui l'envoie quand même se la voit ignorée, et surtout : la
- *    valeur transmise au Gateway est l'objet nettoyé, si bien que l'`actionHash`
- *    engagé ne peut pas dépendre d'un champ parasite.
+ * 1. the field does not exist in the JSON Schema published by `tools/list` — so
+ *    a well-behaved agent never sends it;
+ * 2. Zod silently **strips** every unknown key at parse time — an ill-behaved
+ *    agent that sends it anyway sees it ignored, and above all: the value
+ *    forwarded to the Gateway is the cleaned object, so the committed
+ *    `actionHash` cannot depend on a stray field.
  *
- * Le point 2 est le seul qui tienne face à un client hostile.
+ * Point 2 is the only one that holds up against a hostile client.
  */
 
 import { z } from 'zod'
@@ -28,39 +27,39 @@ const DECIMAL_RE = /^(?:0|[1-9][0-9]*)$/
 
 export const addressSchema = z
   .string()
-  .regex(ADDRESS_RE, 'adresse EVM attendue : 0x suivi de 40 caractères hexadécimaux')
+  .regex(ADDRESS_RE, 'EVM address expected: 0x followed by 40 hexadecimal characters')
 
 export const bytes32Schema = z
   .string()
-  .regex(BYTES32_RE, 'bytes32 attendu : 0x suivi de 64 caractères hexadécimaux')
+  .regex(BYTES32_RE, 'bytes32 expected: 0x followed by 64 hexadecimal characters')
 
 export const hexDataSchema = z
   .string()
-  .regex(HEX_DATA_RE, 'calldata hexadécimal attendu, longueur entière en octets')
+  .regex(HEX_DATA_RE, 'hexadecimal calldata expected, whole number of bytes')
 
 export const decimalSchema = z
   .string()
-  .regex(DECIMAL_RE, 'entier décimal canonique attendu : pas de signe, pas de zéro de tête')
+  .regex(DECIMAL_RE, 'canonical decimal integer expected: no sign, no leading zero')
 
 /**
- * La transaction engagée. Seul intrant de la classification et de la
- * tarification : tout le reste en découle.
+ * The committed transaction. The sole input to classification and pricing:
+ * everything else follows from it.
  */
 export const actionSpecSchema = z
   .object({
     version: z.literal(1),
-    chainId: z.number().int().positive().describe('Chain ID EVM de la transaction exécutée.'),
-    target: addressSchema.describe('Contrat appelé.'),
-    value: decimalSchema.describe('Valeur native envoyée, en wei, en chaîne décimale.'),
+    chainId: z.number().int().positive().describe('EVM chain ID of the executed transaction.'),
+    target: addressSchema.describe('Contract being called.'),
+    value: decimalSchema.describe('Native value sent, in wei, as a decimal string.'),
     calldata: hexDataSchema.describe(
-      "Calldata exact de la transaction. C'est de lui — et de lui seul — que sont dérivés la catégorie, le notionnel et donc la caution.",
+      'Exact calldata of the transaction. It is from this — and from this alone — that the category, the notional and therefore the bond are derived.',
     ),
     registryRef: bytes32Schema.describe(
-      'Hash de la version du registre de classification utilisée.',
+      'Hash of the classification registry version in use.',
     ),
   })
   .describe(
-    "La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés.",
+    'The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared.',
   )
 
 export type ActionSpecInput = z.output<typeof actionSpecSchema>
@@ -70,27 +69,27 @@ export const quoteRiskInputSchema = z.object({
   beneficiary: addressSchema
     .optional()
     .describe(
-      "Bénéficiaire d'une éventuelle saisie. N'influe pas sur le prix ; sert à construire la post-condition.",
+      'Beneficiary of a potential slash. Does not affect the price; used to build the post-condition.',
     ),
 })
 
 export const requestWarrantInputSchema = z.object({
   actionSpec: actionSpecSchema,
   beneficiary: addressSchema.describe(
-    "Adresse qui reçoit la caution si la post-condition est violée — le propriétaire du capital, jamais l'agent.",
+    'Address that receives the bond if the post-condition is violated — the owner of the capital, never the agent.',
   ),
 })
 
 export const getWarrantInputSchema = z.object({
-  warrantId: bytes32Schema.describe('Identifiant du mandat, tel que rendu par request_warrant.'),
+  warrantId: bytes32Schema.describe('Warrant identifier, as returned by request_warrant.'),
 })
 
 export const listWarrantsInputSchema = z.object({
-  agent: addressSchema.describe('Wallet agentique dont on énumère les mandats.'),
+  agent: addressSchema.describe('Agentic wallet whose warrants are being listed.'),
   status: z
     .enum(['open', 'honored', 'slashed', 'reclaimed'])
     .optional()
-    .describe('Ne garder que les mandats dans cet état.'),
+    .describe('Keep only the warrants in this status.'),
   category: z
     .enum([
       'erc20.transfer',
@@ -102,11 +101,11 @@ export const listWarrantsInputSchema = z.object({
       'unknown',
     ])
     .optional()
-    .describe('Filtre a posteriori sur la catégorie dérivée. Ne peut pas être déclarée à l\'ouverture.'),
-  since: z.number().int().nonnegative().optional().describe('Borne basse sur openedAt, en secondes Unix.'),
-  until: z.number().int().nonnegative().optional().describe('Borne haute sur openedAt, en secondes Unix.'),
-  limit: z.number().int().min(1).max(100).optional().describe('Nombre maximal de mandats rendus (défaut 20).'),
-  cursor: z.string().optional().describe('Curseur de pagination rendu par un appel précédent.'),
+    .describe('After-the-fact filter on the derived category. Cannot be declared at opening time.'),
+  since: z.number().int().nonnegative().optional().describe('Lower bound on openedAt, in Unix seconds.'),
+  until: z.number().int().nonnegative().optional().describe('Upper bound on openedAt, in Unix seconds.'),
+  limit: z.number().int().min(1).max(100).optional().describe('Maximum number of warrants returned (default 20).'),
+  cursor: z.string().optional().describe('Pagination cursor returned by a previous call.'),
 })
 
 export type QuoteRiskInput = z.output<typeof quoteRiskInputSchema>
@@ -115,31 +114,31 @@ export type GetWarrantInput = z.output<typeof getWarrantInputSchema>
 export type ListWarrantsInput = z.output<typeof listWarrantsInputSchema>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Schémas de sortie
+// Output schemas
 //
-// Publiés (`tools/list` les expose en `outputSchema`) mais délibérément
-// permissifs : ils décrivent le contrat minimal que le Gateway doit tenir, pas
-// la totalité de ce qu'il peut rendre. Un schéma de sortie fermé transformerait
-// tout enrichissement du Gateway en panne du serveur MCP.
+// Published (`tools/list` exposes them as `outputSchema`) but deliberately
+// permissive: they describe the minimal contract the Gateway must honour, not
+// the totality of what it may return. A closed output schema would turn any
+// enrichment of the Gateway into an outage of the MCP server.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const jsonObject = z.record(z.string(), z.unknown())
 
 export const quoteRiskOutputSchema = z.object({
-  category: z.string().describe('Catégorie dérivée du calldata.'),
-  bond: z.string().describe('Caution exigée, en unités atomiques (USDC, 6 décimales).'),
-  riskBps: z.number().describe('Taux de risque appliqué, en points de base.'),
-  notionalUSD: z.string().describe('Notionnel dérivé des arguments décodés.'),
-  conditionSpec: jsonObject.describe('Post-condition qui sera engagée sous conditionHash.'),
-  rationale: z.string().describe('Justification du prix, en une phrase.'),
+  category: z.string().describe('Category derived from the calldata.'),
+  bond: z.string().describe('Bond required, in atomic units (USDC, 6 decimals).'),
+  riskBps: z.number().describe('Risk rate applied, in basis points.'),
+  notionalUSD: z.string().describe('Notional derived from the decoded arguments.'),
+  conditionSpec: jsonObject.describe('Post-condition that will be committed under conditionHash.'),
+  rationale: z.string().describe('One-sentence justification of the price.'),
 })
 
 export const requestWarrantOutputSchema = z.object({
   warrantId: bytes32Schema,
-  executionId: z.string().describe('Identifiant KeeperHub de l\'exécution.'),
-  conditionHash: bytes32Schema.describe('keccak256(JCS(conditionSpec)) — engagement immuable.'),
-  actionHash: bytes32Schema.describe('keccak256(JCS(actionSpec)) — engagement sur ce qui est demandé.'),
-  expiry: z.number().describe('Au-delà, honor/slash sont fermés et reclaim() est ouvert.'),
+  executionId: z.string().describe('KeeperHub identifier of the execution.'),
+  conditionHash: bytes32Schema.describe('keccak256(JCS(conditionSpec)) — immutable commitment.'),
+  actionHash: bytes32Schema.describe('keccak256(JCS(actionSpec)) — commitment to what is being asked.'),
+  expiry: z.number().describe('Past this point, honor/slash are closed and reclaim() is open.'),
 })
 
 export const checkResultSchema = z.object({
@@ -159,11 +158,11 @@ export const getWarrantOutputSchema = z.object({
   expiry: z.number(),
   openedAt: z.number(),
   status: z.number().describe('0 None, 1 Open, 2 Honored, 3 Slashed, 4 Reclaimed.'),
-  verdict: jsonObject.optional().describe('Présent une fois le mandat réglé.'),
+  verdict: jsonObject.optional().describe('Present once the warrant is settled.'),
   checks: z
     .array(checkResultSchema)
     .describe(
-      'Une ligne par vérification, y compris celles qui passent — un verdict partiel ne serait pas auditable.',
+      'One row per check, including the ones that pass — a partial verdict would not be auditable.',
     ),
 })
 
@@ -175,15 +174,15 @@ export const listWarrantsOutputSchema = z.object({
     honored: z.number(),
     slashed: z.number(),
     reclaimed: z.number(),
-    // Ces trois noms sont ceux que le Gateway sert reellement
-    // (`GET /v1/warrants`), et ceux que l'explorer consomme. Le schema declarait
-    // auparavant `totalBonded` / `totalSlashed` / `honorRateBps`, qui
-    // n'existaient nulle part ailleurs : un adaptateur genere depuis cette
-    // source unique promettait donc des champs absents de la reponse.
+    // These three names are the ones the Gateway actually serves
+    // (`GET /v1/warrants`), and the ones the explorer consumes. The schema used
+    // to declare `totalBonded` / `totalSlashed` / `honorRateBps`, which existed
+    // nowhere else: an adapter generated from this single source therefore
+    // promised fields absent from the response.
     //
-    // Le principe du paquet est « rien n'est declare, tout est derive ». Une
-    // source unique qui ne decrit pas le serveur n'est pas une source unique,
-    // c'est une seconde verite — exactement ce que ce paquet existe pour eviter.
+    // The rule of this package is "nothing is declared, everything is derived".
+    // A single source that does not describe the server is not a single source,
+    // it is a second truth — exactly what this package exists to prevent.
     bondHonoredTotal: z.string(),
     bondSlashedTotal: z.string(),
     totalAtRisk: z.string(),

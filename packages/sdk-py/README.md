@@ -416,11 +416,11 @@ Adding a field to a tool schema in TypeScript and forgetting to regenerate makes
 `quote_risk`'s title in `tools.ts` fails the drift test with
 
 ```
-packages/sdk-py/src/warrant_sdk/_generated.py : ligne 34
-    sur disque : MANIFEST_SHA256 = "sha256:9a3fc71a…"
-    attendu    : MANIFEST_SHA256 = "sha256:b983f6a0…"
-packages/sdk-py/tests/fixtures/manifest.json  : ligne 7
-skills/warrant/SKILL.md                       : ligne 181
+packages/sdk-py/src/warrant_sdk/_generated.py: line 34
+      on disk:  MANIFEST_SHA256 = "sha256:9a3fc71a…"
+      expected: MANIFEST_SHA256 = "sha256:b983f6a0…"
+packages/sdk-py/tests/fixtures/manifest.json: line 7
+skills/warrant/SKILL.md: line 181
 ```
 
 — all three projections at once, each with the first differing line. Adding a JSON

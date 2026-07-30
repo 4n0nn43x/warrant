@@ -1,12 +1,12 @@
 /**
- * Document OpenAPI 3.1 du Gateway, avec l'extension `x-payment-info`.
+ * The Gateway's OpenAPI 3.1 document, with the `x-payment-info` extension.
  *
- * ## Sur le format de `x-payment-info`
+ * ## On the format of `x-payment-info`
  *
- * Deux formes circulent. Celle de `docs/09-integration-frameworks.md` a été
- * **inventée** au moment de la conception ; celle utilisée ici est celle qu'on
- * observe réellement dans l'OpenAPI live de KeeperHub
- * (`app.keeperhub.com/api/openapi`), c'est-à-dire :
+ * Two shapes are in circulation. The one in
+ * `docs/09-integration-frameworks.md` was **invented** at design time; the one
+ * used here is the one actually observed in KeeperHub's live OpenAPI document
+ * (`app.keeperhub.com/api/openapi`), namely:
  *
  * ```json
  * "x-payment-info": {
@@ -18,51 +18,51 @@
  * }
  * ```
  *
- * Un agent qui sait lire le catalogue KeeperHub sait donc lire le nôtre sans
- * une ligne de code supplémentaire. C'est la seule raison qui vaille de copier
- * un format plutôt que d'en inventer un meilleur.
+ * An agent that can read the KeeperHub catalogue can therefore read ours without
+ * a single extra line of code. That is the only reason worth copying a format
+ * rather than inventing a better one.
  *
- * ## Le prix de `/v1/warrants` n'est pas fixe — `mode: "dynamic"`
+ * ## The price of `/v1/warrants` is not fixed — `mode: "dynamic"`
  *
- * La caution est `clamp(minBond, riskBps × notionalUSD, maxBond)`, et
- * `notionalUSD` est **dérivé du calldata**, jamais déclaré. Aucune valeur ne
- * peut donc figurer dans le document : annoncer un `amount` fixe serait faux
- * pour toute action sauf une, et un agent qui pré-approuverait ce montant
- * échouerait au premier appel réel.
+ * The bond is `clamp(minBond, riskBps × notionalUSD, maxBond)`, and
+ * `notionalUSD` is **derived from the calldata**, never declared. No value can
+ * therefore appear in the document: announcing a fixed `amount` would be wrong
+ * for every action but one, and an agent that pre-approved that amount would
+ * fail on its first real call.
  *
- * `mode: "dynamic"` est donc accompagné de ce qui rend le prix *prévisible*
- * sans être *fixe* :
+ * So `mode: "dynamic"` comes with everything that makes the price *predictable*
+ * without making it *fixed*:
  *
- * - `min` / `max` : les bornes réelles de la politique, en USD. Un agent peut
- *   décider de son budget maximal avant d'appeler.
- * - `quote` : la route gratuite qui rend le prix exact pour une action donnée.
- *   C'est la porte d'entrée sans friction — connaître le prix ne coûte rien.
- * - `basis` : ce dont le prix dépend. Le dire explicitement évite qu'un
- *   intégrateur suppose qu'il dépend d'un champ de sa requête.
+ * - `min` / `max`: the policy's real bounds, in USD. An agent can decide on its
+ *   maximum budget before calling.
+ * - `quote`: the free route that returns the exact price for a given action.
+ *   This is the frictionless front door — learning the price costs nothing.
+ * - `basis`: what the price depends on. Saying it explicitly keeps an integrator
+ *   from assuming it depends on a field of their own request.
  *
- * `mode` reste la même clé que dans la forme observée, avec une valeur
- * supplémentaire : un lecteur qui ne connaît que `fixed` voit un mode qu'il ne
- * comprend pas et va chercher le devis, plutôt que de lire un montant erroné.
+ * `mode` remains the same key as in the observed shape, with one additional
+ * value: a reader that only knows `fixed` sees a mode it does not understand and
+ * goes and fetches the quote, rather than reading a wrong amount.
  */
 
 export interface OpenApiOptions {
   baseUrl: string
-  /** CAIP-2 du réseau de règlement de la caution. */
+  /** CAIP-2 identifier of the network the bond settles on. */
   network: string
-  /** Contrat du token de caution. */
+  /** Contract of the bond token. */
   asset: string
-  /** Bornes de la politique, en unités atomiques (6 décimales). */
+  /** Policy bounds, in atomic units (6 decimals). */
   minBond: string
   maxBond: string
-  /** Méthode MPP annoncée. */
+  /** Advertised MPP method. */
   mppMethod?: string
-  /** Devise annoncée côté MPP, en symbole lisible. */
+  /** Currency advertised on the MPP side, as a readable symbol. */
   mppCurrency?: string
   title?: string
   version?: string
 }
 
-/** Unités atomiques 1e6 → montant lisible en USD, sans flottant. */
+/** 1e6 atomic units → a readable USD amount, with no floating point. */
 function toUsd(atomic: string): string {
   let n: bigint
   try {
@@ -89,13 +89,13 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
     info: {
       title: opts.title ?? 'Warrant — Gateway 402',
       version: opts.version ?? '0.1.0',
-      summary: 'Exécution cautionnée pour agents onchain',
+      summary: 'Bonded execution for onchain agents',
       description:
-        "Un mandat engage une post-condition vérifiable et une caution. La catégorie d'action " +
-        "et le notionnel sont **dérivés du calldata**, jamais déclarés par l'appelant : un champ " +
-        '`category` dans une requête est lu, ignoré et signalé. Les deux rails de paiement — ' +
-        'x402 v2 et MPP — sont servis simultanément sur `POST /v1/warrants` et produisent un ' +
-        'mandat identique.',
+        'A warrant commits to a verifiable post-condition and to a bond. The action category ' +
+        'and the notional are **derived from the calldata**, never declared by the caller: a ' +
+        '`category` field in a request is read, ignored and reported back. Both payment rails ' +
+        '— x402 v2 and MPP — are served simultaneously on `POST /v1/warrants` and produce an ' +
+        'identical warrant.',
       license: { name: 'MIT', identifier: 'MIT' },
     },
     servers: [{ url: opts.baseUrl }],
@@ -103,11 +103,11 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
       '/v1/quote': {
         post: {
           operationId: 'quote',
-          summary: "Tarifer une action et rendre l'engagement, gratuitement",
+          summary: 'Price an action and return the commitment, for free',
           description:
-            "Gratuit et sans authentification : la porte d'entrée sans friction. Rend la " +
-            'catégorie dérivée, la caution, la `conditionSpec` engagée et son `conditionHash`. ' +
-            'Le devis est reproductible : deux requêtes identiques rendent le même hash.',
+            'Free and unauthenticated: the frictionless front door. Returns the derived ' +
+            'category, the bond, the committed `conditionSpec` and its `conditionHash`. The ' +
+            'quote is reproducible: two identical requests return the same hash.',
           requestBody: {
             required: true,
             content: {
@@ -118,14 +118,14 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
           },
           responses: {
             '200': {
-              description: 'Devis',
+              description: 'Quote',
               content: {
                 'application/json': {
                   schema: { $ref: '#/components/schemas/QuoteResponse' },
                 },
               },
             },
-            '422': problemResponse("Action non classifiable ou politique incomplète"),
+            '422': problemResponse('Action not classifiable, or policy incomplete'),
           },
         },
       },
@@ -133,24 +133,24 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
       '/v1/warrants': {
         post: {
           operationId: 'openWarrant',
-          summary: 'Ouvrir un mandat cautionné et exécuter son action',
+          summary: 'Open a bonded warrant and execute its action',
           description:
-            'Payant. Sans paiement, répond 402 en émettant **simultanément** ' +
-            '`WWW-Authenticate: Payment` (MPP) et `PAYMENT-REQUIRED` (x402 v2), avec un corps ' +
-            '`{}`. Accepte indifféremment `Authorization: Payment` ou `PAYMENT-SIGNATURE`, et ' +
-            "rend l'en-tête de reçu correspondant au rail emprunté. La simulation KeeperHub " +
-            "précède le règlement : un mandat dont la simulation échoue n'est jamais ouvert et " +
-            "la caution n'est pas prélevée.",
+            'Paid. With no payment, answers 402 while emitting **simultaneously** ' +
+            '`WWW-Authenticate: Payment` (MPP) and `PAYMENT-REQUIRED` (x402 v2), with a `{}` ' +
+            'body. Accepts either `Authorization: Payment` or `PAYMENT-SIGNATURE`, and returns ' +
+            'the receipt header matching the rail that was used. The KeeperHub simulation comes ' +
+            'before settlement: a warrant whose simulation fails is never opened and no bond is ' +
+            'taken.',
           'x-payment-info': {
             price: {
-              // Prix calculé par le Risk Pricer — voir l'en-tête de ce fichier.
+              // Price computed by the Risk Pricer — see this file's header.
               mode: 'dynamic',
               currency: 'USD',
               min: toUsd(opts.minBond),
               max: toUsd(opts.maxBond),
               basis:
-                'clamp(minBond, riskBps × notionalUSD, maxBond) — la catégorie et le notionnel ' +
-                'sont dérivés du calldata de `actionSpec`, jamais déclarés',
+                'clamp(minBond, riskBps × notionalUSD, maxBond) — the category and the notional ' +
+                'are derived from the calldata of `actionSpec`, never declared',
               quote: { method: 'POST', path: '/v1/quote', cost: 'free' },
             },
             protocols,
@@ -160,14 +160,14 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
               name: 'PAYMENT-SIGNATURE',
               in: 'header',
               required: false,
-              description: 'Rail x402 v2 — `PaymentPayload` encodé base64.',
+              description: 'x402 v2 rail — base64-encoded `PaymentPayload`.',
               schema: { type: 'string' },
             },
             {
               name: 'Authorization',
               in: 'header',
               required: false,
-              description: 'Rail MPP — `Payment <Credential base64url>`.',
+              description: 'MPP rail — `Payment <Credential base64url>`.',
               schema: { type: 'string' },
             },
           ],
@@ -181,14 +181,14 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
           },
           responses: {
             '200': {
-              description: 'Mandat ouvert et action exécutée',
+              description: 'Warrant opened and action executed',
               headers: {
                 'PAYMENT-RESPONSE': {
-                  description: 'Rail x402 — `SettlementResponse` encodé base64.',
+                  description: 'x402 rail — base64-encoded `SettlementResponse`.',
                   schema: { type: 'string' },
                 },
                 'Payment-Receipt': {
-                  description: 'Rail MPP — Receipt encodé base64url.',
+                  description: 'MPP rail — base64url-encoded Receipt.',
                   schema: { type: 'string' },
                 },
               },
@@ -200,15 +200,15 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             },
             '402': {
               description:
-                'Paiement requis. Les deux challenges sont émis simultanément ; le corps est ' +
-                '`{}` sauf refus sur le rail MPP, où il est un Problem Details RFC 9457.',
+                'Payment required. Both challenges are emitted simultaneously; the body is ' +
+                '`{}` except on an MPP-rail refusal, where it is an RFC 9457 Problem Details.',
               headers: {
                 'WWW-Authenticate': {
-                  description: 'Challenge MPP : `id`, `realm`, `method`, `intent="charge"`, `request`, `expires`.',
+                  description: 'MPP challenge: `id`, `realm`, `method`, `intent="charge"`, `request`, `expires`.',
                   schema: { type: 'string' },
                 },
                 'PAYMENT-REQUIRED': {
-                  description: 'Challenge x402 v2 — `PaymentRequired` encodé base64.',
+                  description: 'x402 v2 challenge — base64-encoded `PaymentRequired`.',
                   schema: { type: 'string' },
                 },
               },
@@ -220,13 +220,13 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
               },
             },
             '409': problemResponse(
-              'Credential rejoué. Un Credential vaut pour exactement une requête.',
+              'Credential replayed. A Credential is good for exactly one request.',
             ),
             '422': problemResponse(
-              "Action non classifiable, non encodable pour KeeperHub, ou simulation en échec — " +
-                'aucun mandat ouvert, aucune caution prélevée.',
+              'Action not classifiable, not encodable for KeeperHub, or failing simulation — no ' +
+                'warrant opened, no bond taken.',
             ),
-            '502': problemResponse('Facilitateur, exécuteur ou escrow indisponible'),
+            '502': problemResponse('Facilitator, executor or escrow unavailable'),
           },
         },
       },
@@ -234,11 +234,12 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
       '/v1/warrants/{id}': {
         get: {
           operationId: 'getWarrant',
-          summary: 'Mandat, exécution et verdict',
+          summary: 'Warrant, execution and verdict',
           description:
-            'Rend le mandat, la `conditionSpec` engagée et, une fois le mandat réglé, le ' +
-            'verdict avec le détail `checks[]`. Publier `checks[]` et `evaluatedAtBlock` est ce ' +
-            "qui transforme le verdict d'une assertion en une preuve rejouable.",
+            'Returns the warrant, the committed `conditionSpec` and, once the warrant is ' +
+            'settled, the verdict with the `checks[]` detail. Publishing `checks[]` and ' +
+            '`evaluatedAtBlock` is what turns the verdict from an assertion into a replayable ' +
+            'proof.',
           parameters: [
             {
               name: 'id',
@@ -249,14 +250,14 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
           ],
           responses: {
             '200': {
-              description: 'Mandat',
+              description: 'Warrant',
               content: {
                 'application/json': {
                   schema: { $ref: '#/components/schemas/WarrantView' },
                 },
               },
             },
-            '404': problemResponse('Mandat inconnu'),
+            '404': problemResponse('Unknown warrant'),
           },
         },
       },
@@ -264,7 +265,7 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
       '/openapi.json': {
         get: {
           operationId: 'openapi',
-          summary: 'Ce document',
+          summary: 'This document',
           responses: { '200': { description: 'OpenAPI 3.1' } },
         },
       },
@@ -279,8 +280,8 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
         ActionSpec: {
           type: 'object',
           description:
-            "La transaction que KeeperHub exécutera, engagée sous `actionHash`. C'est le " +
-            'seul intrant de la classification.',
+            'The transaction KeeperHub will execute, committed to under `actionHash`. It is the ' +
+            'sole input of the classification.',
           required: ['version', 'chainId', 'target', 'value', 'calldata', 'registryRef'],
           additionalProperties: false,
           properties: {
@@ -290,12 +291,12 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             value: {
               type: 'string',
               pattern: '^[0-9]+$',
-              description: 'Valeur native en wei, en chaîne décimale.',
+              description: 'Native value in wei, as a decimal string.',
             },
             calldata: { $ref: '#/components/schemas/HexData' },
             registryRef: {
               $ref: '#/components/schemas/Bytes32',
-              description: 'Hash de la version du registre de classification utilisée.',
+              description: 'Hash of the version of the classification registry that was used.',
             },
           },
         },
@@ -309,9 +310,9 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
               type: 'string',
               deprecated: true,
               description:
-                '**Ignoré.** La catégorie est dérivée du calldata. Le champ est accepté pour ' +
-                'ne pas casser les clients qui le posent, et signalé dans la réponse sous ' +
-                '`ignoredFields`.',
+                '**Ignored.** The category is derived from the calldata. The field is accepted ' +
+                'so as not to break clients that send it, and reported back in the response ' +
+                'under `ignoredFields`.',
             },
           },
         },
@@ -328,10 +329,10 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             'actionHash',
           ],
           properties: {
-            category: { type: 'string', description: 'Catégorie **dérivée** du calldata.' },
-            bond: { type: 'string', description: 'Caution en unités atomiques USDC.' },
+            category: { type: 'string', description: 'Category **derived** from the calldata.' },
+            bond: { type: 'string', description: 'Bond in atomic USDC units.' },
             riskBps: { type: 'integer' },
-            notionalUSD: { type: 'string', description: 'Virgule fixe 1e6.' },
+            notionalUSD: { type: 'string', description: '1e6 fixed point.' },
             rationale: { type: 'string' },
             registryRef: { $ref: '#/components/schemas/Bytes32' },
             conditionSpec: { type: 'object' },
@@ -351,22 +352,22 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             nonce: {
               type: 'string',
               description:
-                "Nonce du mandat. À défaut, celui de l'autorisation EIP-3009 du paiement — " +
-                '32 octets aléatoires jamais réutilisés.',
+                "The warrant's nonce. Failing that, the one from the payment's EIP-3009 " +
+                'authorization — 32 random bytes, never reused.',
             },
             signature: {
               type: 'string',
               description:
-                "Signature ABI (`transfer(address,uint256)`) utilisée pour dériver " +
-                '`functionName`/`functionArgs` quand le couple `(chainId, target, selector)` ' +
-                "est absent du registre. Ce n'est pas une déclaration de confiance : son " +
-                'sélecteur doit valoir celui du calldata et le ré-encodage doit reproduire ' +
-                'le calldata octet pour octet.',
+                'ABI signature (`transfer(address,uint256)`) used to derive ' +
+                '`functionName`/`functionArgs` when the `(chainId, target, selector)` triple is ' +
+                'absent from the registry. It is not a declaration that gets trusted: its ' +
+                'selector must equal the calldata\'s, and re-encoding must reproduce the ' +
+                'calldata byte for byte.',
             },
             category: {
               type: 'string',
               deprecated: true,
-              description: '**Ignoré.** Voir `QuoteRequest.category`.',
+              description: '**Ignored.** See `QuoteRequest.category`.',
             },
           },
         },
@@ -379,18 +380,18 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
               $ref: '#/components/schemas/Bytes32',
               description: '`keccak256(abi.encode(agent, nonce, actionHash))`.',
             },
-            executionId: { type: 'string', description: 'Identifiant KeeperHub.' },
+            executionId: { type: 'string', description: 'KeeperHub identifier.' },
             conditionHash: { $ref: '#/components/schemas/Bytes32' },
             actionHash: { $ref: '#/components/schemas/Bytes32' },
-            expiry: { type: 'integer', description: 'Timestamp epoch en secondes.' },
+            expiry: { type: 'integer', description: 'Epoch timestamp in seconds.' },
             bond: { type: 'string' },
             category: { type: 'string' },
             fundingRef: {
               $ref: '#/components/schemas/Bytes32',
               description:
-                "Nonce EIP-3009 de l'autorisation qui a financé la caution, et non un " +
-                'hash de transaction : open() encaisse le paiement lui-même, et ce nonce ' +
-                'vaut le termsHash du mandat. Le token en garantit l’unicité par autorisant.',
+                'EIP-3009 nonce of the authorization that funded the bond, and not a ' +
+                'transaction hash: open() collects the payment itself, and this nonce equals ' +
+                "the warrant's termsHash. The token guarantees its uniqueness per authorizer.",
             },
             agent: { $ref: '#/components/schemas/Address' },
             beneficiary: { $ref: '#/components/schemas/Address' },
@@ -423,7 +424,7 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             verdict: { type: 'string', enum: ['honored', 'slashed'] },
             evaluatedAtBlock: {
               type: 'string',
-              description: 'Bloc exact de la lecture — rend le verdict reproductible.',
+              description: 'Exact block of the read — what makes the verdict reproducible.',
             },
             checks: {
               type: 'array',
@@ -464,21 +465,21 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
           type: 'http',
           scheme: 'PAYMENT-SIGNATURE',
           description:
-            'x402 v2. Le premier appel non payé rend 402 avec `PAYMENT-REQUIRED` ; le client ' +
-            "signe l'autorisation EIP-3009 et rejoue la requête avec `PAYMENT-SIGNATURE`.",
+            'x402 v2. The first unpaid call returns 402 with `PAYMENT-REQUIRED`; the client ' +
+            'signs the EIP-3009 authorization and replays the request with `PAYMENT-SIGNATURE`.',
         },
         mpp: {
           type: 'http',
           scheme: 'Payment',
           description:
-            'MPP. Challenge dans `WWW-Authenticate: Payment`, Credential dans ' +
-            '`Authorization: Payment`, Receipt dans `Payment-Receipt`. Erreurs en RFC 9457.',
+            'MPP. Challenge in `WWW-Authenticate: Payment`, Credential in ' +
+            '`Authorization: Payment`, Receipt in `Payment-Receipt`. Errors as RFC 9457.',
         },
       },
     },
 
-    // Au niveau du document : les deux rails sont acceptés partout où un
-    // paiement est requis, et l'un OU l'autre suffit.
+    // At document level: both rails are accepted everywhere a payment is required,
+    // and either one OR the other suffices.
     'x-payment-info': {
       price: { mode: 'dynamic', currency: 'USD' },
       protocols,

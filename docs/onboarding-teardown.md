@@ -1,496 +1,489 @@
-# Teardown d'onboarding — journal horodaté
+# Onboarding teardown — timestamped log
 
-Journal des frictions rencontrées en partant de zéro sur KeeperHub, tenu **au
-fil de l'eau**. Reconstituer ces notes le 12 août serait impossible : on les
-aura oubliées, et ça se verrait.
+A log of the frictions hit while starting from zero on KeeperHub, kept **as they
+happened**. Reconstituting these notes on 12 August would be impossible: we would
+have forgotten them, and it would show.
 
-Format d'une entrée : horodatage, ce qu'on essayait de faire, ce qui s'est
-passé, ce qui aurait évité le blocage. Une friction sans correctif proposé n'est
-qu'une plainte.
+The format of an entry: timestamp, what we were trying to do, what happened, what
+would have avoided the blocker. A friction with no proposed fix is just a
+complaint.
 
-Cible : le bounty **Best Onboarding UX Improvement** (1 000 $, deux gagnants,
-cumulable avec le Grand Prize). Le hackathon précédent de KeeperHub a produit
-197 findings distillés en 47 tickets — c'est un format qu'ils savent exploiter.
+Target: the **Best Onboarding UX Improvement** bounty ($1,000, two winners,
+stackable with the Grand Prize). KeeperHub's previous hackathon produced 197
+distinct findings distilled into 47 tickets — that is a format they know how to
+act on.
 
 ---
 
 ## 2026-07-28
 
-### 11:09 — Point de départ
+### 11:09 — Starting point
 
-Dépôt vide. Aucun compte KeeperHub, aucune clé API. Toute la documentation de
-conception est écrite (`../docs/`), rien n'est implémenté.
+Empty repository. No KeeperHub account, no API key. All the design documentation
+is written (`../docs/`), nothing is implemented.
 
-### 11:12 — Foundry absent de la machine
+### 11:12 — Foundry missing from the machine
 
-Pas une friction KeeperHub, notée pour la reproductibilité : `forge` n'était pas
-installé. `curl -sL https://foundry.paradigm.xyz | bash && foundryup` a suffi,
-version 1.7.1. Installation propre, attestation vérifiée.
+Not a KeeperHub friction, noted for reproducibility: `forge` was not installed.
+`curl -sL https://foundry.paradigm.xyz | bash && foundryup` was enough, version
+1.7.1. Clean install, attestation verified.
 
-### 11:20 — L'OpenAPI live n'est pas la spec de l'API REST
+### 11:20 — The live OpenAPI is not the REST API's spec
 
-**Ce qu'on cherchait** : un schéma machine pour générer le client REST.
+**What we were looking for**: a machine-readable schema to generate the REST
+client.
 
-**Ce qu'on a trouvé** : `app.keeperhub.com/api/openapi` sert un document
-OpenAPI 3.1 de 79 chemins qui sont **tous** des
-`POST /api/mcp/workflows/{slug}/call`. C'est le catalogue de la marketplace, pas
-le CRUD REST. Les endpoints d'exécution et d'audit trail — ceux dont dépend
-n'importe quel projet du hackathon — n'y figurent pas.
+**What we found**: `app.keeperhub.com/api/openapi` serves a 79-path OpenAPI 3.1
+document in which **every** path is a `POST /api/mcp/workflows/{slug}/call`. That
+is the marketplace catalogue, not the REST CRUD. The execution and audit-trail
+endpoints — the ones any hackathon project depends on — are not in it.
 
-**Conséquence concrète** : le client `packages/server/src/keeperhub.ts` doit
-parser le record d'exécution de façon défensive, en acceptant plusieurs
-conventions de nommage (`txHash` / `transactionHash` / `tx_hash`), parce qu'on
-ne peut pas savoir laquelle est la bonne avant d'avoir appelé l'API en vrai.
+**Concrete consequence**: the `packages/server/src/keeperhub.ts` client has to
+parse the execution record defensively, accepting several naming conventions
+(`txHash` / `transactionHash` / `tx_hash`), because there is no way to know which
+one is right before actually calling the API.
 
-**Correctif proposé** : soit publier un second document OpenAPI pour l'API REST,
-soit renommer celui-ci en `/api/marketplace/openapi` et le documenter comme tel.
-Une ligne dans `docs.keeperhub.com/api` disant « l'OpenAPI live couvre la
-marketplace, pas le CRUD » aurait suffi à éviter la confusion.
+**Proposed fix**: either publish a second OpenAPI document for the REST API, or
+rename this one to `/api/marketplace/openapi` and document it as such. One line in
+`docs.keeperhub.com/api` saying "the live OpenAPI covers the marketplace, not the
+CRUD" would have been enough to avoid the confusion.
 
-### 11:22 — `llms.txt` périmé sur le fournisseur de wallet
+### 11:22 — Stale `llms.txt` on the wallet provider
 
-`docs.keeperhub.com/llms.txt` annonce des **wallets Para MPC**. La documentation
-produit (`docs.keeperhub.com/wallet-management`) dit **Turnkey**, et liste Para
-comme intégration **discontinuée**.
+`docs.keeperhub.com/llms.txt` announces **Para MPC wallets**. The product
+documentation (`docs.keeperhub.com/wallet-management`) says **Turnkey**, and lists
+Para as a **discontinued** integration.
 
-Le `llms.txt` est précisément le fichier qu'un agent lit en premier. Il est donc
-le plus coûteux à laisser dériver : un builder qui s'y fie écrit sa soumission
-avec le mauvais nom de fournisseur.
+`llms.txt` is precisely the file an agent reads first. It is therefore the most
+expensive one to let drift: a builder who trusts it writes their submission with
+the wrong provider name.
 
-**Correctif proposé** : régénérer `llms.txt` depuis la doc à chaque build, ou au
-minimum y dater la dernière synchronisation.
+**Proposed fix**: regenerate `llms.txt` from the docs on every build, or at
+minimum date the last synchronisation in it.
 
-### 11:23 — « Non-custodial » vs « custody is server-side »
+### 11:23 — "Non-custodial" vs "custody is server-side"
 
-Le marketing dit non-custodial ; `docs.keeperhub.com/ai-tools/agentic-wallet`
-décrit une sub-organisation Turnkey par wallet avec *« custody is server-side »*.
-Les deux affirmations sont défendables séparément mais se contredisent pour un
-lecteur pressé, et c'est le genre de nuance qu'un builder recopie de travers dans
-sa soumission.
+Marketing says non-custodial; `docs.keeperhub.com/ai-tools/agentic-wallet`
+describes a Turnkey sub-organization per wallet with *"custody is server-side"*.
+Both claims are defensible separately but contradict each other for a reader in a
+hurry, and that is exactly the kind of nuance a builder copies wrong into their
+submission.
 
-**Correctif proposé** : une phrase canonique unique, réutilisée partout — par
-exemple « clés en enclave, jamais sur disque, custody déléguée à Turnkey ».
+**Proposed fix**: a single canonical sentence, reused everywhere — for instance
+"keys in an enclave, never on disk, custody delegated to Turnkey".
 
-### 11:24 — « Open source » sans licence OSI
+### 11:24 — "Open source" without an OSI licence
 
-Le dépôt `KeeperHub/keeperhub` est annoncé open source sur le site, dans la page
-du hackathon et dans le brief du bounty (« KeeperHub is open source, and the
-fastest way to make it better is fresh eyes »). GitHub classe pourtant la licence
-en **`NOASSERTION`**.
+The `KeeperHub/keeperhub` repository is announced as open source on the site, on
+the hackathon page and in the bounty brief ("KeeperHub is open source, and the
+fastest way to make it better is fresh eyes"). Yet GitHub classifies the licence
+as **`NOASSERTION`**.
 
-**Pourquoi ça bloque concrètement** : le bounty demande une PR mergée. Contribuer
-du code à un dépôt sans licence claire pose une question de cession de droits
-qu'un contributeur prudent se posera avant d'ouvrir la PR — c'est-à-dire au pire
-moment.
+**Why it concretely blocks**: the bounty asks for a merged PR. Contributing code
+to a repository with no clear licence raises a rights-assignment question that a
+careful contributor will ask before opening the PR — that is, at the worst
+possible moment.
 
-**Correctif proposé** : ajouter un `LICENSE` explicite à la racine, et le
-mentionner dans le brief du bounty.
+**Proposed fix**: add an explicit `LICENSE` at the root, and mention it in the
+bounty brief.
 
-### 13:40 — Deux familles de clés, un seul préfixe documenté en évidence
+### 13:40 — Two families of keys, only one prefix prominently documented
 
-**Ce qu'on a fait** : collé dans `.env` la clé récupérée dans les paramètres du
-compte. Elle commence par `wfb_`.
+**What we did**: pasted the key retrieved from the account settings into `.env`.
+It starts with `wfb_`.
 
-**Ce qui s'est passé** : 401 partout. Sur `/mcp` (`invalid_token`), sur
-`/api/user`, sur toute route authentifiée.
+**What happened**: 401 everywhere. On `/mcp` (`invalid_token`), on `/api/user`, on
+every authenticated route.
 
-**La cause** : KeeperHub a **deux** familles de clés, gérées par **deux**
-endpoints différents, et la page « API Keys » présente les deux onglets côte à
-côte sans avertissement :
+**The cause**: KeeperHub has **two** families of keys, managed by **two**
+different endpoints, and the "API Keys" page presents both tabs side by side
+without warning:
 
-| Préfixe | Scope | Créée dans | Utilisable pour |
+| Prefix | Scope | Created in | Usable for |
 |---|---|---|---|
-| `kh_` | Organisation | Settings → API Keys → onglet **Organisation** | REST, MCP, plugin Claude Code |
-| `wfb_` | Utilisateur | Settings → API Keys | **une seule route** : `POST /api/workflows/{id}/webhook` |
+| `kh_` | Organization | Settings → API Keys → **Organisation** tab | REST, MCP, Claude Code plugin |
+| `wfb_` | User | Settings → API Keys | **a single route**: `POST /api/workflows/{id}/webhook` |
 
-Une clé `wfb_` est donc rejetée par 99 % de la plateforme, et le message d'erreur
-(`invalid_token`) ne dit pas pourquoi.
+A `wfb_` key is therefore rejected by 99% of the platform, and the error message
+(`invalid_token`) does not say why.
 
-**Correctifs proposés**, par ordre de rendement :
-1. Faire dire au 401 *quelle* famille de clé a été présentée :
-   « this endpoint requires an organization key (`kh_`); you presented a user
-   webhook key (`wfb_`) ». Le préfixe est connu du serveur, l'information est
-   gratuite.
-2. Renommer l'onglet « User » en « Webhook keys (`wfb_`) » dans l'UI.
-3. Mettre le tableau des préfixes en tête de `docs.keeperhub.com/api`, pas
-   seulement dans `/api/authentication`.
+**Proposed fixes**, in order of return:
+1. Make the 401 say *which* family of key was presented:
+   "this endpoint requires an organization key (`kh_`); you presented a user
+   webhook key (`wfb_`)". The prefix is known to the server, the information is
+   free.
+2. Rename the "User" tab to "Webhook keys (`wfb_`)" in the UI.
+3. Put the prefix table at the top of `docs.keeperhub.com/api`, not only in
+   `/api/authentication`.
 
-### 13:45 — Aucune route REST n'est découvrable depuis l'API
+### 13:45 — No REST route is discoverable from the API
 
-**Ce qu'on a fait** : cherché l'endpoint de lecture d'une exécution en sondant
-les noms plausibles.
+**What we did**: hunted for the endpoint that reads an execution by probing
+plausible names.
 
-**Ce qui s'est passé** : `/api/executions`, `/api/runs`, `/api/keeper-runs`,
-`/api/execute`, `/api/wallets` → tous `404 not_found`. Aucun ne suggère la bonne
-forme.
+**What happened**: `/api/executions`, `/api/runs`, `/api/keeper-runs`,
+`/api/execute`, `/api/wallets` → all `404 not_found`. None of them hints at the
+right shape.
 
-**Les vraies routes**, trouvées seulement en lisant la doc HTML page par page :
+**The real routes**, found only by reading the HTML docs page by page:
 
-| Ce qu'on cherche | Route réelle |
+| What we were looking for | Actual route |
 |---|---|
-| exécuter un appel de contrat | `POST /api/execute/contract-call` |
-| statut d'une exécution directe | `GET /api/execute/{id}/status` |
-| statut d'une exécution de workflow | `GET /api/workflows/executions/{id}/status` |
-| attendre l'état terminal | `GET /api/workflows/executions/{id}/wait` |
-| wallet de l'organisation | `GET /api/user/wallet` |
+| execute a contract call | `POST /api/execute/contract-call` |
+| status of a direct execution | `GET /api/execute/{id}/status` |
+| status of a workflow execution | `GET /api/workflows/executions/{id}/status` |
+| wait for the terminal state | `GET /api/workflows/executions/{id}/wait` |
+| the organization's wallet | `GET /api/user/wallet` |
 
-Les exécutions de workflow vivent sous `/api/workflows/executions/…` et non sous
-`/api/executions` : c'est la cause exacte de nos 404.
+Workflow executions live under `/api/workflows/executions/…` and not under
+`/api/executions`: that is the exact cause of our 404s.
 
-**Correctif proposé** : une route `GET /api` renvoyant l'index des routes, ou un
-`404` qui propose la route la plus proche (« did you mean
-`/api/workflows/executions/{id}/status` ? »). Coût : quelques lignes. Gain : la
-demi-heure que chaque nouveau builder perd ici.
+**Proposed fix**: a `GET /api` route returning the route index, or a `404` that
+suggests the closest route ("did you mean
+`/api/workflows/executions/{id}/status`?"). Cost: a few lines. Gain: the half hour
+every new builder loses here.
 
-### 13:50 — Le marketplace entier répond 503
+### 13:50 — The entire marketplace answers 503
 
-Tous les workflows testés — `helloworld`, `aave-v3-health-check`,
-`usdc-yield-rates-aave-vs-compound`, `defi-risk-snapshot` — renvoient
-`503 « The workflow owner has disabled this workflow »`, avec **et** sans
-authentification.
+Every workflow tested — `helloworld`, `aave-v3-health-check`,
+`usdc-yield-rates-aave-vs-compound`, `defi-risk-snapshot` — returns
+`503 "The workflow owner has disabled this workflow"`, **both** with and without
+authentication.
 
-Le catalogue `GET /api/mcp/workflows` répond pourtant 200 et ne liste plus que
-**20** workflows, contre **79** dans l'OpenAPI live consulté deux heures plus tôt
-le même jour.
+Yet the `GET /api/mcp/workflows` catalogue answers 200 and now lists only **20**
+workflows, against **79** in the live OpenAPI consulted two hours earlier the same
+day.
 
-Un builder qui commence par le quickstart marketplace conclut que sa
-configuration est en cause et perd son après-midi. **Correctif proposé** : une
-page de statut, ou au minimum un message distinguant « ce workflow est désactivé
-par son auteur » de « le service est indisponible ».
+A builder who starts with the marketplace quickstart concludes that their own
+configuration is at fault and loses their afternoon. **Proposed fix**: a status
+page, or at minimum a message distinguishing "this workflow is disabled by its
+author" from "the service is unavailable".
 
-### 13:55 — `initialize` du MCP ne teste pas l'authentification
+### 13:55 — The MCP `initialize` does not test authentication
 
-`POST /mcp` `initialize` renvoie **toujours** `200` avec
-`authentication.required: true`, même sans token, même avec un token invalide.
-C'est une annonce de capacité, pas un verdict.
+`POST /mcp` `initialize` **always** returns `200` with
+`authentication.required: true`, even with no token, even with an invalid token.
+That is a capability announcement, not a verdict.
 
-On a donc cru la clé acceptée alors qu'elle ne l'était pas. Le vrai contrôle
-n'apparaît que sur `tools/list`.
+So we believed the key had been accepted when it had not. The real check only
+appears on `tools/list`.
 
-**Correctif proposé** : le documenter en une phrase dans
-`ai-tools/mcp-server` — « pour vérifier vos identifiants, appelez `tools/list`,
-pas `initialize` ».
+**Proposed fix**: document it in one sentence in `ai-tools/mcp-server` — "to
+verify your credentials, call `tools/list`, not `initialize`".
 
-### 14:12 — Première transaction réelle, et deux surprises
+### 14:12 — First real transaction, and two surprises
 
-`POST /api/execute/contract-call` sur Base Sepolia, `approve(0xdEaD, 0)` sur
-l'USDC testnet. **Passée** :
+`POST /api/execute/contract-call` on Base Sepolia, `approve(0xdEaD, 0)` on testnet
+USDC. **It went through**:
 `0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315`,
-bloc 44736245, `sponsored: true` — alors que le wallet de l'organisation est
-**vide sur les 20 chaînes**. Le gas sponsorship fonctionne, au moins en testnet.
+block 44736245, `sponsored: true` — even though the organization's wallet is
+**empty on all 20 chains**. Gas sponsorship works, at least on testnet.
 
-**Surprise n°1 — l'API n'accepte pas de calldata brut.**
+**Surprise #1 — the API does not accept raw calldata.**
 
-Le body attend `functionName` et `functionArgs`, et récupère l'ABI du contrat
-automatiquement. Il n'existe aucun champ pour passer un calldata pré-encodé :
-`data`, `callData` et `calldata` sont tous ignorés, et l'erreur renvoyée parle
-de `functionName` sans jamais dire que le calldata brut n'est pas une option.
+The body expects `functionName` and `functionArgs`, and fetches the contract's ABI
+automatically. There is no field at all for passing pre-encoded calldata: `data`,
+`callData` and `calldata` are all ignored, and the error returned talks about
+`functionName` without ever saying that raw calldata is not an option.
 
-Pire, `functionArgs` doit être **une chaîne JSON**, pas un tableau :
+Worse, `functionArgs` must be **a JSON string**, not an array:
 
 ```jsonc
-// rejeté en 400, sans indice sur la vraie forme
+// rejected with a 400, no hint about the real shape
 { "functionName": "approve", "args": ["0x…", "0"] }
-// rejeté : "functionArgs must be a JSON string when provided"
+// rejected: "functionArgs must be a JSON string when provided"
 { "functionName": "approve", "functionArgs": ["0x…", "0"] }
-// accepté
+// accepted
 { "functionName": "approve", "functionArgs": "[\"0x…\",\"0\"]" }
 ```
 
-Il a fallu sonder six noms de champs pour trouver `functionArgs`, puis
-comprendre l'encodage en chaîne. **Correctif proposé** : accepter un tableau JSON
-directement (ou au minimum le mentionner dans le message d'erreur), et documenter
-qu'un calldata pré-encodé n'est pas supporté — c'est une hypothèse que fait
-n'importe qui ayant déjà utilisé `eth_sendTransaction`.
+It took probing six field names to find `functionArgs`, and then working out the
+string encoding. **Proposed fix**: accept a JSON array directly (or at minimum
+mention it in the error message), and document that pre-encoded calldata is not
+supported — that is an assumption anyone who has used `eth_sendTransaction` will
+make.
 
-**Surprise n°2 — une transaction sponsorisée n'a ni le `from` ni le `to`
-attendus.**
+**Surprise #2 — a sponsored transaction has neither the expected `from` nor the
+expected `to`.**
 
-C'est la découverte structurante de la journée. Le record d'exécution le laisse
-voir dans `result.executedCall.topLevelTo`, mais rien ne l'explique :
+This is the structuring discovery of the day. The execution record lets you see it
+in `result.executedCall.topLevelTo`, but nothing explains it:
 
-| | Attendu | Réel |
+| | Expected | Actual |
 |---|---|---|
-| `tx.from` | wallet de l'org `0x1f8547…` | **relayer `0x6331eb45…`** |
-| `tx.to` | contrat cible `0x036cbd…` | **forwarder `0x5aF5194B…`** |
+| `tx.from` | org wallet `0x1f8547…` | **relayer `0x6331eb45…`** |
+| `tx.to` | target contract `0x036cbd…` | **forwarder `0x5aF5194B…`** |
 | `tx.input` | `approve(0xdEaD,0)` | `execute(address,address,uint256,bytes)` |
 
-Le calldata réel est encapsulé : `execute(wallet, target, value, data)` où `data`
-contient une signature de 65 octets, des métadonnées, puis le calldata cible.
+The real calldata is wrapped: `execute(wallet, target, value, data)` where `data`
+contains a 65-byte signature, some metadata, then the target calldata.
 
-**Ce que ça casse, pour n'importe quel projet qui vérifie ses exécutions :**
+**What this breaks, for any project that verifies its executions:**
 
-- toute vérification de la forme `tx.to == contrat_cible` échoue ;
-- toute vérification `tx.input == calldata_attendu` échoue ;
-- **le nonce du wallet de l'organisation n'avance pas** — c'est le relayer qui
-  émet la transaction.
+- every check of the form `tx.to == target_contract` fails;
+- every `tx.input == expected_calldata` check fails;
+- **the organization wallet's nonce does not advance** — it is the relayer that
+  emits the transaction.
 
-Les vérifications par **effet** (logs `Transfer`/`Approval`, deltas de solde,
-lecture d'état au bloc) restent valides : le log `Approval` est bien émis par
-l'USDC. C'est la seule base fiable.
+Checks by **effect** (`Transfer`/`Approval` logs, balance deltas, state reads at a
+block) remain valid: the `Approval` log really is emitted by the USDC. That is the
+only reliable basis.
 
-**Correctif proposé** : documenter la forme d'une transaction sponsorisée dans
-`wallet-management/gas`, avec l'adresse du forwarder par chaîne et l'ABI de
-`execute`. Une équipe qui bâtit une preuve d'exécution sur `tx.to` ne le
-découvrira qu'en production — ou, pour un hackathon, pendant la démo.
+**Proposed fix**: document the shape of a sponsored transaction in
+`wallet-management/gas`, with the forwarder address per chain and the ABI of
+`execute`. A team that builds an execution proof on `tx.to` will only find out in
+production — or, for a hackathon, during the demo.
 
-### 15:20 — `abi` doit être une chaîne JSON, et le message d'erreur le cache
+### 15:20 — `abi` must be a JSON string, and the error message hides it
 
-Pour exécuter un appel sur un contrat **non vérifié**, il faut fournir l'ABI. Le
-champ existe et s'appelle `abi`. Mais comme `functionArgs`, il attend une
-**chaîne JSON**, pas un tableau.
+To execute a call on an **unverified** contract, you must supply the ABI. The field
+exists and is called `abi`. But like `functionArgs`, it expects a **JSON string**,
+not an array.
 
-Le piège est dans le message : passer un tableau JSON produit exactement la même
-erreur que ne rien passer du tout.
+The trap is in the message: passing a JSON array produces exactly the same error
+as passing nothing at all.
 
 ```
 {"error":"ABI is required. Could not auto-fetch ABI: Unable to fetch ABI for
  0xadDC… on chain 11155111. Contract may not be verified.","field":"abi"}
 ```
 
-On conclut donc que le champ n'est pas supporté, et on cherche ailleurs — j'ai
-sondé `contractAbi` et `abiJson` avant de repenser à la convention de
-`functionArgs`.
+So you conclude the field is not supported, and you look elsewhere — I probed
+`contractAbi` and `abiJson` before remembering the `functionArgs` convention.
 
-**Correctif proposé** : distinguer les deux cas. « ABI is required » quand le
-champ est absent ; « `abi` must be a JSON string when provided » quand il est
-présent mais mal typé — c'est le message que l'API produit déjà pour
-`functionArgs`, il suffit de l'appliquer ici aussi.
+**Proposed fix**: distinguish the two cases. "ABI is required" when the field is
+absent; "`abi` must be a JSON string when provided" when it is present but
+mistyped — that is the message the API already produces for `functionArgs`, it just
+needs applying here too.
 
-### 15:25 — Une organisation n'a qu'un wallet, et ça contraint l'architecture
+### 15:25 — An organization has only one wallet, and that constrains the architecture
 
-`GET /api/user/wallet` : *« The wallet is organization-scoped, not per-user. »*
+`GET /api/user/wallet`: *"The wallet is organization-scoped, not per-user."*
 
-Ce n'est pas un défaut, mais c'est une contrainte d'architecture qui mérite
-d'être annoncée en tête de la documentation wallet plutôt que découverte à
-l'usage. Tout projet ayant **deux rôles onchain distincts** — ce qui est le cas
-dès qu'on sépare un privilège d'écriture d'un privilège de règlement — ne peut en
-confier qu'un seul à KeeperHub. L'autre demande une clé propre et du gas, donc un
-budget, donc une décision de conception.
+This is not a defect, but it is an architectural constraint that deserves
+announcing at the top of the wallet documentation rather than being discovered in
+use. Any project with **two distinct onchain roles** — which is the case as soon as
+you separate a write privilege from a settlement privilege — can entrust only one
+of them to KeeperHub. The other needs its own key and its own gas, hence a budget,
+hence a design decision.
 
-Nous l'avons découvert en basculant l'`opener` vers le wallet KeeperHub et en
-constatant qu'il faudrait y basculer aussi le `settler`, ce qui aurait détruit
-l'invariant qui garantit qu'un composant compromis ne peut pas saisir de fonds.
+We discovered this by moving the `opener` over to the KeeperHub wallet and finding
+that the `settler` would have to move there too, which would have destroyed the
+invariant guaranteeing that a compromised component cannot seize funds.
 
-**Correctif proposé** : une phrase dans `wallet-management` — « une organisation
-dispose d'un wallet d'exécution unique ; si votre contrat distingue plusieurs
-rôles onchain, un seul peut être tenu par KeeperHub » — et, à terme, la
-possibilité de provisionner plusieurs wallets par organisation.
-
----
-
-## Contradictions relevées dans la documentation
-
-### Gas sponsorship sur Ethereum mainnet
-
-La page du hackathon annonce : *« KeeperHub offers gas sponsorship on mainnet
-Ethereum. »*
-
-`docs.keeperhub.com/wallet-management/gas` pose quatre conditions cumulatives,
-dont la troisième : *« transactions routed through a private mempool are not
-sponsored »*.
-
-Or `GET /api/chains` renvoie `usePrivateMempoolRpc: true` pour **Ethereum
-Mainnet (1)** et Sepolia — et pour aucune autre chaîne.
-
-Pris littéralement, Ethereum mainnet est donc **exclu** du sponsoring que le
-hackathon met en avant. Soit un override existe pour l'événement, soit
-l'annonce devance la configuration. **À faire trancher sur le Discord avant de
-bâtir une démo sur l'hypothèse du gas gratuit en L1.**
-
-### Simulation absente de l'audit trail
-
-`docs/08-integration-keeperhub.md` § 4 de ce projet supposait que le résultat de
-simulation était lisible dans l'audit trail. Il ne l'est pas : `simulate: true`
-n'insère **aucune** ligne d'exécution, et le résultat n'existe que dans la
-réponse HTTP synchrone.
-
-Conséquence pour Warrant : la simulation doit être appelée explicitement **avant**
-l'ouverture du mandat, et son résultat conservé par nos soins. C'est faisable et
-même plus propre, mais la doc de conception doit être corrigée.
-
-### `blockNumber` n'est exposé nulle part
-
-Aucune route ne renvoie le numéro de bloc d'inclusion. Il faut le dériver du
-`txHash` via un RPC.
-
-Sans conséquence pour Warrant — le Settler attend de toute façon les
-confirmations sur un RPC indépendant, et c'est ce receipt qui fait foi — mais
-c'est une surprise pour qui construit un indexeur sur l'audit trail seul.
+**Proposed fix**: a sentence in `wallet-management` — "an organization has a single
+execution wallet; if your contract distinguishes several onchain roles, only one of
+them can be held by KeeperHub" — and, eventually, the ability to provision several
+wallets per organization.
 
 ---
 
-## À vérifier au premier contact avec l'API
+## Contradictions found in the documentation
 
-Ces points ne peuvent pas être tranchés sans clé API. Ils sont ouverts.
+### Gas sponsorship on Ethereum mainnet
 
-| # | Question | Pourquoi ça bloque |
+The hackathon page announces: *"KeeperHub offers gas sponsorship on mainnet
+Ethereum."*
+
+`docs.keeperhub.com/wallet-management/gas` states four cumulative conditions, the
+third of which is: *"transactions routed through a private mempool are not
+sponsored"*.
+
+Yet `GET /api/chains` returns `usePrivateMempoolRpc: true` for **Ethereum
+Mainnet (1)** and Sepolia — and for no other chain.
+
+Taken literally, Ethereum mainnet is therefore **excluded** from the sponsorship
+the hackathon puts forward. Either an override exists for the event, or the
+announcement is ahead of the configuration. **To be settled on Discord before
+building a demo on the assumption of free gas on L1.**
+
+### Simulation absent from the audit trail
+
+`docs/08-integration-keeperhub.md` § 4 of this project assumed the simulation
+result was readable in the audit trail. It is not: `simulate: true` inserts **no**
+execution row, and the result exists only in the synchronous HTTP response.
+
+Consequence for Warrant: the simulation must be called explicitly **before** the
+warrant is opened, and its result kept by us. That is feasible and in fact
+cleaner, but the design document has to be corrected.
+
+### `blockNumber` is exposed nowhere
+
+No route returns the inclusion block number. It has to be derived from the
+`txHash` via an RPC.
+
+No consequence for Warrant — the Settler waits for confirmations on an independent
+RPC anyway, and it is that receipt that is authoritative — but it is a surprise for
+anyone building an indexer on the audit trail alone.
+
+---
+
+## To verify at first contact with the API
+
+These points cannot be settled without an API key. They are open.
+
+| # | Question | Why it blocks |
 |---|---|---|
-| 1 | **Cap de dépense journalier de l'organisation** : quelle est la valeur par défaut, et où se règle-t-elle ? `GET /api/analytics/spend-cap` le lit, aucune route ne l'écrit | Un dépassement fait échouer les exécutions en 403 jusqu'à minuit UTC |
-| 2 | **Gas sponsorship mainnet** : l'override hackathon existe-t-il malgré `usePrivateMempoolRpc: true` ? | Contradiction relevée ci-dessus. Dimensionne toute la démo |
-| 6 | Y a-t-il une limite au montant d'un paiement x402 accepté ? | Dimensionne `maxBond` |
+| 1 | **The organization's daily spend cap**: what is the default value, and where is it set? `GET /api/analytics/spend-cap` reads it, no route writes it | Going over it makes executions fail with a 403 until midnight UTC |
+| 2 | **Mainnet gas sponsorship**: does the hackathon override exist despite `usePrivateMempoolRpc: true`? | The contradiction noted above. Sizes the entire demo |
+| 6 | Is there a limit on the size of an accepted x402 payment? | Sizes `maxBond` |
 
-**Résolus le 28/07** : la forme du record d'exécution, les routes REST, le format
-des clés, l'authentification MCP headless (une clé `kh_` en Bearer suffit, pas
-d'OAuth), et les plafonds du wallet agentique — 200 USDC/jour, 100 USDC par
-transfert, allowlist Base + Tempo, **non configurables** (« not user-configurable
-today », un relèvement demande une action opérateur). Ces plafonds ne concernent
-que le **wallet agentique** qui paie les workflows x402, pas le wallet
-d'exécution de l'organisation, qui lui couvre les 22 chaînes dont Ethereum
-mainnet.
+**Resolved on 2026-07-28**: the shape of the execution record, the REST routes,
+the key format, headless MCP authentication (a `kh_` key as a Bearer token is
+enough, no OAuth), and the agentic wallet's caps — 200 USDC/day, 100 USDC per
+transfer, Base + Tempo allowlist, **not configurable** ("not user-configurable
+today"; raising them requires an operator action). Those caps concern only the
+**agentic wallet** that pays for x402 workflows, not the organization's execution
+wallet, which does cover all 22 chains including Ethereum mainnet.
 
 ---
 
 ## 2026-07-29
 
-### Contexte
+### Context
 
-Journée de mise en œuvre : câblage réel du Gateway et du Settler, migration MCP,
-et vérification systématique de ce que la documentation affirmait. Les entrées
-ci-dessous sont les frictions rencontrées ce jour-là. Trois d'entre elles sont
-des frictions **d'écosystème** plus que de KeeperHub, mais elles frappent
-n'importe quelle équipe du hackathon dans le même ordre, et méritent d'être
-signalées à ce titre.
+Implementation day: real wiring of the Gateway and the Settler, MCP migration, and
+systematic verification of what the documentation claimed. The entries below are
+the frictions hit that day. Three of them are **ecosystem** frictions more than
+KeeperHub ones, but they strike any hackathon team in the same order, and deserve
+reporting on that basis.
 
-### Le serveur MCP de KeeperHub est resté sur l'ère `initialize`
+### KeeperHub's MCP server has stayed in the `initialize` era
 
-Le 28 juillet 2026 — le jour même de la clôture du hackathon côté inscriptions —
-la révision **`2026-07-28`** de MCP a été publiée en finale. Elle supprime le
-handshake `initialize` et l'en-tête `Mcp-Session-Id` : le protocole devient
-*stateless*. Six SEP y concourent, et les mainteneurs la décrivent comme la
-modification la plus substantielle depuis l'ajout de l'autorisation.
+On 28 July 2026 — the very day the hackathon closed for registrations — MCP
+revision **`2026-07-28`** was published as final. It removes the `initialize`
+handshake and the `Mcp-Session-Id` header: the protocol becomes *stateless*. Six
+SEPs contribute to it, and the maintainers describe it as the most substantial
+change since authorization was added.
 
-**Conséquence directe sur une entrée précédente de ce journal.** Le point du
-28/07 à 13:55 signalait que `POST /mcp` `initialize` répond toujours `200`, même
-sans jeton, et que le vrai contrôle d'authentification n'apparaît qu'à
-`tools/list`. Le correctif proposé était de le documenter. **Ce correctif est
-périmé** : `initialize` n'existe plus dans la révision courante. Le conseil utile
-devient celui-ci — planifier la migration du serveur MCP vers `2026-07-28`, où
-la question ne se pose plus, puisque chaque requête porte son propre contexte
-d'authentification et où la validation est faite en-tête par en-tête
-(`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, avec rejet `-32020
-HeaderMismatch` en cas de divergence avec le corps).
+**Direct consequence for an earlier entry in this log.** The 28/07 13:55 entry
+reported that `POST /mcp` `initialize` always answers `200`, even without a token,
+and that the real authentication check only appears at `tools/list`. The proposed
+fix was to document it. **That fix is obsolete**: `initialize` no longer exists in
+the current revision. The useful advice becomes this — plan the MCP server's
+migration to `2026-07-28`, where the question no longer arises, since every request
+carries its own authentication context and validation is done header by header
+(`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, with a `-32020 HeaderMismatch`
+rejection when they diverge from the body).
 
-Le SDK TypeScript a suivi le même jour : le paquet monolithique
-`@modelcontextprotocol/sdk` est retiré au profit de `@modelcontextprotocol/server`
-et `@modelcontextprotocol/client` en `2.0.0`.
+The TypeScript SDK followed the same day: the monolithic
+`@modelcontextprotocol/sdk` package is retired in favour of
+`@modelcontextprotocol/server` and `@modelcontextprotocol/client` at `2.0.0`.
 
-**Correctif proposé** : annoncer sur `docs.keeperhub.com/ai-tools/mcp-server` la
-révision de protocole effectivement servie, et la date cible de passage à
-`2026-07-28`. Un builder qui migre son propre serveur a besoin de savoir si le
-serveur d'en face suivra, parce que les deux ères ne s'interopèrent que par
-repli explicite.
+**Proposed fix**: announce on `docs.keeperhub.com/ai-tools/mcp-server` which
+protocol revision is actually served, and the target date for moving to
+`2026-07-28`. A builder migrating their own server needs to know whether the server
+on the other side will follow, because the two eras only interoperate through an
+explicit fallback.
 
-### Le facilitateur x402 public ne couvre aucun réseau utilisable en production
+### The public x402 facilitator covers no production-usable network
 
-`GET https://x402.org/facilitator/supported` renvoie, pour les réseaux EVM :
+`GET https://x402.org/facilitator/supported` returns, for EVM networks:
 
 ```
-eip155:84532  (Base Sepolia)   ← le seul
-base-sepolia                    ← le même, sous son nom hérité
+eip155:84532  (Base Sepolia)   ← the only one
+base-sepolia                    ← the same, under its legacy name
 ```
 
-Ni `eip155:8453` (Base mainnet), ni `eip155:11155111` (Ethereum Sepolia). Le
-reste de la liste est non-EVM : Solana, Aptos, Algorand, Hedera, Stellar, XRPL.
+Neither `eip155:8453` (Base mainnet) nor `eip155:11155111` (Ethereum Sepolia). The
+rest of the list is non-EVM: Solana, Aptos, Algorand, Hedera, Stellar, XRPL.
 
-**Pourquoi ça coince ici.** Le hackathon valorise le mainnet, et KeeperHub
-exécute sur 22 chaînes. Mais un projet qui encaisse en x402 ne peut le faire, avec
-le facilitateur public, que sur **Base Sepolia**. Passer en production impose le
-facilitateur CDP (`api.cdp.coinbase.com/platform/v2/x402`), donc un compte
-Coinbase Developer Platform et des clés — une étape d'inscription qui n'est
-mentionnée dans aucun des quickstarts croisés jusqu'ici.
+**Why this pinches here.** The hackathon values mainnet, and KeeperHub executes on
+22 chains. But a project that collects in x402 can only do so, with the public
+facilitator, on **Base Sepolia**. Going to production requires the CDP facilitator
+(`api.cdp.coinbase.com/platform/v2/x402`), hence a Coinbase Developer Platform
+account and keys — a signup step mentioned in none of the quickstarts crossed so
+far.
 
-**Correctif proposé** : dire explicitement, dans la page x402 de la
-documentation KeeperHub, que le facilitateur public est un facilitateur de
-**testnet Base uniquement**, et que toute cible mainnet suppose un compte CDP.
-Deux phrases évitent de découvrir la contrainte après avoir déployé son escrow
-sur la mauvaise chaîne.
+**Proposed fix**: say explicitly, on the x402 page of the KeeperHub
+documentation, that the public facilitator is a **Base testnet only** facilitator,
+and that any mainnet target presupposes a CDP account. Two sentences save you from
+discovering the constraint after deploying your escrow on the wrong chain.
 
-### Un RPC public répandu ne sait pas servir de lecture à bloc figé
+### A widespread public RPC cannot serve pinned-block reads
 
-Friction d'écosystème, mais elle mérite d'être ici parce qu'elle est invisible
-et que son mode de défaillance est trompeur.
+An ecosystem friction, but it deserves to be here because it is invisible and its
+failure mode is deceptive.
 
-`ethereum-sepolia-rpc.publicnode.com` — un des premiers RPC que l'on colle dans
-un `.env` — répond correctement à `eth_blockNumber` et à tout appel au bloc
-`latest`, mais refuse **toute** requête d'archive :
+`ethereum-sepolia-rpc.publicnode.com` — one of the first RPCs you paste into a
+`.env` — answers `eth_blockNumber` and any `latest`-block call correctly, but
+refuses **every** archive request:
 
 ```
-eth_call    à un bloc passé      -> -32602 "Archive requests require a personal token"
-eth_getLogs sur une plage passée -> HTTP 403, même message
+eth_call    at a past block      -> -32602 "Archive requests require a personal token"
+eth_getLogs over a past range    -> HTTP 403, same message
 ```
 
-Or n'importe quel projet du hackathon qui vérifie *après coup* ce qu'une
-exécution a produit fait, par définition, une lecture à bloc figé. Le RPC marche
-donc pendant tout le développement et se met à échouer exactement au moment où
-l'on branche l'évaluation. Pour Warrant, c'était plus grave qu'une panne : chaque
-verdict publie le `rpcUrl` utilisé en promettant que n'importe qui peut rejouer
-l'évaluation, et sur ce RPC la promesse était invérifiable.
+Yet any hackathon project that verifies *after the fact* what an execution produced
+is, by definition, doing a pinned-block read. So the RPC works throughout
+development and starts failing at exactly the moment you wire up evaluation. For
+Warrant it was worse than an outage: every verdict publishes the `rpcUrl` it used,
+promising that anyone can replay the evaluation, and on that RPC the promise was
+unverifiable.
 
-`sepolia.drpc.org` fait le travail sans clé (plafond `eth_getLogs` : 10 000 blocs
-par requête).
+`sepolia.drpc.org` does the job with no key (`eth_getLogs` cap: 10,000 blocks per
+request).
 
-**Correctif proposé** : une ligne dans le quickstart KeeperHub — « le RPC que
-vous utilisez pour vérifier une exécution doit être un nœud d'archive ; les RPC
-publics ne le sont pas tous » — avec deux exemples qui fonctionnent.
+**Proposed fix**: one line in the KeeperHub quickstart — "the RPC you use to
+verify an execution must be an archive node; not all public RPCs are" — with two
+working examples.
 
 ---
 
-### 17:05 — La réponse d'exécution ne contient pas le hash de la transaction
+### 17:05 — The execution response does not contain the transaction hash
 
-C'est la friction la plus coûteuse de la journée, parce qu'elle a l'apparence
-d'un succès.
+This is the most expensive friction of the day, because it has the appearance of a
+success.
 
-`POST /api/execute/contract-call` **bloque** jusqu'à la fin de l'exécution — 23 s
-mesurées sur Sepolia — puis répond :
+`POST /api/execute/contract-call` **blocks** until the execution finishes — 23 s
+measured on Sepolia — then answers:
 
 ```jsonc
 // HTTP 202
 { "executionId": "9z08b35kdd8fwiz14gtr0", "status": "completed" }
 ```
 
-Une exécution terminée, un statut `completed`, et rien pour aller la vérifier.
-Le `transactionHash`, le `sponsored`, le gas consommé et l'`executedCall`
-n'existent que sur `GET /api/execute/{id}/status` — où ils sont disponibles
-**immédiatement**, sans attente supplémentaire.
+A finished execution, a `completed` status, and nothing with which to go verify it.
+The `transactionHash`, the `sponsored` flag, the gas consumed and the
+`executedCall` exist only on `GET /api/execute/{id}/status` — where they are
+available **immediately**, with no further wait.
 
-Trois choses en font un piège plutôt qu'une simple omission :
+Three things make this a trap rather than a mere omission:
 
-1. **Le code de statut ment sur la sémantique.** Un `202 Accepted` annonce un
-   traitement asynchrone à venir ; ici le traitement est *déjà fini*. On en
-   déduit naturellement que le hash arrivera plus tard, et on écrit une boucle
-   d'attente qui ne sert à rien — alors qu'un simple `GET` immédiat suffit.
-2. **Rien ne signale l'absence.** Le champ n'est pas à `null`, il est absent.
-   Un client qui lit `response.transactionHash` obtient `undefined` et, s'il ne
-   vérifie pas, enregistre une exécution réussie sans preuve.
-3. **La conséquence est silencieuse et tardive.** Pour Warrant, un mandat ouvert
-   sans hash est un mandat que le Settler ne peut plus juger : il n'a aucun point
-   d'entrée pour lire la chaîne. La caution est prélevée, le mandat existe
-   onchain, et le règlement devient impossible. Le bug ne se voit pas au moment
-   où il est commis.
+1. **The status code lies about the semantics.** A `202 Accepted` announces
+   asynchronous processing still to come; here the processing is *already
+   finished*. You naturally conclude that the hash will arrive later, and you write
+   a polling loop that serves no purpose — when an immediate `GET` is enough.
+2. **Nothing signals the absence.** The field is not `null`, it is absent. A client
+   reading `response.transactionHash` gets `undefined` and, if it does not check,
+   records a successful execution with no proof.
+3. **The consequence is silent and late.** For Warrant, a warrant opened without a
+   hash is a warrant the Settler can no longer judge: it has no entry point from
+   which to read the chain. The bond has been taken, the warrant exists onchain,
+   and settlement becomes impossible. The bug is invisible at the moment it is
+   committed.
 
-**Correctif proposé** : inclure `transactionHash` et `transactionLink` dans la
-réponse de POST — elle est déjà bloquante, l'information est déjà connue au
-moment où elle est écrite. À défaut, répondre `200` plutôt que `202`, et
-documenter en une phrase que le hash s'obtient sur la route de statut.
+**Proposed fix**: include `transactionHash` and `transactionLink` in the POST
+response — it is already blocking, and the information is already known by the time
+it is written. Failing that, answer `200` rather than `202`, and document in one
+sentence that the hash is obtained from the status route.
 
-### 17:20 — Une organisation n'a qu'un wallet : le corollaire côté configuration
+### 17:20 — An organization has only one wallet: the configuration-side corollary
 
-Constat déjà noté à 15:25, mais son effet de bord mérite d'être dit séparément,
-parce qu'il ne se manifeste qu'après coup.
+Already noted at 15:25, but its side effect deserves saying separately, because it
+only manifests after the fact.
 
-Transférer le rôle `opener` au wallet KeeperHub change **l'état onchain sans
-rien changer à la configuration locale**. La clé qui était `opener` est toujours
-dans le `.env`, toujours valide, toujours capable de signer — elle n'a
-simplement plus le droit. Le Gateway continuait donc de démarrer normalement, et
-l'erreur ne serait apparue qu'au premier mandat **payant** : caution réglée,
-puis `open()` révèrte en `NotOpener()`.
+Transferring the `opener` role to the KeeperHub wallet changes **the onchain state
+without changing anything in the local configuration**. The key that used to be
+`opener` is still in the `.env`, still valid, still able to sign — it simply no
+longer has the right. So the Gateway kept starting up normally, and the error would
+only have surfaced on the first **paid** warrant: bond settled, then `open()`
+reverting with `NotOpener()`.
 
-La parade adoptée est un contrôle de cohérence au démarrage : le Gateway lit
-`opener()` sur la chaîne et refuse de démarrer si l'adresse qui s'apprête à
-signer n'est pas celle-là. Coût nul, et l'erreur devient impossible à ignorer.
+The countermeasure adopted is a consistency check at startup: the Gateway reads
+`opener()` on the chain and refuses to start if the address about to sign is not
+that one. Zero cost, and the error becomes impossible to ignore.
 
-**Correctif proposé** : dans `wallet-management`, mentionner que confier un rôle
-onchain au wallet de l'organisation crée une dépendance implicite entre l'état
-du contrat et la configuration du client, et suggérer le contrôle au démarrage
-comme motif.
+**Proposed fix**: in `wallet-management`, mention that entrusting an onchain role to
+the organization's wallet creates an implicit dependency between the contract's
+state and the client's configuration, and suggest the startup check as a pattern.

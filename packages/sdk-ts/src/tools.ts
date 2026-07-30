@@ -1,15 +1,15 @@
 /**
- * La source unique des quatre outils.
+ * The single source of the four tools.
  *
- * Quatre, pas cinq : `execute_metered` a disparu avec le régime routine
- * (docs/09 § 2, docs/03 § « Un seul régime, deux rails »). Quatre, pas quinze :
- * le catalogue est volontairement petit, parce qu'un agent choisit mal parmi
- * quinze outils.
+ * Four, not five: `execute_metered` disappeared along with the routine regime
+ * (docs/09 § 2, docs/03 § "One regime, two rails"). Four, not fifteen: the
+ * catalogue is deliberately small, because an agent chooses badly among fifteen
+ * tools.
  *
- * Tout ce qui suit est agnostique du framework. Le serveur MCP et l'adaptateur
- * Vercel AI ne font que projeter ces descripteurs — c'est la structure « une
- * source unique, des adaptateurs de moins de 100 lignes » qui a gagné le
- * hackathon précédent (docs/09 § intro).
+ * Everything below is framework-agnostic. The MCP server and the Vercel AI
+ * adapter do nothing but project these descriptors — that is the "one single
+ * source, adapters under 100 lines" structure that won the previous hackathon
+ * (docs/09 § intro).
  */
 
 import { validateActionSpec } from '@warrant/core'
@@ -42,16 +42,16 @@ import type {
 } from './x402.js'
 
 export interface ToolContext {
-  /** Paiement fourni par le client — sur MCP, `_meta["x402/payment"]`. */
+  /** Payment supplied by the client — on MCP, `_meta["x402/payment"]`. */
   payment?: PaymentPayload | undefined
 }
 
 /**
- * Issue d'un appel d'outil.
+ * Outcome of a tool call.
  *
- * `payment-required` n'est pas une erreur du point de vue du domaine : c'est
- * l'étape 2 du transport x402 (docs/05 § 1.7). Les adaptateurs sont libres de
- * la représenter comme une erreur — MCP l'exige — mais le noyau ne le fait pas.
+ * `payment-required` is not an error from the domain's point of view: it is
+ * step 2 of the x402 transport (docs/05 § 1.7). Adapters are free to represent
+ * it as an error — MCP requires it — but the core does not.
  */
 export type ToolOutcome<T> =
   | { kind: 'ok'; data: T; settlement?: SettlementResponse | undefined }
@@ -62,21 +62,21 @@ export interface WarrantTool<TInput extends z.ZodObject<z.ZodRawShape>, TOutput>
   title: string
   description: string
   input: TInput
-  /** Contrat minimal de sortie, publié en `outputSchema` par `tools/list`. */
+  /** Minimal output contract, published as `outputSchema` by `tools/list`. */
   output: z.ZodObject<z.ZodRawShape>
-  /** `true` pour le seul `request_warrant` : la caution doit être financée. */
+  /** `true` for `request_warrant` alone: the bond must be funded. */
   paid: boolean
-  /** Aucun de ces outils ne mute d'état onchain hors du paiement lui-même. */
+  /** None of these tools mutates onchain state beyond the payment itself. */
   readOnly: boolean
   run(client: GatewayClient, args: unknown, ctx?: ToolContext): Promise<ToolOutcome<TOutput>>
 }
 
 /**
- * Parse et **nettoie** les arguments.
+ * Parses and **strips** the arguments.
  *
- * Le nettoyage est le point de sécurité : la valeur rendue ne contient que les
- * clés du schéma, si bien qu'un champ `category` glissé dans l'`actionSpec` ne
- * peut atteindre ni le Classifieur, ni l'`actionHash`.
+ * The stripping is the security point: the returned value contains only the
+ * keys of the schema, so a `category` field slipped into the `actionSpec` can
+ * reach neither the Classifier nor the `actionHash`.
  */
 function parseArgs<S extends z.ZodObject<z.ZodRawShape>>(schema: S, args: unknown): z.output<S> {
   const parsed = schema.safeParse(args)
@@ -89,19 +89,19 @@ function parseArgs<S extends z.ZodObject<z.ZodRawShape>>(schema: S, args: unknow
     .join('; ')
   throw new WarrantError('invalid_input', message, {
     field,
-    hint: `Corrige ${field} puis rappelle l'outil. Rappel : ni category ni notional ne sont acceptés — ils sont dérivés du calldata.`,
+    hint: `Fix ${field} then call the tool again. Reminder: neither category nor notional is accepted — both are derived from the calldata.`,
     details: parsed.error.issues,
   })
 }
 
 /**
- * Double validation de l'`actionSpec` : Zod pour la forme, `@warrant/core` pour
- * les invariants du domaine.
+ * Double validation of the `actionSpec`: Zod for the shape, `@warrant/core` for
+ * the domain invariants.
  *
- * Redondant en apparence, utile en pratique : le noyau est l'autorité sur ce
- * qui est hachable, et c'est lui qui nomme le champ fautif exactement comme le
- * fera le Gateway. Faire diverger les deux validations, c'est accepter qu'un
- * mandat soit accepté ici et rejeté trois millisecondes plus tard.
+ * Redundant in appearance, useful in practice: the core is the authority on what
+ * is hashable, and it is the core that names the offending field exactly as the
+ * Gateway will. Letting the two validations diverge means accepting that a
+ * warrant be accepted here and rejected three milliseconds later.
  */
 function toActionSpec(spec: unknown): ActionSpec {
   try {
@@ -125,7 +125,7 @@ export const quoteRiskTool: WarrantTool<typeof quoteRiskInputSchema, QuoteResult
   name: 'quote_risk',
   title: 'Quote the bond for an action',
   description:
-    "Estime la caution exigée pour une action, sans rien engager et sans paiement. Classe le calldata, en dérive le notionnel, puis rend la caution, le taux de risque et la post-condition qui sera engagée. Appelle-le avant request_warrant : c'est gratuit, et c'est le seul moyen de connaître le coût avant de s'engager. La catégorie et le notionnel sont dérivés du calldata ; ils ne peuvent pas être déclarés.",
+    'Estimates the bond required for an action, committing nothing and paying nothing. Classifies the calldata, derives the notional from it, then returns the bond, the risk rate and the post-condition that will be committed. Call this before request_warrant: it is free, and it is the only way to learn the cost before committing. The category and the notional are derived from the calldata; they cannot be declared.',
   input: quoteRiskInputSchema,
   output: quoteRiskOutputSchema,
   paid: false,
@@ -145,7 +145,7 @@ export const requestWarrantTool: WarrantTool<typeof requestWarrantInputSchema, W
   name: 'request_warrant',
   title: 'Open a bonded warrant',
   description:
-    "Ouvre un mandat cautionné pour l'action donnée et la fait exécuter par KeeperHub. Payant : la caution doit être financée via x402 avant l'ouverture. Rend le warrantId, l'executionId et les engagements conditionHash / actionHash. Si la post-condition est tenue, la caution revient ; sinon elle va au beneficiary. La caution est dérivée du calldata — elle ne se négocie pas.",
+    'Opens a bonded warrant for the given action and has KeeperHub execute it. Paid: the bond must be funded via x402 before the warrant opens. Returns the warrantId, the executionId and the conditionHash / actionHash commitments. If the post-condition holds, the bond comes back; otherwise it goes to the beneficiary. The bond is derived from the calldata — it is not negotiable.',
   input: requestWarrantInputSchema,
   output: requestWarrantOutputSchema,
   paid: true,
@@ -168,7 +168,7 @@ export const getWarrantTool: WarrantTool<typeof getWarrantInputSchema, WarrantVi
   name: 'get_warrant',
   title: 'Read a warrant and its verdict',
   description:
-    "Rend un mandat, son état et — s'il est réglé — le verdict complet avec le détail checks[] : une ligne par vérification, y compris celles qui passent, plus le bloc exact d'évaluation. C'est ce qui rend un verdict rejouable par un tiers plutôt que cru sur parole.",
+    'Returns a warrant, its status and — once it is settled — the full verdict with the checks[] detail: one row per check, including the ones that pass, plus the exact block of evaluation. That is what makes a verdict replayable by a third party rather than taken on trust.',
   input: getWarrantInputSchema,
   output: getWarrantOutputSchema,
   paid: false,
@@ -177,7 +177,7 @@ export const getWarrantTool: WarrantTool<typeof getWarrantInputSchema, WarrantVi
     const { warrantId } = parseArgs(getWarrantInputSchema, args)
     const view = await callGateway(() => client.getWarrant(warrantId as Hex))
     if (view === null) {
-      throw new WarrantError('warrant_not_found', `Aucun mandat sous l'id ${warrantId}.`, {
+      throw new WarrantError('warrant_not_found', `No warrant under id ${warrantId}.`, {
         field: '$.warrantId',
       })
     }
@@ -189,7 +189,7 @@ export const listWarrantsTool: WarrantTool<typeof listWarrantsInputSchema, ListW
   name: 'list_warrants',
   title: 'List an agent warrants and statistics',
   description:
-    "Énumère les mandats d'un agent avec leurs statistiques agrégées : nombre honoré, saisi, total cautionné, taux d'honneur. Filtrable par état, catégorie et fenêtre temporelle. Sert à répondre à « quel est le bilan de cet agent ? » sans lire la chaîne.",
+    "Lists an agent's warrants along with their aggregated statistics: number honored, number slashed, total bonded, honor rate. Filterable by status, category and time window. Use it to answer \"what is this agent's track record?\" without reading the chain.",
   input: listWarrantsInputSchema,
   output: listWarrantsOutputSchema,
   paid: false,
@@ -203,7 +203,7 @@ export const listWarrantsTool: WarrantTool<typeof listWarrantsInputSchema, ListW
   },
 }
 
-/** L'ordre est celui de docs/09 § 2 — devis, mandat, lecture, historique. */
+/** The order is that of docs/09 § 2 — quote, warrant, read, history. */
 export const WARRANT_TOOLS = [
   quoteRiskTool,
   requestWarrantTool,
@@ -222,16 +222,16 @@ export function warrantToolByName(name: string): AnyWarrantTool | undefined {
 
 export interface RunToolOptions {
   wallet?: PaymentSigner | undefined
-  /** Rejeux de paiement autorisés. Borné : un wallet agentique n'a pas d'humain qui regarde. */
+  /** Payment replays allowed. Bounded: an agentic wallet has no human watching. */
   maxPaymentAttempts?: number
 }
 
 /**
- * Exécute un outil en réglant la caution si un wallet est fourni.
+ * Runs a tool, settling the bond if a wallet is supplied.
  *
- * La boucle de paiement vit ici, une seule fois, pour que ni le client HTTP ni
- * les adaptateurs de framework n'aient à la réimplémenter — c'est précisément
- * le genre de duplication qui fait diverger cinq surfaces.
+ * The payment loop lives here, once, so that neither the HTTP client nor the
+ * framework adapters have to reimplement it — that is precisely the kind of
+ * duplication that makes five surfaces drift apart.
  */
 export async function runTool<T = unknown>(
   client: GatewayClient,
@@ -249,7 +249,7 @@ export async function runTool<T = unknown>(
     try {
       payment = await options.wallet.createPayment(outcome.paymentRequired)
     } catch (err) {
-      throw new WarrantError('payment_invalid', `Le wallet a refusé de signer : ${String(err)}`, {
+      throw new WarrantError('payment_invalid', `The wallet refused to sign: ${String(err)}`, {
         details: outcome.paymentRequired,
         cause: err,
       })
@@ -259,7 +259,7 @@ export async function runTool<T = unknown>(
   return outcome
 }
 
-/** Même chose, par nom d'outil. */
+/** Same thing, by tool name. */
 export async function runToolByName<T = unknown>(
   client: GatewayClient,
   name: string,
@@ -268,8 +268,8 @@ export async function runToolByName<T = unknown>(
 ): Promise<ToolOutcome<T>> {
   const tool = warrantToolByName(name)
   if (!tool) {
-    throw new WarrantError('invalid_input', `Outil inconnu : ${name}.`, {
-      hint: `Les outils disponibles sont ${WARRANT_TOOL_NAMES.join(', ')}.`,
+    throw new WarrantError('invalid_input', `Unknown tool: ${name}.`, {
+      hint: `The available tools are ${WARRANT_TOOL_NAMES.join(', ')}.`,
     })
   }
   return runTool<T>(client, tool, args, options)

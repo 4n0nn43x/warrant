@@ -19,17 +19,17 @@ import {
 import { CHECK_KINDS } from './dsl.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RFC 8785 § 3.2.3 — tri des cles
+// RFC 8785 § 3.2.3 — key ordering
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('canonicalize — key ordering (RFC 8785 § 3.2.3)', () => {
   it('sorts by UTF-16 code units, which is the RFC order, not code point order', () => {
-    // Exemple normatif du RFC. L'ordre attendu place le sol (U+1D11E,
-    // surrogate haut D834) avant l'emoji (U+1F602, surrogate haut D83D), et
-    // les deux apres le coeur (U+2764) : c'est l'ordre des unites de code
-    // UTF-16. Un tri par points de code donnerait le meme ordre ici, mais un
-    // tri par octets UTF-8 mettrait U+1D11E apres U+2764 — c'est exactement la
-    // divergence que ce vecteur verrouille.
+    // The RFC's normative example. The expected order puts the G clef (U+1D11E,
+    // high surrogate D834) before the emoji (U+1F602, high surrogate D83D), and
+    // both after the heart (U+2764): that is UTF-16 code unit order. Sorting by
+    // code points would give the same order here, but sorting by UTF-8 bytes
+    // would put U+1D11E after U+2764 — which is exactly the divergence this
+    // vector locks down.
     const input = {
       '€': 'Euro Sign',
       '\r': 'Carriage Return',
@@ -99,7 +99,7 @@ describe('canonicalize — key ordering (RFC 8785 § 3.2.3)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RFC 8785 § 3.2.2.2 — echappement des chaines
+// RFC 8785 § 3.2.2.2 — string escaping
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('canonicalize — string escaping (RFC 8785 § 3.2.2.2)', () => {
@@ -132,7 +132,7 @@ describe('canonicalize — string escaping (RFC 8785 § 3.2.2.2)', () => {
   })
 
   it('escapes lone surrogates, which are not encodable in UTF-8', () => {
-    // Meme comportement que le JSON.stringify « well-formed » d'ECMAScript.
+    // Same behaviour as ECMAScript's "well-formed" JSON.stringify.
     expect(serializeString('\ud800')).toBe('"\\ud800"')
     expect(serializeString('\udfff')).toBe('"\\udfff"')
     expect(serializeString('\ud800a')).toBe('"\\ud800a"')
@@ -140,8 +140,8 @@ describe('canonicalize — string escaping (RFC 8785 § 3.2.2.2)', () => {
   })
 
   it('agrees with JSON.stringify on every BMP code unit', () => {
-    // Le JSON.stringify d'ECMAScript est la reference de RFC 8785 pour
-    // l'echappement. Une divergence sur un seul code unit se verrait ici.
+    // ECMAScript's JSON.stringify is RFC 8785's reference for escaping. A
+    // divergence on a single code unit would show up here.
     const mismatches: string[] = []
     for (let cu = 0; cu <= 0xffff; cu += 1) {
       const s = String.fromCharCode(cu)
@@ -158,7 +158,7 @@ describe('canonicalize — string escaping (RFC 8785 § 3.2.2.2)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RFC 8785 § 3.2.2.3 — nombres
+// RFC 8785 § 3.2.2.3 — numbers
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('canonicalize — numbers (RFC 8785 § 3.2.2.3)', () => {
@@ -166,7 +166,7 @@ describe('canonicalize — numbers (RFC 8785 § 3.2.2.3)', () => {
     expect(serializeNumber(-0)).toBe('0')
     expect(canonicalize(-0)).toBe('0')
     expect(canonicalize({ a: -0, b: 0 })).toBe('{"a":0,"b":0}')
-    // Un -0 qui sortirait "-0" produirait deux hashs pour la meme valeur.
+    // A -0 that came out as "-0" would produce two hashes for the same value.
     expect(canonicalize(-0)).toBe(canonicalize(0))
   })
 
@@ -196,7 +196,7 @@ describe('canonicalize — numbers (RFC 8785 § 3.2.2.3)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Structure et refus
+// Structure and refusals
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('canonicalize — structure', () => {
@@ -270,8 +270,8 @@ describe('canonicalize — explicit refusals', () => {
   }
 
   it('rejects rather than silently dropping, unlike JSON.stringify', () => {
-    // JSON.stringify({a: undefined}) === '{}' : une clef disparait sans bruit,
-    // et deux specs differentes hachent pareil. Inacceptable ici.
+    // JSON.stringify({a: undefined}) === '{}': a key vanishes without a sound,
+    // and two different specs hash the same. Unacceptable here.
     expect(JSON.stringify({ a: undefined })).toBe('{}')
     expect(() => canonicalize({ a: undefined })).toThrow()
   })
@@ -318,7 +318,7 @@ describe('canonicalize — explicit refusals', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vecteurs partages — l'accord inter-langages
+// Shared vectors — the cross-language agreement
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Fixture {
@@ -399,7 +399,7 @@ describe('fixtures/condition-hashes.json', () => {
     )
     expect(vector).toBeDefined()
     expect(vector?.canonical).toContain(`"maxUint256":"${max}"`)
-    // La preuve que passer par un number aurait detruit la valeur.
+    // The proof that going through a number would have destroyed the value.
     expect(String(Number(max))).not.toBe(max)
   })
 

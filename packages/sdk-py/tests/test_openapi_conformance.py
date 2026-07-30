@@ -1,12 +1,13 @@
-"""Contrôle croisé entre deux projections sœurs.
+"""Cross-check between two sibling projections.
 
-L'OpenAPI du Gateway (`packages/server/src/openapi.ts`) et les schémas d'outils
-(`packages/sdk-ts/src/schemas.ts`) décrivent le même `ActionSpec` et sont écrits
-séparément. Rien ne les oblige à s'accorder — sauf ces tests.
+The Gateway's OpenAPI (`packages/server/src/openapi.ts`) and the tool schemas
+(`packages/sdk-ts/src/schemas.ts`) describe the same `ActionSpec` and are written
+separately. Nothing obliges them to agree — except these tests.
 
-C'est le seul usage honnête d'une projection sœur : un contrôle croisé, jamais une
-source. Générer le Python depuis l'OpenAPI aurait fait de chacune de ses erreurs
-une vérité ; le comparer révèle au contraire les divergences dans les deux sens.
+This is the only honest use of a sibling projection: a cross-check, never a
+source. Generating the Python from the OpenAPI would have turned each of its
+errors into a truth; comparing against it instead reveals divergences in both
+directions.
 """
 
 from __future__ import annotations
@@ -87,8 +88,8 @@ def test_no_tool_input_declares_a_category_or_notional() -> None:
             assert "category" not in declared, f"{tool.name}: actionSpec accepts a category"
             assert "notional" not in declared, f"{tool.name}: actionSpec accepts a notional"
             assert "notionalUSD" not in declared
-            # Les deux outils tarifés ne prennent rien d'autre que l'action et le
-            # bénéficiaire : tout champ de plus serait un levier sur le prix.
+            # The two priced tools take nothing beyond the action and the
+            # beneficiary: any extra field would be a lever on the price.
             assert set(properties) <= {"actionSpec", "beneficiary"}, (
                 f"{tool.name} accepts {sorted(set(properties) - {'actionSpec', 'beneficiary'})} "
                 "in addition to the action — anything else is a lever on the bond."
@@ -106,7 +107,7 @@ def test_openapi_advertises_a_dynamic_price(openapi: dict[str, Any]) -> None:
     price = openapi["paths"]["/v1/warrants"]["post"]["x-payment-info"]["price"]
     assert price["mode"] == "dynamic"
     assert price["quote"]["cost"] == "free", "knowing the price must cost nothing"
-    assert "derived from the calldata" in price["basis"] or "dérivé" in price["basis"]
+    assert "derived from the calldata" in price["basis"]
 
 
 def _normalize(pattern: str) -> str:

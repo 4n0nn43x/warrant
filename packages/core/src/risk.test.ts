@@ -1,9 +1,9 @@
 /**
- * Tests du pricer et de la génération de post-condition.
+ * Tests of the pricer and of post-condition generation.
  *
- * `bond = clamp(minBond, riskBps × notionalUSD, maxBond)`, en `bigint`, sur
- * unités atomiques USDC. Le premier test rejoue la thèse du projet côté prix :
- * une catégorie déclarée n'achète pas un tarif.
+ * `bond = clamp(minBond, riskBps × notionalUSD, maxBond)`, in `bigint`, over USDC
+ * atomic units. The first test replays the project's thesis on the pricing side:
+ * a declared category does not buy a rate.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -125,7 +125,7 @@ function action(over: Partial<ActionSpec> = {}): ActionSpec {
   }
 }
 
-/** Classification fabriquée à la main, pour tester le pricer isolément. */
+/** Hand-crafted classification, to test the pricer in isolation. */
 function fake(
   category: Classification['category'],
   notionalUSD: string,
@@ -137,9 +137,9 @@ function fake(
     registryRef: REF,
     params: {
       chainId: '1',
-      // `target` est toujours présent dans une classification `unknown` réelle
-      // (classifier.ts) : c'est le contrat appelé, et la post-condition de
-      // repli s'en sert comme surveillance minimale.
+      // `target` is always present in a real `unknown` classification
+      // (classifier.ts): it is the contract being called, and the fallback
+      // post-condition uses it as minimal surveillance.
       target: USDC_ETH,
       token: USDC_ETH,
       to: PAYROLL,
@@ -161,27 +161,27 @@ function find<K extends Check['kind']>(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LE test, côté tarif
+// THE test, on the pricing side
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('une catégorie déclarée n\'achète pas un tarif', () => {
-  it("déclarer 'allowance_revoke' en exécutant un transfer donne la caution ET la post-condition du transfert", () => {
-    const requete = {
+describe('a declared category does not buy a rate', () => {
+  it("declaring 'allowance_revoke' while executing a transfer yields the bond AND the post-condition of the transfer", () => {
+    const request = {
       ...action({ calldata: transferCalldata(ATTACKER, 10_000_000_000n) }),
-      category: 'allowance_revoke', // ce que l'agent prétend
-      riskBps: 5, // le tarif qu'il espère
+      category: 'allowance_revoke', // what the agent claims
+      riskBps: 5, // the rate it hopes for
       bond: '5000000',
     } as unknown as ActionSpec
 
-    const quote = priceRisk(classify(requete, REGISTRY), POLICY)
+    const quote = priceRisk(classify(request, REGISTRY), POLICY)
 
-    // Tarif du transfert : 200 bps × 10 000 $ = 200 $ — pas les 5 $ demandés.
+    // The transfer's rate: 200 bps × $10,000 = $200 — not the $5 asked for.
     expect(quote.category).toBe('erc20.transfer')
     expect(quote.riskBps).toBe(200)
     expect(quote.notionalUSD).toBe('10000000000')
     expect(quote.bond).toBe('200000000')
 
-    // Post-condition du transfert, destination issue de l'allowlist.
+    // The transfer post-condition, destination taken from the allowlist.
     expect(kinds(quote.conditionSpec.checks)).toEqual([
       'erc20_balance_delta',
       'erc20_balance_delta',
@@ -190,7 +190,7 @@ describe('une catégorie déclarée n\'achète pas un tarif', () => {
     expect(
       find(quote.conditionSpec.checks, 'erc20_balance_delta')[1]!.account,
     ).toBe(PAYROLL)
-    // Et surtout : rien de la politique de révocation d'allowance.
+    // And above all: nothing from the allowance-revocation policy.
     expect(kinds(quote.conditionSpec.checks)).not.toContain('erc20_allowance')
   })
 })
@@ -200,102 +200,102 @@ describe('une catégorie déclarée n\'achète pas un tarif', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('bond = clamp(minBond, riskBps × notionalUSD, maxBond)', () => {
-  it('valeur intermédiaire : le produit brut', () => {
-    // 200 bps × 1 000 $ = 20 $, entre 5 $ et 500 $.
+  it('intermediate value: the raw product', () => {
+    // 200 bps × $1,000 = $20, between $5 and $500.
     const q = priceRisk(fake('erc20.transfer', '1000000000'), POLICY)
     expect(q.bond).toBe('20000000')
     expect(q.rationale).toContain('200 bps')
   })
 
-  it('borne basse : le plancher minBond s\'applique', () => {
-    // 200 bps × 1 $ = 0,02 $ → plancher 5 $.
+  it('lower bound: the minBond floor applies', () => {
+    // 200 bps × $1 = $0.02 → $5 floor.
     const q = priceRisk(fake('erc20.transfer', '1000000'), POLICY)
     expect(q.bond).toBe(POLICY.minBond)
-    expect(q.rationale).toContain('plancher')
+    expect(q.rationale).toContain('minBond floor')
   })
 
-  it('borne haute : le plafond maxBond s\'applique', () => {
-    // 200 bps × 1 000 000 $ = 20 000 $ → plafond 500 $.
+  it('upper bound: the maxBond ceiling applies', () => {
+    // 200 bps × $1,000,000 = $20,000 → $500 ceiling.
     const q = priceRisk(fake('erc20.transfer', '1000000000000'), POLICY)
     expect(q.bond).toBe(POLICY.maxBond)
-    expect(q.rationale).toContain('plafond')
+    expect(q.rationale).toContain('maxBond ceiling')
   })
 
-  it('notionnel nul : plancher, jamais zéro', () => {
+  it('zero notional: the floor, never zero', () => {
     expect(priceRisk(fake('erc20.transfer', '0'), POLICY).bond).toBe(
       POLICY.minBond,
     )
   })
 
-  it('exactement aux bornes', () => {
-    // 200 bps × 250 $ = 5 $ = minBond.
+  it('exactly on the bounds', () => {
+    // 200 bps × $250 = $5 = minBond.
     expect(bondFor(fake('erc20.transfer', '250000000'), POLICY)).toBe(5_000_000n)
-    // 200 bps × 25 000 $ = 500 $ = maxBond.
+    // 200 bps × $25,000 = $500 = maxBond.
     expect(bondFor(fake('erc20.transfer', '25000000000'), POLICY)).toBe(
       500_000_000n,
     )
   })
 
-  it('clamp est un clamp', () => {
+  it('clamp is a clamp', () => {
     expect(clamp(5n, 1n, 10n)).toBe(5n)
     expect(clamp(5n, 7n, 10n)).toBe(7n)
     expect(clamp(5n, 99n, 10n)).toBe(10n)
   })
 
-  it('minBond > maxBond est une erreur, pas un silence', () => {
-    const casse: Policy = { ...POLICY, minBond: '10', maxBond: '1' }
-    expect(() => priceRisk(fake('erc20.transfer', '0'), casse)).toThrowError(
+  it('minBond > maxBond is an error, not a silence', () => {
+    const broken: Policy = { ...POLICY, minBond: '10', maxBond: '1' }
+    expect(() => priceRisk(fake('erc20.transfer', '0'), broken)).toThrowError(
       RiskError,
     )
   })
 
-  it('riskBps invalide est une erreur', () => {
-    const casse: Policy = {
+  it('an invalid riskBps is an error', () => {
+    const broken: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
         'erc20.transfer': { riskBps: -1, maxOutflow: '1' },
       },
     }
-    expect(() => priceRisk(fake('erc20.transfer', '1000'), casse)).toThrowError(
+    expect(() => priceRisk(fake('erc20.transfer', '1000'), broken)).toThrowError(
       RiskError,
     )
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Arithmétique entière
+// Integer arithmetic
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('arithmétique en bigint, jamais en flottant', () => {
-  it('un notionnel au-delà de Number.MAX_SAFE_INTEGER reste exact', () => {
-    const enorme = (2n ** 200n).toString(10)
-    const q = priceRisk(fake('erc20.transfer', enorme), POLICY)
-    expect(q.notionalUSD).toBe(enorme)
+describe('arithmetic in bigint, never in floating point', () => {
+  it('a notional beyond Number.MAX_SAFE_INTEGER stays exact', () => {
+    const huge = (2n ** 200n).toString(10)
+    const q = priceRisk(fake('erc20.transfer', huge), POLICY)
+    expect(q.notionalUSD).toBe(huge)
     expect(q.bond).toBe(POLICY.maxBond)
     expect(q.bond).not.toContain('e')
   })
 
-  it('la caution est toujours une chaîne décimale entière', () => {
+  it('the bond is always an integer decimal string', () => {
     for (const notional of ['1', '333333333', '1000000007']) {
       const bond = priceRisk(fake('erc20.transfer', notional), POLICY).bond
       expect(bond).toMatch(/^[0-9]+$/)
     }
   })
 
-  it('la division en bps tronque vers le bas, de façon déterministe', () => {
-    // 5 bps × 1,999999 $ = 0,00099... → 999 unités atomiques avant clamp.
-    const politique: Policy = { ...POLICY, minBond: '0' }
-    expect(bondFor(fake('erc20.approve', '1999999'), politique)).toBe(999n)
+  it('the bps division truncates downwards, deterministically', () => {
+    // 5 bps × $1.999999 = $0.00099… → 999 atomic units before the clamp.
+    const policy: Policy = { ...POLICY, minBond: '0' }
+    expect(bondFor(fake('erc20.approve', '1999999'), policy)).toBe(999n)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le repli du pricer
+// The pricer's fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('unknown coûte le maximum', () => {
-  it('catégorie unknown → maxBond, quel que soit le notionnel', () => {
+describe('unknown costs the maximum', () => {
+  it('unknown category → maxBond, whatever the notional', () => {
     for (const notional of ['0', '1', '999999999999']) {
       const q = priceRisk(fake('unknown', notional), POLICY)
       expect(q.bond).toBe(POLICY.maxBond)
@@ -303,14 +303,14 @@ describe('unknown coûte le maximum', () => {
     }
   })
 
-  it('un couple absent du registre est facturé maxBond de bout en bout', () => {
+  it('a tuple absent from the registry is charged maxBond end to end', () => {
     const c = classify(action({ target: SHITCOIN }), REGISTRY)
     expect(c.category).toBe('unknown')
     expect(priceRisk(c, POLICY).bond).toBe(POLICY.maxBond)
   })
 
-  it('une catégorie connue mais absente de la politique → maxBond, pas minBond', () => {
-    const partielle: Policy = {
+  it('a category known to the registry but absent from the policy → maxBond, not minBond', () => {
+    const partial: Policy = {
       ...POLICY,
       categories: { 'erc20.transfer': POLICY.categories['erc20.transfer']! },
     }
@@ -322,17 +322,17 @@ describe('unknown coûte le maximum', () => {
       REGISTRY,
     )
     expect(c.category).toBe('aavev3.repay')
-    expect(() => priceRisk(c, partielle)).toThrowError(PolicyError)
-    expect(bondFor(c, partielle)).toBe(BigInt(POLICY.maxBond))
+    expect(() => priceRisk(c, partial)).toThrowError(PolicyError)
+    expect(bondFor(c, partial)).toBe(BigInt(POLICY.maxBond))
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Post-conditions générées
+// Generated post-conditions
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('la politique génère la post-condition', () => {
-  it('erc20.transfer : les trois checks normatifs de docs/13 § 5, plus le delta de destination', () => {
+describe('the policy generates the post-condition', () => {
+  it('erc20.transfer: the three normative checks of docs/13 § 5, plus the destination delta', () => {
     const c = classify(action(), REGISTRY)
     const spec = buildConditionSpec(c, POLICY)
 
@@ -341,16 +341,16 @@ describe('la politique génère la post-condition', () => {
     expect(spec.evaluateAt).toBe('tx')
     expect(spec.confirmations).toBe(12) // L1
 
-    const [borne] = find(spec.checks, 'erc20_balance_delta')
-    expect(borne).toMatchObject({
+    const [bound] = find(spec.checks, 'erc20_balance_delta')
+    expect(bound).toMatchObject({
       token: USDC_ETH,
       account: TREASURY,
       op: 'gte',
-      value: '-250000000', // la borne de la POLITIQUE, pas le montant du calldata
+      value: '-250000000', // the POLICY's bound, not the calldata amount
     })
 
-    // Le montant arrive sur la destination de l'allowlist — en delta, dérivé
-    // des logs `Transfer`, jamais en solde absolu (voir B1 plus bas).
+    // The amount lands on the allowlist destination — as a delta, derived from
+    // the `Transfer` logs, never as an absolute balance (see B1 further down).
     expect(find(spec.checks, 'erc20_balance_delta')[1]).toMatchObject({
       token: USDC_ETH,
       account: PAYROLL,
@@ -364,79 +364,79 @@ describe('la politique génère la post-condition', () => {
     })
   })
 
-  it("la borne de sortie ne peut pas être gonflée par le calldata", () => {
-    const petit = buildConditionSpec(
+  it('the outflow bound cannot be inflated by the calldata', () => {
+    const small = buildConditionSpec(
       classify(action({ calldata: transferCalldata(PAYROLL, 1n) }), REGISTRY),
       POLICY,
     )
-    const gros = buildConditionSpec(
+    const large = buildConditionSpec(
       classify(
         action({ calldata: transferCalldata(PAYROLL, 10n ** 12n) }),
         REGISTRY,
       ),
       POLICY,
     )
-    const borneDe = (s: typeof petit) =>
+    const boundOf = (s: typeof small) =>
       find(s.checks, 'erc20_balance_delta')[0]!.value
-    expect(borneDe(petit)).toBe('-250000000')
-    expect(borneDe(gros)).toBe('-250000000')
+    expect(boundOf(small)).toBe('-250000000')
+    expect(boundOf(large)).toBe('-250000000')
   })
 
-  it('une destination hors allowlist est remplacée par celle de la politique', () => {
+  it("a destination outside the allowlist is replaced by the policy's own", () => {
     const c = classify(
       action({ calldata: transferCalldata(ATTACKER, 1_000_000n) }),
       REGISTRY,
     )
     const spec = buildConditionSpec(c, POLICY)
-    const comptes = spec.checks.map((chk) => (chk as { account?: string }).account)
-    expect(comptes).toContain(PAYROLL)
-    expect(comptes).not.toContain(ATTACKER)
+    const accounts = spec.checks.map((chk) => (chk as { account?: string }).account)
+    expect(accounts).toContain(PAYROLL)
+    expect(accounts).not.toContain(ATTACKER)
   })
 
-  it('une destination listée est engagée telle quelle', () => {
-    const AUTRE = '0x4444444444444444444444444444444444444444' as Address
-    const politique: Policy = {
+  it('a listed destination is committed to as is', () => {
+    const OTHER = '0x4444444444444444444444444444444444444444' as Address
+    const policy: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
         'erc20.transfer': {
           riskBps: 200,
-          allowedDest: [PAYROLL, AUTRE],
+          allowedDest: [PAYROLL, OTHER],
           maxOutflow: '250000000',
         },
       },
     }
     const c = classify(
-      action({ calldata: transferCalldata(AUTRE, 1_000_000n) }),
+      action({ calldata: transferCalldata(OTHER, 1_000_000n) }),
       REGISTRY,
     )
-    const spec = buildConditionSpec(c, politique)
-    expect(find(spec.checks, 'erc20_balance_delta')[1]!.account).toBe(AUTRE)
+    const spec = buildConditionSpec(c, policy)
+    expect(find(spec.checks, 'erc20_balance_delta')[1]!.account).toBe(OTHER)
   })
 
-  it("maxOutflow '0' engage `0` et non `-0`, qui n'est pas un décimal canonique", () => {
-    // « Aucune sortie tolérée » est la politique la plus stricte, et c'est le
-    // défaut du Gateway. `-0` faisait échouer la validation de la ConditionSpec
-    // qu'on venait de construire : toute quotation d'un erc20.transfer
-    // classifié répondait 400. RFC 8785 impose de toute façon la même
-    // sérialisation pour `0` et `-0`, donc `-0` n'aurait pas survécu au hachage.
-    const stricte: Policy = {
+  it("maxOutflow '0' commits to `0` and not `-0`, which is not a canonical decimal", () => {
+    // "No outflow tolerated" is the strictest policy, and it is the Gateway's
+    // default. `-0` used to fail the validation of the ConditionSpec we had just
+    // built: every quotation of a classified erc20.transfer answered 400.
+    // RFC 8785 mandates the same serialization for `0` and `-0` anyway, so `-0`
+    // would not have survived hashing either.
+    const strict: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
         'erc20.transfer': { riskBps: 200, allowedDest: [PAYROLL], maxOutflow: '0' },
       },
     }
-    const spec = buildConditionSpec(classify(action(), REGISTRY), stricte)
+    const spec = buildConditionSpec(classify(action(), REGISTRY), strict)
     const delta = find(spec.checks, 'erc20_balance_delta')[0]!
     expect(delta.value).toBe('0')
     expect(delta.value).not.toBe('-0')
-    // Et la spec produite se valide elle-même.
+    // And the spec produced validates itself.
     expect(() => validateConditionSpec(spec)).not.toThrow()
   })
 
-  it('erc20.transfer sans maxOutflow est refusé : la borne doit venir de la politique', () => {
-    const sansBorne: Policy = {
+  it('erc20.transfer without maxOutflow is refused: the bound must come from the policy', () => {
+    const boundless: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
@@ -444,16 +444,16 @@ describe('la politique génère la post-condition', () => {
       },
     }
     expect(() =>
-      buildConditionSpec(classify(action(), REGISTRY), sansBorne),
+      buildConditionSpec(classify(action(), REGISTRY), boundless),
     ).toThrowError(PolicyError)
   })
 
-  it('erc20.approve : plafond d\'allowance, et zéro pour un spender hors allowlist', () => {
-    const horsListe = classify(
+  it('erc20.approve: allowance cap, and zero for a spender outside the allowlist', () => {
+    const unlisted = classify(
       action({ calldata: approveCalldata(ATTACKER, 10n ** 30n) }),
       REGISTRY,
     )
-    const spec = buildConditionSpec(horsListe, POLICY)
+    const spec = buildConditionSpec(unlisted, POLICY)
     expect(find(spec.checks, 'erc20_allowance')[0]).toMatchObject({
       token: USDC_ETH,
       owner: TREASURY,
@@ -461,18 +461,18 @@ describe('la politique génère la post-condition', () => {
       op: 'lte',
       value: '0',
     })
-    // Une approbation ne déplace pas de fonds.
+    // An approval does not move funds.
     expect(find(spec.checks, 'erc20_balance_delta')[0]).toMatchObject({
       account: TREASURY,
       op: 'gte',
       value: '0',
     })
 
-    const listee = classify(
+    const listed = classify(
       action({ calldata: approveCalldata(PAYROLL, 1_000_000n) }),
       REGISTRY,
     )
-    const politique: Policy = {
+    const policy: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
@@ -484,12 +484,12 @@ describe('la politique génère la post-condition', () => {
       },
     }
     expect(
-      find(buildConditionSpec(listee, politique).checks, 'erc20_allowance')[0]!
+      find(buildConditionSpec(listed, policy).checks, 'erc20_allowance')[0]!
         .value,
     ).toBe('2000000')
   })
 
-  it('aavev3.* : health factor, et aucun nonce_advanced par défaut', () => {
+  it('aavev3.*: health factor, and no nonce_advanced by default', () => {
     const c = classify(
       action({
         target: AAVE_POOL,
@@ -507,15 +507,15 @@ describe('la politique génère la post-condition', () => {
     })
   })
 
-  it('aavev3.* : le seuil de health factor peut être durci par la politique', () => {
-    const politique: Policy = {
+  it('aavev3.*: the health factor threshold can be tightened by the policy', () => {
+    const policy: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
         'aavev3.borrow': {
           riskBps: 100,
           allowedDest: [TREASURY],
-          // Extension de politique, lue de façon défensive.
+          // Policy extension, read defensively.
           minHealthFactor: '2000000000000000000',
         } as Policy['categories'][string],
       },
@@ -534,12 +534,12 @@ describe('la politique génère la post-condition', () => {
       REGISTRY,
     )
     expect(
-      find(buildConditionSpec(c, politique).checks, 'aave_health_factor')[0]!
+      find(buildConditionSpec(c, policy).checks, 'aave_health_factor')[0]!
         .value,
     ).toBe('2000000000000000000')
   })
 
-  it("aavev3.withdraw : la destination du retrait vient aussi de l'allowlist", () => {
+  it('aavev3.withdraw: the withdrawal destination also comes from the allowlist', () => {
     const c = classify(
       action({
         target: AAVE_POOL,
@@ -554,12 +554,12 @@ describe('la politique génère la post-condition', () => {
     expect(JSON.stringify(spec)).not.toContain(ATTACKER.slice(2))
   })
 
-  it('unknown : post-condition générique, stricte, et décidable sur le seul receipt', () => {
+  it('unknown: generic post-condition, strict, and decidable on the receipt alone', () => {
     const c = classify(action({ target: SHITCOIN }), REGISTRY)
     const spec = buildConditionSpec(c, POLICY, { executor: EXECUTOR })
 
-    // La cible de l'action non classifiée est surveillée d'office : c'est le
-    // seul fait connu d'une action `unknown`.
+    // The target of the unclassified action is watched unconditionally: it is the
+    // only known fact about an `unknown` action.
     expect(kinds(spec.checks)).toEqual([
       'no_new_approvals',
       'erc20_balance_delta',
@@ -572,15 +572,15 @@ describe('la politique génère la post-condition', () => {
       token: SHITCOIN,
       account: TREASURY,
       op: 'gte',
-      value: '0', // aucune tolérance de sortie sur une action qu'on ne sait pas classer
+      value: '0', // no outflow tolerance on an action we cannot classify
     })
 
-    // Les tokens surveillés de la politique s'ajoutent à la cible.
-    const surveille = {
+    // The policy's watched tokens are added to the target.
+    const watching = {
       ...POLICY,
       watchedTokens: [USDC_ETH],
     } as Policy
-    const large = buildConditionSpec(c, surveille, { executor: EXECUTOR })
+    const large = buildConditionSpec(c, watching, { executor: EXECUTOR })
     expect(find(large.checks, 'no_new_approvals')[0]!.tokens).toEqual([
       SHITCOIN,
       USDC_ETH,
@@ -590,10 +590,10 @@ describe('la politique génère la post-condition', () => {
     ).toEqual([SHITCOIN, USDC_ETH])
   })
 
-  it('MAX_CHECKS est respecté, et calldata_matches_commitment est hors quota', () => {
+  it('MAX_CHECKS is respected, and calldata_matches_commitment is out of quota', () => {
     const actionHash =
       '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as Hex
-    const cas: Classification[] = [
+    const cases: Classification[] = [
       classify(action(), REGISTRY),
       classify(
         action({ calldata: approveCalldata(PAYROLL, 1n) }),
@@ -608,21 +608,21 @@ describe('la politique génère la post-condition', () => {
       ),
       classify(action({ target: SHITCOIN }), REGISTRY),
     ]
-    for (const c of cas) {
-      const nu = buildConditionSpec(c, POLICY)
-      expect(nu.checks.length).toBeLessThanOrEqual(MAX_CHECKS)
-      expect(nu.checks.length).toBeGreaterThan(0)
+    for (const c of cases) {
+      const bare = buildConditionSpec(c, POLICY)
+      expect(bare.checks.length).toBeLessThanOrEqual(MAX_CHECKS)
+      expect(bare.checks.length).toBeGreaterThan(0)
 
-      const engage = buildConditionSpec(c, POLICY, { actionHash })
-      expect(engage.checks.length).toBe(nu.checks.length + 1)
-      expect(engage.checks.at(-1)).toEqual({
+      const committed = buildConditionSpec(c, POLICY, { actionHash })
+      expect(committed.checks.length).toBe(bare.checks.length + 1)
+      expect(committed.checks.at(-1)).toEqual({
         kind: 'calldata_matches_commitment',
         actionHash,
       })
     }
   })
 
-  it('confirmations par défaut : 12 sur L1, 3 sur L2', () => {
+  it('default confirmations: 12 on L1, 3 on L2', () => {
     const l1 = buildConditionSpec(classify(action(), REGISTRY), POLICY)
     expect(l1.confirmations).toBe(12)
 
@@ -633,28 +633,28 @@ describe('la politique génère la post-condition', () => {
     expect(l2.chainId).toBe(8453)
     expect(l2.confirmations).toBe(3)
 
-    const force = buildConditionSpec(classify(action(), REGISTRY), POLICY, {
+    const forced = buildConditionSpec(classify(action(), REGISTRY), POLICY, {
       confirmations: 1,
       evaluateAt: 'tx+1',
     })
-    expect(force.confirmations).toBe(1)
-    expect(force.evaluateAt).toBe('tx+1')
+    expect(forced.confirmations).toBe(1)
+    expect(forced.evaluateAt).toBe('tx+1')
   })
 
-  it('une classification sans chainId exploitable est refusée', () => {
-    const orphelin: Classification = {
+  it('a classification with no usable chainId is refused', () => {
+    const orphan: Classification = {
       category: 'erc20.transfer',
       params: { token: USDC_ETH, to: PAYROLL, amount: '1' },
       notionalUSD: '1',
       registryRef: REF,
     }
-    expect(() => buildConditionSpec(orphelin, POLICY)).toThrowError(PolicyError)
+    expect(() => buildConditionSpec(orphan, POLICY)).toThrowError(PolicyError)
     expect(() =>
-      buildConditionSpec(orphelin, POLICY, { chainId: 1 }),
+      buildConditionSpec(orphan, POLICY, { chainId: 1 }),
     ).not.toThrow()
   })
 
-  it('le devis est reproductible', () => {
+  it('the quote is reproducible', () => {
     const c = classify(action(), REGISTRY)
     expect(JSON.stringify(priceRisk(c, POLICY))).toBe(
       JSON.stringify(priceRisk(c, POLICY)),
@@ -663,13 +663,13 @@ describe('la politique génère la post-condition', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Un trou de politique est un refus d'ouvrir, jamais une post-condition
-// permissive. La branche « politique sans allowedDest » est celle que prenait
-// le binaire en production : elle n'était couverte par aucun test.
+// A hole in the policy is a refusal to open, never a permissive post-condition.
+// The "policy without allowedDest" branch is the one the production binary took:
+// no test covered it.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** La politique de référence, privée d'`allowedDest` sur une catégorie. */
-function sansAllowlist(category: string, extra: object = {}): Policy {
+/** The reference policy, stripped of `allowedDest` on one category. */
+function withoutAllowlist(category: string, extra: object = {}): Policy {
   const cat = { ...POLICY.categories[category], ...extra } as Record<
     string,
     unknown
@@ -684,32 +684,33 @@ function sansAllowlist(category: string, extra: object = {}): Policy {
   }
 }
 
-describe("allowedDest absent est un refus, pas un silence", () => {
-  it("erc20.transfer sans allowedDest est refusé — le transfert détourné passait les trois checks restants", () => {
-    // Adversaire 1 de docs/13 § 6 : 500 USDC vers une adresse arbitraire, sous
-    // maxOutflow = 1000 USDC. Sans allowlist, les deux checks de destination
-    // disparaissaient *silencieusement* ; il ne restait que « le trésor n'a pas
-    // perdu plus de maxOutflow » et `no_new_approvals`, que ce transfert passe.
-    // Verdict `honored`, caution rendue, réputation améliorée, fonds partis.
-    const politique = sansAllowlist('erc20.transfer', {
+describe('a missing allowedDest is a refusal, not a silence', () => {
+  it('erc20.transfer without allowedDest is refused — the diverted transfer used to pass the three remaining checks', () => {
+    // Adversary 1 of docs/13 § 6: 500 USDC to an arbitrary address, under
+    // maxOutflow = 1000 USDC. With no allowlist, both destination checks
+    // *silently* disappeared; all that was left was "the treasury did not lose
+    // more than maxOutflow" and `no_new_approvals`, both of which this transfer
+    // passes. Verdict `honored`, bond returned, reputation improved, funds gone.
+    const policy = withoutAllowlist('erc20.transfer', {
       maxOutflow: '1000000000',
     })
-    const detourne = classify(
+    const diverted = classify(
       action({ calldata: transferCalldata(ATTACKER, 500_000_000n) }),
       REGISTRY,
     )
-    expect(() => buildConditionSpec(detourne, politique)).toThrowError(
+    expect(() => buildConditionSpec(diverted, policy)).toThrowError(
       PolicyError,
     )
-    expect(() => buildConditionSpec(detourne, politique)).toThrowError(
+    expect(() => buildConditionSpec(diverted, policy)).toThrowError(
       /allowedDest/,
     )
-    // Et le refus remonte jusqu'au devis : pas de mandat ouvrable du tout.
-    expect(() => priceRisk(detourne, politique)).toThrowError(PolicyError)
+    // And the refusal reaches all the way up to the quote: no warrant can be
+    // opened at all.
+    expect(() => priceRisk(diverted, policy)).toThrowError(PolicyError)
   })
 
-  it('une allowlist vide vaut une allowlist absente', () => {
-    const vide: Policy = {
+  it('an empty allowlist is worth an absent one', () => {
+    const empty: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
@@ -721,59 +722,58 @@ describe("allowedDest absent est un refus, pas un silence", () => {
       },
     }
     expect(() =>
-      buildConditionSpec(classify(action(), REGISTRY), vide),
+      buildConditionSpec(classify(action(), REGISTRY), empty),
     ).toThrowError(PolicyError)
   })
 
-  it("erc20.approve sans allowedDest est refusé — sinon tout spender est allowlisté", () => {
-    // `!cat.allowedDest` rendait `allowlisted` vrai pour n'importe qui :
-    // l'attaquant héritait du plafond d'allowance de la politique au lieu de
-    // zéro.
-    const politique = sansAllowlist('erc20.approve', { maxOutflow: '1000000' })
+  it('erc20.approve without allowedDest is refused — otherwise every spender is allowlisted', () => {
+    // `!cat.allowedDest` made `allowlisted` true for anyone: the attacker
+    // inherited the policy's allowance cap instead of zero.
+    const policy = withoutAllowlist('erc20.approve', { maxOutflow: '1000000' })
     const c = classify(
       action({ calldata: approveCalldata(ATTACKER, 10n ** 30n) }),
       REGISTRY,
     )
-    expect(() => buildConditionSpec(c, politique)).toThrowError(PolicyError)
+    expect(() => buildConditionSpec(c, policy)).toThrowError(PolicyError)
 
-    // Avec une allowlist, le spender hors liste est bien plafonné à zéro.
+    // With an allowlist, the unlisted spender is indeed capped at zero.
     expect(
       find(buildConditionSpec(c, POLICY).checks, 'erc20_allowance')[0]!.value,
     ).toBe('0')
   })
 
-  for (const [nom, calldata] of [
+  for (const [name, calldata] of [
     ['aavev3.withdraw', aaveCalldata('withdraw', [USDC_ETH, 5_000_000n, ATTACKER])],
     ['aavev3.borrow', aaveCalldata('borrow', [USDC_ETH, 5_000_000n, 2n, 0, ATTACKER])],
   ] as const) {
-    it(`${nom} sans allowedDest est refusé : un retrait est une sortie`, () => {
-      const politique = sansAllowlist(nom)
+    it(`${name} without allowedDest is refused: a withdrawal is an outflow`, () => {
+      const policy = withoutAllowlist(name)
       const c = classify(action({ target: AAVE_POOL, calldata }), REGISTRY)
-      expect(c.category).toBe(nom)
-      expect(() => buildConditionSpec(c, politique)).toThrowError(PolicyError)
+      expect(c.category).toBe(name)
+      expect(() => buildConditionSpec(c, policy)).toThrowError(PolicyError)
     })
   }
 
-  it("aavev3.repay et supply ne sortent rien : elles n'exigent pas d'allowlist", () => {
-    for (const [nom, calldata] of [
+  it('aavev3.repay and supply move nothing out: they require no allowlist', () => {
+    for (const [name, calldata] of [
       ['aavev3.repay', aaveCalldata('repay', [USDC_ETH, 1_000_000n, 2n, TREASURY])],
       ['aavev3.supply', aaveCalldata('supply', [USDC_ETH, 1_000_000n, TREASURY, 0])],
     ] as const) {
       const c = classify(action({ target: AAVE_POOL, calldata }), REGISTRY)
-      expect(c.category).toBe(nom)
-      // POLICY ne déclare pas d'allowedDest pour ces deux catégories.
+      expect(c.category).toBe(name)
+      // POLICY declares no allowedDest for these two categories.
       expect(() => buildConditionSpec(c, POLICY)).not.toThrow()
     }
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Un check qui lève toujours n'est pas une garantie, c'est un remboursement
-// automatique déguisé.
+// A check that always throws is not a guarantee, it is an automatic refund in
+// disguise.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Toutes les catégories, avec une classification réelle pour chacune. */
-function toutesLesClassifications(): Classification[] {
+/** Every category, with a real classification for each. */
+function allClassifications(): Classification[] {
   return [
     classify(action(), REGISTRY),
     classify(action({ calldata: approveCalldata(PAYROLL, 1n) }), REGISTRY),
@@ -789,51 +789,51 @@ function toutesLesClassifications(): Classification[] {
   ]
 }
 
-describe('une post-condition par défaut ne contient que des vérificateurs décidables', () => {
-  it("aucune catégorie n'engage nonce_advanced ni native_balance_delta par défaut", () => {
-    // `nonce_advanced` : sous sponsoring, `tx.from` est le relayer KeeperHub et
-    // `checks/nonce.ts` lève `UnsupportedCheckError` (son docstring le dit :
-    // « ne doit pas figurer dans les post-conditions par défaut »).
-    // `native_balance_delta` : `checks/native.ts` refuse de deviner sans tracer,
-    // et aucun tracer n'est câblé.
-    // Les deux faisaient expirer le mandat vers `reclaim` : `unknown`, facturé
-    // maxBond, était la catégorie dont la caution ne pouvait jamais être saisie.
-    for (const c of toutesLesClassifications()) {
-      const kindsVus = kinds(
+describe('a default post-condition contains only decidable checks', () => {
+  it('no category commits to nonce_advanced or native_balance_delta by default', () => {
+    // `nonce_advanced`: under sponsoring, `tx.from` is the KeeperHub relayer and
+    // `checks/nonce.ts` throws `UnsupportedCheckError` (its docstring says so:
+    // "must not appear in default post-conditions").
+    // `native_balance_delta`: `checks/native.ts` refuses to guess without a
+    // tracer, and no tracer is wired up.
+    // Both let the warrant expire into `reclaim`: `unknown`, charged at maxBond,
+    // was the one category whose bond could never be slashed.
+    for (const c of allClassifications()) {
+      const seenKinds = kinds(
         buildConditionSpec(c, POLICY, { executor: EXECUTOR }).checks,
       )
-      expect(kindsVus).not.toContain('nonce_advanced')
-      expect(kindsVus).not.toContain('native_balance_delta')
-      expect(kindsVus.length).toBeGreaterThan(0)
+      expect(seenKinds).not.toContain('nonce_advanced')
+      expect(seenKinds).not.toContain('native_balance_delta')
+      expect(seenKinds.length).toBeGreaterThan(0)
     }
   })
 
-  it('unknown : tous les checks engagés sont dérivés du receipt', () => {
-    const DECIDABLES = ['no_new_approvals', 'erc20_balance_delta']
+  it('unknown: every committed check is derived from the receipt', () => {
+    const DECIDABLE = ['no_new_approvals', 'erc20_balance_delta']
     const c = classify(action({ target: SHITCOIN }), REGISTRY)
     const spec = buildConditionSpec(c, {
       ...POLICY,
       watchedTokens: [USDC_ETH],
     } as Policy)
     for (const kind of kinds(spec.checks)) {
-      expect(DECIDABLES).toContain(kind)
+      expect(DECIDABLE).toContain(kind)
     }
-    // La caution maximale est désormais adossée à quelque chose de saisissable.
+    // The maximum bond is now backed by something that can actually be slashed.
     expect(priceRisk(c, POLICY).bond).toBe(POLICY.maxBond)
   })
 
-  it('unknown sans cible ni watchedTokens est refusé plutôt que vidé', () => {
-    const orphelin: Classification = {
+  it('unknown with neither a target nor watchedTokens is refused rather than emptied', () => {
+    const orphan: Classification = {
       category: 'unknown',
       params: { chainId: '1' },
       notionalUSD: '0',
       registryRef: REF,
     }
-    expect(() => buildConditionSpec(orphelin, POLICY)).toThrowError(PolicyError)
+    expect(() => buildConditionSpec(orphan, POLICY)).toThrowError(PolicyError)
   })
 
-  it('unknown : trop de tokens surveillés est un refus explicite, pas une spec invalide', () => {
-    const trop = {
+  it('unknown: too many watched tokens is an explicit refusal, not an invalid spec', () => {
+    const tooMany = {
       ...POLICY,
       watchedTokens: Array.from(
         { length: 8 },
@@ -841,15 +841,16 @@ describe('une post-condition par défaut ne contient que des vérificateurs déc
       ),
     } as Policy
     expect(() =>
-      buildConditionSpec(classify(action({ target: SHITCOIN }), REGISTRY), trop),
+      buildConditionSpec(classify(action({ target: SHITCOIN }), REGISTRY), tooMany),
     ).toThrowError(/MAX_CHECKS|maximum/)
   })
 
-  it("nonce_advanced n'apparaît que sur une politique non sponsorisée, et jamais en `gte 1`", () => {
-    // `count(evalBlock) − count(txBlock − 1) >= 1` est vrai dès que le compte a
-    // émis la transaction évaluée : une tautologie, donc zéro contrainte. La
-    // forme normative de docs/07 § 2.8 est « exactement une transaction ».
-    const nonSponsorise = { ...POLICY, unsponsoredExecution: true } as Policy
+  it('nonce_advanced only appears on an unsponsored policy, and never as `gte 1`', () => {
+    // `count(evalBlock) − count(txBlock − 1) >= 1` is true as soon as the account
+    // has submitted the evaluated transaction: a tautology, hence zero
+    // constraint. The normative form of docs/07 § 2.8 is "exactly one
+    // transaction".
+    const unsponsored = { ...POLICY, unsponsoredExecution: true } as Policy
     const c = classify(
       action({
         target: AAVE_POOL,
@@ -857,31 +858,31 @@ describe('une post-condition par défaut ne contient que des vérificateurs déc
       }),
       REGISTRY,
     )
-    const spec = buildConditionSpec(c, nonSponsorise, { executor: EXECUTOR })
+    const spec = buildConditionSpec(c, unsponsored, { executor: EXECUTOR })
     expect(find(spec.checks, 'nonce_advanced')[0]).toMatchObject({
       account: EXECUTOR,
       op: 'eq',
       value: '1',
     })
-    // À défaut d'exécuteur connu, c'est le trésor qui est engagé.
+    // Absent a known executor, it is the treasury that is committed.
     expect(
-      find(buildConditionSpec(c, nonSponsorise).checks, 'nonce_advanced')[0]!
+      find(buildConditionSpec(c, unsponsored).checks, 'nonce_advanced')[0]!
         .account,
     ).toBe(TREASURY)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// N'engager que ce qui est attribuable à la transaction de l'agent.
+// Commit only to what is attributable to the agent's transaction.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('aucun solde absolu partagé dans une post-condition', () => {
-  it("erc20.transfer n'engage plus erc20_balance(dest) : le bénéficiaire pouvait fabriquer la saisie", () => {
-    // `balanceOf(dest)` est lu en fin de bloc. Si `dest` — adresse de
-    // l'allowlist, donc du propriétaire du capital, ou hot wallet qui balaie
-    // vers du cold storage — dépense après l'action et dans le même bloc, le
-    // solde retombe sous `amount` et la caution est saisie, alors que le delta
-    // jumeau prouve dans le même verdict que l'agent a fait ce qui était engagé.
+describe('no shared absolute balance in a post-condition', () => {
+  it('erc20.transfer no longer commits to erc20_balance(dest): the beneficiary could manufacture the slash', () => {
+    // `balanceOf(dest)` is read at end of block. If `dest` — an allowlist
+    // address, hence the capital owner's, or a hot wallet sweeping into cold
+    // storage — spends after the action and in the same block, the balance falls
+    // back below `amount` and the bond is slashed, while the twin delta proves in
+    // that very verdict that the agent did what was committed.
     for (const c of [
       classify(action(), REGISTRY),
       classify(
@@ -891,7 +892,7 @@ describe('aucun solde absolu partagé dans une post-condition', () => {
     ]) {
       const spec = buildConditionSpec(c, POLICY)
       expect(kinds(spec.checks)).not.toContain('erc20_balance')
-      // Le delta, lui, reste : il ne passe que si les fonds sont arrivés.
+      // The delta, for its part, stays: it only passes if the funds arrived.
       expect(find(spec.checks, 'erc20_balance_delta')[1]).toMatchObject({
         account: PAYROLL,
         op: 'gte',
@@ -899,10 +900,10 @@ describe('aucun solde absolu partagé dans une post-condition', () => {
     }
   })
 
-  it('un auto-transfert vers le trésor allowlisté n\'est pas une saisie', () => {
-    // `dest === treasury` : les fonds ne bougent pas, le delta s'annule dans les
-    // logs (`from === to`). Exiger `>= amount` saisissait un transfert légitime.
-    const versSoi: Policy = {
+  it('a self-transfer to the allowlisted treasury is not a slash', () => {
+    // `dest === treasury`: the funds do not move, the delta cancels out in the
+    // logs (`from === to`). Requiring `>= amount` slashed a legitimate transfer.
+    const toSelf: Policy = {
       ...POLICY,
       categories: {
         ...POLICY.categories,
@@ -917,22 +918,22 @@ describe('aucun solde absolu partagé dans une post-condition', () => {
       action({ calldata: transferCalldata(TREASURY, 100_000_000n) }),
       REGISTRY,
     )
-    const deltas = find(buildConditionSpec(c, versSoi).checks, 'erc20_balance_delta')
+    const deltas = find(buildConditionSpec(c, toSelf).checks, 'erc20_balance_delta')
     expect(deltas).toHaveLength(2)
     expect(deltas[1]).toMatchObject({ account: TREASURY, op: 'gte', value: '0' })
 
-    // Et le détournement reste bloqué : la destination engagée reste le trésor,
-    // dont le delta vaudrait alors `-amount`, sous la borne `0`.
-    const detourne = classify(
+    // And the diversion stays blocked: the committed destination remains the
+    // treasury, whose delta would then be `-amount`, below the `0` bound.
+    const diverted = classify(
       action({ calldata: transferCalldata(ATTACKER, 100_000_000n) }),
       REGISTRY,
     )
     expect(
-      find(buildConditionSpec(detourne, versSoi).checks, 'erc20_balance_delta')[1],
+      find(buildConditionSpec(diverted, toSelf).checks, 'erc20_balance_delta')[1],
     ).toMatchObject({ account: TREASURY, value: '0' })
   })
 
-  it("aavev3.withdraw vers le trésor engage bien `>= amount` : là, les fonds entrent", () => {
+  it('aavev3.withdraw to the treasury does commit to `>= amount`: there, the funds come in', () => {
     const c = classify(
       action({
         target: AAVE_POOL,
@@ -945,14 +946,14 @@ describe('aucun solde absolu partagé dans une post-condition', () => {
     ).toMatchObject({ account: TREASURY, op: 'gte', value: '5000000' })
   })
 
-  it('toute post-condition produite se valide contre le DSL', () => {
-    const politique = {
+  it('every post-condition produced validates against the DSL', () => {
+    const policy = {
       ...POLICY,
       watchedTokens: [USDC_ETH],
       unsponsoredExecution: true,
     } as Policy
-    for (const c of toutesLesClassifications()) {
-      for (const p of [POLICY, politique]) {
+    for (const c of allClassifications()) {
+      for (const p of [POLICY, policy]) {
         expect(() =>
           validateConditionSpec(buildConditionSpec(c, p, { executor: EXECUTOR })),
         ).not.toThrow()

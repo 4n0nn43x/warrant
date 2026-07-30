@@ -1,18 +1,19 @@
 /**
- * Registre de classification d'action.
+ * Action classification registry.
  *
- * Le registre est un **fichier versionné du dépôt**, pas une base mutable
- * (docs/13-risques.md § 5). Trois propriétés le définissent :
+ * The registry is a **version-controlled file in the repo**, not a mutable
+ * database (docs/13-risques.md § 5). Three properties define it:
  *
- * 1. La clé est le **couple `(chainId, target, selector)`**, jamais le seul
- *    sélecteur. `transfer(address,uint256)` sur l'USDC du trésor et le même
- *    sélecteur sur un token sans valeur ne sont pas la même action, et un
- *    attaquant ne peut pas emprunter la politique de l'un pour l'autre.
- * 2. Son `keccak256` canonique — le `registryRef` — est engagé sous
- *    `actionHash`. Un tiers reprend la version exacte du registre qui a servi,
- *    rejoue `classify` sur le calldata onchain et vérifie la catégorie retenue.
- * 3. Ajouter une entrée est un changement de politique visible dans
- *    l'historique git, pas une opération runtime.
+ * 1. The key is the **tuple `(chainId, target, selector)`**, never the selector
+ *    alone. `transfer(address,uint256)` on the treasury's USDC and the same
+ *    selector on a worthless token are not the same action, and an attacker
+ *    cannot borrow the policy of one for the other.
+ * 2. Its canonical `keccak256` — the `registryRef` — is committed under
+ *    `actionHash`. A third party takes the exact registry version that was
+ *    used, replays `classify` on the onchain calldata and checks the category
+ *    that was retained.
+ * 3. Adding an entry is a policy change visible in the git history, not a
+ *    runtime operation.
  */
 
 import { readFileSync } from 'node:fs'
@@ -27,34 +28,33 @@ import type {
 } from './types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Forme du fichier
+// File shape
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Une entrée telle qu'elle est écrite dans le fichier. `RegistryEntry`
- * (types.ts) en est le socle ; les champs ajoutés ici décrivent *comment*
- * dériver le notionnel et la post-condition, sans quoi le registre ne serait
- * qu'une table de noms.
+ * An entry as it is written in the file. `RegistryEntry` (types.ts) is its
+ * foundation; the fields added here describe *how* to derive the notional and
+ * the post-condition, without which the registry would be nothing but a table
+ * of names.
  */
 export interface RegistryFileEntry extends RegistryEntry {
   /**
-   * Nom sous lequel le `target` lui-même est exposé dans `params` — `token`
-   * pour un ERC-20, `pool` pour Aave. Le `target` est un argument implicite de
-   * l'action : la politique en a besoin pour écrire ses checks, et l'exemple
-   * normatif de docs/13 § 5 le fait déjà figurer dans `params`.
+   * Name under which the `target` itself is exposed in `params` — `token` for
+   * an ERC-20, `pool` for Aave. The `target` is an implicit argument of the
+   * action: the policy needs it to write its checks, and the normative example
+   * of docs/13 § 5 already lists it in `params`.
    */
   targetAs?: string
-  /** Nom de l'argument portant le montant. Défaut : `amount`, puis `value`. */
+  /** Name of the argument carrying the amount. Default: `amount`, then `value`. */
   amountArg?: string
   /**
-   * Nom de l'argument portant l'actif, quand il n'est pas le `target`
-   * (cas Aave : l'actif est un paramètre, pas la cible).
+   * Name of the argument carrying the asset, when it is not the `target`
+   * (the Aave case: the asset is a parameter, not the target).
    */
   assetArg?: string
   /**
-   * Cette action accepte-t-elle de la valeur native ? Absent = non. Un
-   * `value > 0` sur une entrée qui ne l'attend pas est un refus, pas un
-   * avertissement.
+   * Does this action accept native value? Absent = no. A `value > 0` on an
+   * entry that does not expect it is a refusal, not a warning.
    */
   allowsValue?: boolean
   label?: string
@@ -63,7 +63,7 @@ export interface RegistryFileEntry extends RegistryEntry {
 export interface RegistryAsset {
   symbol: string
   decimals: number
-  /** Prix de référence figé, en virgule fixe 1e6 (unité atomique USDC). */
+  /** Frozen reference price, in 1e6 fixed point (USDC atomic unit). */
   priceUSD: string
 }
 
@@ -79,48 +79,49 @@ export interface RegistryRouterSelector {
 }
 
 /**
- * Le fichier complet. Il élargit `ClassificationRegistry` sans le contredire :
- * une `RegistryFile` reste assignable au type partagé de `types.ts`.
+ * The complete file. It widens `ClassificationRegistry` without contradicting
+ * it: a `RegistryFile` stays assignable to the shared type of `types.ts`.
  */
 export interface RegistryFile extends ClassificationRegistry {
   entries: RegistryFileEntry[]
   name?: string
-  /** Table de prix, clé `${chainId}:${address}` en minuscules. */
+  /** Price table, keyed by `${chainId}:${address}` in lowercase. */
   assets?: Record<string, RegistryAsset>
-  /** Cibles refusées d'office : routeurs génériques, proxies opaques. */
+  /** Targets refused outright: generic routers, opaque proxies. */
   routers?: RegistryRouter[]
-  /** Sélecteurs enveloppants refusés d'office, quelle que soit la cible. */
+  /** Wrapping selectors refused outright, whatever the target. */
   routerSelectors?: RegistryRouterSelector[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Canonicalisation et empreinte
+// Canonicalization and fingerprint
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Forme canonique du registre : JCS RFC 8785, la **même** canonicalisation que
- * `conditionHash` et `actionHash` (docs/07 § 4). Une seconde implémentation
- * serait une seconde occasion de diverger — c'est exactement le risque R1 de
+ * Canonical form of the registry: JCS RFC 8785, the **same** canonicalization
+ * as `conditionHash` and `actionHash` (docs/07 § 4). A second implementation
+ * would be a second opportunity to diverge — that is exactly risk R1 of
  * docs/13 § 3.
  *
- * Le `registryRef` porte donc sur le *contenu* du registre, pas sur les octets
- * du fichier : ni l'indentation ni l'ordre d'écriture des clés ne le changent,
- * et un tiers peut le recalculer sans reproduire notre formatage.
+ * The `registryRef` therefore bears on the *content* of the registry, not on
+ * the bytes of the file: neither the indentation nor the order in which the
+ * keys are written changes it, and a third party can recompute it without
+ * reproducing our formatting.
  */
 export function canonicalizeRegistry(registry: ClassificationRegistry): string {
   return canonicalize(registry)
 }
 
-/** `keccak256` de la forme canonique — l'empreinte engagée sous `actionHash`. */
+/** `keccak256` of the canonical form — the fingerprint committed under `actionHash`. */
 export function registryRefOf(registry: ClassificationRegistry): Hex {
   return hashCanonical(canonicalizeRegistry(registry))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Indexation
+// Indexing
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Clé d'indexation. Le couple entier, jamais le seul sélecteur. */
+/** Index key. The whole tuple, never the selector alone. */
 export function entryKey(
   chainId: number,
   target: string,
@@ -141,45 +142,45 @@ export class RegistryError extends Error {
 }
 
 /**
- * Vérifie la cohérence interne du registre. Appelée au chargement : un registre
- * incohérent doit échouer bruyamment au démarrage, jamais silencieusement à
- * l'ouverture d'un mandat.
+ * Checks the internal consistency of the registry. Called at load time: an
+ * inconsistent registry must fail loudly at startup, never silently when a
+ * warrant is opened.
  *
- * En particulier, chaque `selector` est **recalculé** depuis la signature ABI.
- * Un sélecteur recopié à la main et faux ferait classer une action pour une
- * autre : c'est exactement le vecteur que le registre est censé fermer.
+ * In particular, every `selector` is **recomputed** from the ABI signature. A
+ * selector copied by hand and wrong would classify one action as another: that
+ * is exactly the vector the registry is meant to close.
  */
 export function assertRegistryConsistent(registry: RegistryFile): void {
   if (registry.version !== 1) {
-    throw new RegistryError(`version de registre non supportée: ${registry.version}`)
+    throw new RegistryError(`unsupported registry version: ${registry.version}`)
   }
   if (!Array.isArray(registry.entries) || registry.entries.length === 0) {
-    throw new RegistryError('registre vide')
+    throw new RegistryError('empty registry')
   }
 
   const seen = new Set<string>()
   for (const entry of registry.entries) {
     const key = entryKey(entry.chainId, entry.target, entry.selector)
     if (seen.has(key)) {
-      throw new RegistryError(`entrée dupliquée pour ${key}`)
+      throw new RegistryError(`duplicate entry for ${key}`)
     }
     seen.add(key)
 
     if (entry.target !== entry.target.toLowerCase()) {
-      throw new RegistryError(`adresse non normalisée: ${entry.target}`)
+      throw new RegistryError(`address is not normalized: ${entry.target}`)
     }
     if (!/^0x[0-9a-f]{40}$/.test(entry.target)) {
-      throw new RegistryError(`adresse invalide: ${entry.target}`)
+      throw new RegistryError(`invalid address: ${entry.target}`)
     }
     if (!/^0x[0-9a-f]{8}$/.test(entry.selector)) {
-      throw new RegistryError(`sélecteur invalide: ${entry.selector}`)
+      throw new RegistryError(`invalid selector: ${entry.selector}`)
     }
 
     const computed = toFunctionSelector(`function ${entry.signature}`)
     if (computed.toLowerCase() !== entry.selector.toLowerCase()) {
       throw new RegistryError(
-        `sélecteur incohérent pour "${entry.signature}": ` +
-          `déclaré ${entry.selector}, calculé ${computed}`,
+        `inconsistent selector for "${entry.signature}": ` +
+          `declared ${entry.selector}, computed ${computed}`,
       )
     }
 
@@ -190,34 +191,34 @@ export function assertRegistryConsistent(registry: RegistryFile): void {
     const argCount = arity.trim() === '' ? 0 : splitTopLevel(arity).length
     if (entry.argNames.length !== argCount) {
       throw new RegistryError(
-        `argNames incohérents pour "${entry.signature}": ` +
-          `${entry.argNames.length} noms pour ${argCount} arguments`,
+        `inconsistent argNames for "${entry.signature}": ` +
+          `${entry.argNames.length} names for ${argCount} arguments`,
       )
     }
   }
 
   for (const key of Object.keys(registry.assets ?? {})) {
     if (!/^[0-9]+:0x[0-9a-f]{40}$/.test(key)) {
-      throw new RegistryError(`clé d'actif invalide: ${key}`)
+      throw new RegistryError(`invalid asset key: ${key}`)
     }
   }
   for (const router of registry.routers ?? []) {
     if (!/^0x[0-9a-f]{40}$/.test(router.target)) {
-      throw new RegistryError(`adresse de routeur invalide: ${router.target}`)
+      throw new RegistryError(`invalid router address: ${router.target}`)
     }
   }
   for (const rs of registry.routerSelectors ?? []) {
     const computed = toFunctionSelector(`function ${rs.signature}`)
     if (computed.toLowerCase() !== rs.selector.toLowerCase()) {
       throw new RegistryError(
-        `sélecteur de routeur incohérent pour "${rs.signature}": ` +
-          `déclaré ${rs.selector}, calculé ${computed}`,
+        `inconsistent router selector for "${rs.signature}": ` +
+          `declared ${rs.selector}, computed ${computed}`,
       )
     }
   }
 }
 
-/** Découpe une liste de types ABI en respectant les tuples imbriqués. */
+/** Splits a list of ABI types, honouring nested tuples. */
 function splitTopLevel(list: string): string[] {
   const out: string[] = []
   let depth = 0
@@ -237,7 +238,7 @@ function splitTopLevel(list: string): string[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chargement
+// Loading
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function parseRegistry(json: string): RegistryFile {
@@ -245,7 +246,7 @@ export function parseRegistry(json: string): RegistryFile {
   try {
     parsed = JSON.parse(json)
   } catch (err) {
-    throw new RegistryError(`registre illisible: ${(err as Error).message}`)
+    throw new RegistryError(`unreadable registry: ${(err as Error).message}`)
   }
   const registry = parsed as RegistryFile
   assertRegistryConsistent(registry)
@@ -257,8 +258,8 @@ const REGISTRY_PATH = new URL('../registry/mainnet.json', import.meta.url)
 let cached: RegistryFile | undefined
 
 /**
- * Charge le registre versionné du dépôt. Mis en cache : le fichier est immuable
- * à l'exécution par construction.
+ * Loads the version-controlled registry of the repo. Cached: the file is
+ * immutable at runtime by construction.
  */
 export function loadRegistry(): RegistryFile {
   if (!cached) {
@@ -267,18 +268,18 @@ export function loadRegistry(): RegistryFile {
   return cached
 }
 
-/** Empreinte du registre du dépôt. */
+/** Fingerprint of the repo's registry. */
 export function mainnetRegistryRef(): Hex {
   return registryRefOf(loadRegistry())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Accès
+// Access
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Résolution par le couple `(chainId, target, selector)`.
- * Retourne `undefined` — jamais un repli par sélecteur seul.
+ * Resolution by the `(chainId, target, selector)` tuple.
+ * Returns `undefined` — never a fallback on the selector alone.
  */
 export function lookupEntry(
   registry: ClassificationRegistry,
@@ -304,7 +305,7 @@ export function lookupAsset(
   return assets?.[assetKey(chainId, asset)]
 }
 
-/** La cible est-elle un routeur générique explicitement refusé ? */
+/** Is the target a generic router that is explicitly refused? */
 export function isRouterTarget(
   registry: ClassificationRegistry,
   chainId: number,
@@ -318,9 +319,9 @@ export function isRouterTarget(
 }
 
 /**
- * Le sélecteur est-il un sélecteur enveloppant ? Vrai quelle que soit la
- * cible : la classification ne verrait qu'une enveloppe et ne pourrait rien
- * affirmer de l'effet réel.
+ * Is the selector a wrapping selector? True whatever the target:
+ * classification would only see a wrapper and could assert nothing about the
+ * real effect.
  */
 export function isRouterSelector(
   registry: ClassificationRegistry,

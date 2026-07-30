@@ -33,12 +33,12 @@ from .x402 import PaymentSigner, is_payment_required
 
 __all__ = ["WarrantClient", "DEFAULT_BASE_URL", "normalize_warrant_view"]
 
-#: Le Gateway local, celui que `pnpm --filter @warrant/server gateway` sert.
+#: The local Gateway, the one `pnpm --filter @warrant/server gateway` serves.
 DEFAULT_BASE_URL = "http://127.0.0.1:8402"
 
-#: En-têtes du transport v2. Les noms ont changé depuis la v1 : `X-PAYMENT`
-#: n'existe plus, et accepter les deux reviendrait à accepter deux formats de
-#: payload sous un seul nom.
+#: v2 transport headers. The names changed since v1: `X-PAYMENT` no longer
+#: exists, and accepting both would amount to accepting two payload formats under
+#: a single name.
 HEADER_PAYMENT_REQUIRED = "PAYMENT-REQUIRED"
 HEADER_PAYMENT_SIGNATURE = "PAYMENT-SIGNATURE"
 HEADER_PAYMENT_RESPONSE = "PAYMENT-RESPONSE"
@@ -112,9 +112,9 @@ class WarrantClient:
                 raw = response.read().decode("utf-8")
                 return response.status, dict(response.headers), _maybe_json(raw)
         except urllib.error.HTTPError as err:
-            # Un 402 **est** une réponse utile : il porte le challenge en en-tête.
-            # Le laisser filer comme exception obligerait chaque appelant à
-            # rattraper une erreur HTTP pour lire un état normal du protocole.
+            # A 402 **is** a useful response: it carries the challenge in a
+            # header. Letting it escape as an exception would force every caller
+            # to catch an HTTP error in order to read a normal protocol state.
             raw = err.read().decode("utf-8", errors="replace")
             return err.code, dict(err.headers or {}), _maybe_json(raw)
         except urllib.error.URLError as err:
@@ -123,7 +123,7 @@ class WarrantClient:
                 f"Gateway unreachable at {url}: {err.reason}",
                 details={"url": url},
             ) from err
-        except TimeoutError as err:  # pragma: no cover — dépend du réseau
+        except TimeoutError as err:  # pragma: no cover — network-dependent
             raise WarrantError(
                 "gateway_unreachable",
                 f"Gateway timed out after {self.timeout}s at {url}.",
@@ -158,9 +158,10 @@ class WarrantClient:
 
         body = dict(request)
         if warrant_nonce is not None:
-            # Le nonce annoncé par le 402, renvoyé **inchangé**. Sans lui le
-            # Gateway répond `missing_nonce` : il ne peut pas le deviner sans
-            # calculer un autre warrantId, donc un autre termsHash que celui signé.
+            # The nonce announced by the 402, echoed back **unchanged**. Without
+            # it the Gateway answers `missing_nonce`: it cannot guess the nonce
+            # without computing a different warrantId, hence a different termsHash
+            # from the one that was signed.
             body["nonce"] = warrant_nonce
 
         status, response_headers, response = self._request(
@@ -220,7 +221,7 @@ class WarrantClient:
 
         return run_tool_by_name(self, name, args, max_payment_attempts=self.max_payment_attempts)
 
-    # ── sucre typé, la voie normale pour du code applicatif ───────────────────
+    # ── typed sugar, the normal route for application code ────────────────────
 
     def quote_risk(self, args: Any) -> dict[str, Any]:
         """Price an action. See ``quote_risk`` in the tool manifest."""
@@ -260,8 +261,8 @@ def _maybe_json(raw: str) -> Any:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Le corps n'est pas du JSON — on garde le texte brut plutôt que de
-        # perdre le seul indice disponible sur ce qui a répondu.
+        # The body is not JSON — keep the raw text rather than lose the only
+        # available clue about what answered.
         return raw
 
 

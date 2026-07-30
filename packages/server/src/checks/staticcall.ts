@@ -1,14 +1,14 @@
 /**
- * `staticcall_result` — échappatoire générique pour toute lecture `view`.
+ * `staticcall_result` — the generic escape hatch for any `view` read.
  *
- * Cible et calldata sont figées dans l'engagement ; le décodage est limité à
+ * Target and calldata are frozen in the commitment; decoding is restricted to
  * `uint256 | int256 | bool | address | bytes32`.
  *
- * Décision non tranchée par la doc : **un revert ou un décodage impossible est
- * une lecture non concluante, pas un échec de post-condition.** On lève
- * `RpcReadError` plutôt que de rendre `pass: false`. Un `view` qui revert peut
- * signaler un état transitoire du noeud aussi bien qu'un état du contrat ; on
- * ne saisit pas une caution sur cette ambiguïté.
+ * Decision the docs left open: **a revert, or a decoding that cannot be done, is
+ * an inconclusive read, not a failed post-condition.** We throw `RpcReadError`
+ * rather than return `pass: false`. A reverting `view` can signal a transient
+ * state of the node just as well as a state of the contract; we do not slash a
+ * bond on that ambiguity.
  */
 
 import { decodeAbiParameters } from 'viem'
@@ -57,9 +57,9 @@ export async function checkStaticcallResult(
 }
 
 /**
- * Décodage vers un `bigint` comparable, plus une forme lisible pour l'audit.
- * `address` et `bytes32` sont comparés comme entiers : `eq` est exact, et un
- * ordre reste défini pour `lte` / `gte` sans jamais devoir lever.
+ * Decodes to a comparable `bigint`, plus a readable form for the audit trail.
+ * `address` and `bytes32` are compared as integers: `eq` stays exact, and an
+ * ordering remains defined for `lte` / `gte` without ever having to throw.
  */
 function decode(decodeAs: Decodable, data: Hex): { value: bigint; display: string } {
   const [decoded] = decodeAbiParameters([{ type: decodeAs }], data)

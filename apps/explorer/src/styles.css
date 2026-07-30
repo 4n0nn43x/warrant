@@ -1,10 +1,10 @@
 /**
- * Warrant Explorer — feuille unique.
+ * Warrant Explorer — single sheet.
  *
- * Conventions d'explorateur (Etherscan, Blockscout) : fond neutre clair,
- * cartes blanches à bordure fine, tables denses, monospace pour tout ce qui
- * est un hash ou une adresse, liens bleus. Aucune animation, aucun dégradé :
- * ce qui compte est la donnée, et la décoration ne fait que l'éloigner.
+ * Block-explorer conventions (Etherscan, Blockscout): light neutral background,
+ * white cards with a hairline border, dense tables, monospace for anything that
+ * is a hash or an address, blue links. No animation, no gradient: what matters
+ * is the data, and decoration only pushes it further away.
  */
 
 :root {
@@ -122,7 +122,7 @@ code,
   margin-bottom: 18px;
 }
 
-/* ─── Cartes et tables ────────────────────────────────────────────────── */
+/* ─── Cards and tables ────────────────────────────────────────────────── */
 
 .card {
   background: var(--card);
@@ -242,7 +242,7 @@ td.num {
   color: var(--text-muted);
 }
 
-/* ─── Détail : paires label / valeur, comme une page de transaction ───── */
+/* ─── Detail: label / value pairs, like a transaction page ────────────── */
 
 .kv {
   display: grid;
@@ -271,7 +271,7 @@ td.num {
   margin-top: 3px;
 }
 
-/* ─── Vérifications ───────────────────────────────────────────────────── */
+/* ─── Checks ──────────────────────────────────────────────────────────── */
 
 .check-row td:first-child {
   width: 34px;
@@ -321,7 +321,7 @@ td.num {
   font-weight: 600;
 }
 
-/* Le détail de l'erreur : lisible pour qui le cherche, discret pour les autres. */
+/* The error detail: legible for whoever looks for it, discreet for everyone else. */
 .banner-detail {
   margin-top: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

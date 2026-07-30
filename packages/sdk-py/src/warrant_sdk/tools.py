@@ -112,8 +112,8 @@ class WarrantTool:
                     for path, issue in zip(paths, issues, strict=True)
                 ],
             ) from err
-        # `exclude_none` : un champ optionnel non fourni ne doit pas partir en
-        # `null` sur le fil — le Gateway distingue absent et nul.
+        # `exclude_none`: an optional field that was not supplied must not go out
+        # as `null` on the wire — the Gateway distinguishes absent from null.
         return model.model_dump(mode="json", exclude_none=True)
 
     def run(
@@ -130,7 +130,7 @@ class WarrantTool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Les quatre exécutions
+# The four executions
 # ─────────────────────────────────────────────────────────────────────────────
 
 Runner = Callable[
@@ -226,7 +226,7 @@ def warrant_tool_by_name(name: str) -> WarrantTool | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# La boucle de paiement — une seule fois, ici
+# The payment loop — once, here
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -259,7 +259,7 @@ def run_tool(
             payment = signer.create_payment(challenge)
         except WarrantError:
             raise
-        except Exception as err:  # noqa: BLE001 — un signataire tiers peut lever n'importe quoi
+        except Exception as err:  # noqa: BLE001 — a third-party signer can raise anything
             raise WarrantError(
                 "payment_invalid",
                 f"The signer refused to sign: {err}",

@@ -1,7 +1,7 @@
-# Artefacts Python locaux. `src/warrant_sdk/_generated.py` n'est PAS ici : il est
-# versionné volontairement, pour qu'une roue installée depuis PyPI porte les
-# schémas sans avoir besoin de Node. C'est `codegen/emit.ts --check` qui garantit
-# qu'il ne dérive pas — voir tests/test_codegen_drift.py.
+# Local Python artifacts. `src/warrant_sdk/_generated.py` is NOT here: it is
+# committed deliberately, so that a wheel installed from PyPI carries the schemas
+# without needing Node. It is `codegen/emit.ts --check` that guarantees it does not
+# drift — see tests/test_codegen_drift.py.
 .venv/
 __pycache__/
 *.py[cod]

@@ -1,12 +1,12 @@
 export type Hex = `0x${string}`
 export type Address = Hex
 
-/** Verdict d'un mandat réglé. Un mandat expiré (`reclaimed`) n'en est pas un. */
+/** Verdict of a settled warrant. An expired warrant (`reclaimed`) is not one. */
 export type Verdict = 'honored' | 'slashed'
 
 /**
- * Un log brut, tel que le rend `eth_getLogs`. Volontairement structurel : le
- * lecteur n'exige aucun client particulier et se teste sur des logs simulés.
+ * A raw log, as `eth_getLogs` returns it. Deliberately structural: the reader
+ * requires no particular client and is tested against simulated logs.
  */
 export interface RawLog {
   address: Address
@@ -17,7 +17,7 @@ export interface RawLog {
   transactionHash: Hex | null
 }
 
-/** Un feedback ERC-8004, décodé depuis `NewFeedback`. */
+/** An ERC-8004 feedback, decoded from `NewFeedback`. */
 export interface FeedbackRecord {
   agentId: bigint
   clientAddress: Address
@@ -34,13 +34,13 @@ export interface FeedbackRecord {
   transactionHash: Hex | null
 }
 
-/** Un règlement de mandat, décodé depuis `WarrantHonored` / `WarrantSlashed`. */
+/** A warrant settlement, decoded from `WarrantHonored` / `WarrantSlashed`. */
 export interface SettlementRecord {
   warrantId: Hex
   verdict: Verdict
   /**
-   * La caution immobilisée, en unités atomiques de l'actif de l'escrow.
-   * `refunded + fee` sur un `WarrantHonored`, `amount` sur un `WarrantSlashed`.
+   * The bond that was locked up, in atomic units of the escrow's asset.
+   * `refunded + fee` on a `WarrantHonored`, `amount` on a `WarrantSlashed`.
    */
   bond: bigint
   execRef: Hex
@@ -48,7 +48,7 @@ export interface SettlementRecord {
   transactionHash: Hex | null
 }
 
-/** Une ouverture de mandat, décodée depuis `WarrantOpened`. */
+/** A warrant opening, decoded from `WarrantOpened`. */
 export interface OpeningRecord {
   warrantId: Hex
   agent: Address
@@ -59,7 +59,7 @@ export interface OpeningRecord {
   blockNumber: bigint | null
 }
 
-/** Un mandat réglé, rattaché à un agent. L'unité de calcul du score. */
+/** A settled warrant, attributed to an agent. The unit the score is computed on. */
 export interface SettledWarrant {
   warrantId: Hex
   verdict: Verdict

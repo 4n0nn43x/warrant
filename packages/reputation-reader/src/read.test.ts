@@ -18,9 +18,9 @@ const AGENT_ID = 4242n
 const USDC = 1_000_000n
 
 /**
- * Nœud simulé. Il ne connaît que `eth_getLogs` — c'est tout ce que le lecteur
- * lui demande, et c'est le point : aucune vue n'est appelée, parce qu'aucune
- * vue ne rendrait `feedbackURI` ni `feedbackHash`.
+ * Simulated node. It knows nothing but `eth_getLogs` — that is all the reader ever
+ * asks of it, and that is the point: no view is called, because no view would
+ * return `feedbackURI` or `feedbackHash`.
  */
 function nodeMock(logs: readonly RawLog[]) {
   const queries: GetLogsQuery[] = []
@@ -62,7 +62,7 @@ function corpus() {
 }
 
 describe('readAgentReputation', () => {
-  it('calcule le score depuis les seuls logs', async () => {
+  it('computes the score from the logs alone', async () => {
     const { client } = nodeMock(corpus())
     const rep = await readAgentReputation(client, {
       reputationRegistry: REPUTATION,
@@ -78,7 +78,7 @@ describe('readAgentReputation', () => {
     expect(rep.stakeWeightedScore).toBe(0.5)
   })
 
-  it('n’interroge que des events, jamais une vue', async () => {
+  it('queries events only, never a view', async () => {
     const { client, queries } = nodeMock(corpus())
     await readAgentReputation(client, {
       reputationRegistry: REPUTATION,
@@ -98,7 +98,7 @@ describe('readAgentReputation', () => {
     expect(names).toContain('WarrantSlashed')
   })
 
-  it('filtre côté nœud sur agentId, client et tag1', async () => {
+  it('filters node-side on agentId, client and tag1', async () => {
     const { client, queries } = nodeMock(corpus())
     await readAgentReputation(client, {
       reputationRegistry: REPUTATION,
@@ -112,12 +112,12 @@ describe('readAgentReputation', () => {
     expect(feedbackQuery?.args).toMatchObject({
       agentId: AGENT_ID,
       clientAddress: [SETTLER],
-      // `indexedTag1` est une string indexée : le nœud compare keccak256('warrant').
+      // `indexedTag1` is an indexed string: the node compares keccak256('warrant').
       indexedTag1: 'warrant',
     })
   })
 
-  it('rend un score nul — pas zéro — pour un agent sans mandat réglé', async () => {
+  it('returns a null score — not zero — for an agent with no settled warrant', async () => {
     const { client } = nodeMock([])
     const rep = await readAgentReputation(client, {
       reputationRegistry: REPUTATION,
@@ -130,7 +130,7 @@ describe('readAgentReputation', () => {
     expect(rep.stakeWeightedScore).toBeNull()
   })
 
-  it('tient compte des révocations', async () => {
+  it('takes revocations into account', async () => {
     const logs = [
       ...corpus(),
       feedbackRevokedLog({ agentId: AGENT_ID, feedbackIndex: 3n }),
@@ -142,20 +142,20 @@ describe('readAgentReputation', () => {
       agentId: AGENT_ID,
       clients: [SETTLER],
     })
-    // La saisie du mandat 3 a été révoquée : elle sort du dénominateur.
+    // The slash of warrant 3 was revoked: it leaves the denominator.
     expect(rep.settledCount).toBe(2)
     expect(rep.slashedBond).toBe(0n)
     expect(rep.stakeWeightedScore).toBe(1)
   })
 
-  it('écarte le feedback d’un client non attendu', async () => {
-    const honnete = settledWarrantLogs({
+  it('discards the feedback of an unexpected client', async () => {
+    const honest = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 1,
       bond: 100n * USDC,
       verdict: 'honored',
     })
-    const forge = settledWarrantLogs({
+    const forged = settledWarrantLogs({
       agentId: AGENT_ID,
       n: 2,
       bond: 99_999n * USDC,
@@ -163,12 +163,12 @@ describe('readAgentReputation', () => {
       client: IMPOSTOR,
     })
     const { client } = nodeMock([
-      honnete.opened,
-      honnete.settlement,
-      honnete.feedback,
-      forge.opened,
-      forge.settlement,
-      forge.feedback,
+      honest.opened,
+      honest.settlement,
+      honest.feedback,
+      forged.opened,
+      forged.settlement,
+      forged.feedback,
     ])
 
     const rep = await readAgentReputation(client, {
@@ -181,7 +181,7 @@ describe('readAgentReputation', () => {
     expect(rep.totalAtRisk).toBe(100n * USDC)
   })
 
-  it('résout les lots via resolveWarrantIds', async () => {
+  it('resolves batches through resolveWarrantIds', async () => {
     const logs = corpus()
     const { client } = nodeMock(logs)
     const rep = await readAgentReputation(client, {
@@ -191,7 +191,7 @@ describe('readAgentReputation', () => {
       clients: [SETTLER],
       resolveWarrantIds: async () => [warrantId(1), warrantId(2)],
     })
-    // Chaque feedback est réputé couvrir les mandats 1 et 2 ; le 3 disparaît.
+    // Every feedback is deemed to cover warrants 1 and 2; number 3 disappears.
     expect(rep.settledCount).toBe(2)
     expect(rep.totalAtRisk).toBe(500n * USDC)
   })

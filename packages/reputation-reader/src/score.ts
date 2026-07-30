@@ -1,25 +1,25 @@
 /**
- * Le score pondéré par le capital — l'apport réel de Warrant à ERC-8004.
+ * The stake-weighted score — Warrant's real contribution to ERC-8004.
  *
  *   stakeWeightedScore(agent) = Σ(bond_honored) / (Σ(bond_honored) + Σ(bond_slashed))
- *   totalAtRisk(agent)        = Σ(bond) sur tous les mandats réglés
+ *   totalAtRisk(agent)        = Σ(bond) over every settled warrant
  *
- * `getSummary` du registre donne une moyenne de notes : elle traite 200 mandats
- * à 5 $ comme 200 mandats à 250 $. Ce que le registre ne dit pas — **combien un
- * agent a réellement risqué** — se dérive des events de l'escrow, sans faire
- * confiance à Warrant.
+ * The registry's `getSummary` gives an average of ratings: it treats 200 warrants
+ * at $5 the same as 200 warrants at $250. What the registry does not say — **how
+ * much an agent has actually put at risk** — is derived from the escrow's events,
+ * without trusting Warrant.
  *
- * Ce que ce calcul suppose, dit franchement :
+ * What this computation assumes, stated plainly:
  *
- *   - les **montants** ne supposent rien : ils viennent des events
- *     `WarrantHonored` / `WarrantSlashed` du contrat d'escrow, qui a lui-même
- *     déplacé les fonds ;
- *   - le **rattachement** d'un mandat à un `agentId` vient du `feedbackURI`
- *     inscrit par le Settler. On fait donc confiance au Settler sur le lien, pas
- *     sur les sommes. Ce lien se recoupe indépendamment avec
- *     `WarrantOpened.agent` : voir l'option `agentAddresses`.
+ *   - the **amounts** assume nothing: they come from the `WarrantHonored` /
+ *     `WarrantSlashed` events of the escrow contract, which moved the funds
+ *     itself;
+ *   - the **attribution** of a warrant to an `agentId` comes from the
+ *     `feedbackURI` written by the Settler. So we trust the Settler on the link,
+ *     not on the sums. That link can be cross-checked independently against
+ *     `WarrantOpened.agent`: see the `agentAddresses` option.
  *
- * Tout ce fichier est pur. Aucune E/S, aucun réseau, rien à mocker.
+ * This whole file is pure. No I/O, no network, nothing to mock.
  */
 
 import type {
@@ -34,44 +34,44 @@ import type {
 
 import { feedbackKey } from './decode.js'
 
-/** Facteur du point fixe utilisé pour le score exact. */
+/** Fixed-point factor used for the exact score. */
 export const WAD = 10n ** 18n
 
-/** `tag1` sous lequel Warrant inscrit ses verdicts. */
+/** The `tag1` under which Warrant writes its verdicts. */
 export const WARRANT_TAG1 = 'warrant'
 
 export interface AgentReputation {
   agentId: bigint
-  /** Nombre de mandats réglés pris en compte. */
+  /** Number of settled warrants taken into account. */
   settledCount: number
   honoredCount: number
   slashedCount: number
-  /** Σ des cautions des mandats honorés, en unités atomiques. */
+  /** Σ of the bonds of honored warrants, in atomic units. */
   honoredBond: bigint
-  /** Σ des cautions des mandats saisis, en unités atomiques. */
+  /** Σ of the bonds of slashed warrants, in atomic units. */
   slashedBond: bigint
-  /** Σ des cautions sur tous les mandats réglés. Ce que l'agent a mis en jeu. */
+  /** Σ of the bonds over every settled warrant. What the agent has put at stake. */
   totalAtRisk: bigint
   /**
-   * Le score, en point fixe 1e18. `null` quand aucun mandat n'a été réglé —
-   * l'absence de score n'est pas un score de 0.
+   * The score, in 1e18 fixed point. `null` when no warrant has been settled —
+   * the absence of a score is not a score of 0.
    */
   stakeWeightedScoreWad: bigint | null
-  /** Le même score en flottant, pour l'affichage. `null` dans le même cas. */
+  /** The same score as a float, for display. `null` in the same case. */
   stakeWeightedScore: number | null
   warrants: SettledWarrant[]
 }
 
 /**
- * Calcule le score d'un agent depuis ses mandats réglés.
+ * Computes an agent's score from its settled warrants.
  *
- * Les doublons de `warrantId` sont écartés : un mandat n'est réglé qu'une fois
- * (invariant de l'escrow), et une fenêtre de logs redemandée après réorg peut
- * en rapporter deux copies. Le premier vu gagne.
+ * Duplicate `warrantId`s are discarded: a warrant is settled only once (an escrow
+ * invariant), and a window of logs re-requested after a reorg may report two
+ * copies of it. First seen wins.
  *
- * Quand Σ = 0, `stakeWeightedScore` vaut `null` — jamais 0, jamais 1, et
- * surtout aucune division. Un agent sans mandat réglé n'a pas un mauvais score :
- * il n'en a pas.
+ * When Σ = 0, `stakeWeightedScore` is `null` — never 0, never 1, and above all no
+ * division at all. An agent with no settled warrant does not have a bad score: it
+ * has none.
  */
 export function computeAgentReputation(
   agentId: bigint,
@@ -117,16 +117,16 @@ export function computeAgentReputation(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Recoupement feedbacks ↔ règlements
+// Cross-referencing feedbacks ↔ settlements
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Extrait les identifiants de mandat d'un `feedbackURI`.
+ * Extracts the warrant identifiers from a `feedbackURI`.
  *
- * Convention Warrant : `https://warrant.sh/v/<warrantId>` pour un mandat isolé.
- * Un lot (`.../v/batch/<feedbackHash>`) ne porte pas ses identifiants dans son
- * URI — il faut alors télécharger le document, ce que fait l'appelant via
- * l'option `warrantIdsOf`.
+ * Warrant convention: `https://warrant.sh/v/<warrantId>` for a single warrant. A
+ * batch (`.../v/batch/<feedbackHash>`) does not carry its identifiers in its
+ * URI — the document must then be downloaded, which the caller does through the
+ * `warrantIdsOf` option.
  */
 export function warrantIdsFromFeedbackURI(uri: string): Hex[] {
   const m = /\/v\/(0x[0-9a-fA-F]{64})\s*$/.exec(uri.trim())
@@ -138,42 +138,43 @@ export interface CrossReferenceOptions {
   feedbacks: readonly FeedbackRecord[]
   settlements: readonly SettlementRecord[]
   /**
-   * Adresses clientes retenues. **À renseigner en pratique** : n'importe qui
-   * peut inscrire un feedback `tag1='warrant'` pour n'importe quel agent, et
-   * sans cette restriction on compterait les mandats d'un Settler inconnu.
-   * Vide ou absent = tous les clients, ce qui n'a de sens qu'en exploration.
+   * Client addresses accepted. **To be filled in, in practice**: anyone can write
+   * a `tag1='warrant'` feedback for any agent, and without this restriction we
+   * would count the warrants of an unknown Settler. Empty or absent = every
+   * client, which only makes sense while exploring.
    */
   clients?: readonly Address[]
-  /** Clés `agentId:client:index` révoquées, cf. `decodeRevocations`. */
+  /** Revoked `agentId:client:index` keys, cf. `decodeRevocations`. */
   revoked?: ReadonlySet<string>
-  /** Résolution des identifiants de mandat d'un feedback. Défaut : l'URI. */
+  /** Resolution of a feedback's warrant identifiers. Default: the URI. */
   warrantIdsOf?: (feedback: FeedbackRecord) => readonly Hex[]
   /**
-   * Ouvertures de mandat, pour recouper l'attribution sans croire le Settler.
-   * Combinée à `agentAddresses`, elle écarte tout mandat dont l'agent onchain
-   * n'est pas l'un de ceux attendus.
+   * Warrant openings, to cross-check attribution without believing the Settler.
+   * Combined with `agentAddresses`, it discards every warrant whose onchain agent
+   * is not one of those expected.
    */
   openings?: readonly OpeningRecord[]
-  /** Adresses onchain connues de l'agent. Ignorée sans `openings`. */
+  /** Known onchain addresses of the agent. Ignored without `openings`. */
   agentAddresses?: readonly Address[]
 }
 
 export interface CrossReferenceResult {
   warrants: SettledWarrant[]
-  /** Feedbacks dont aucun mandat n'a pu être relié à un règlement onchain. */
+  /** Feedbacks none of whose warrants could be tied to an onchain settlement. */
   unmatched: FeedbackRecord[]
-  /** Le verdict inscrit et le règlement onchain divergent. L'onchain gagne. */
+  /** The written verdict and the onchain settlement diverge. The chain wins. */
   mismatched: { warrantId: Hex; onchain: Verdict; feedbackTag2: string }[]
-  /** Mandats écartés parce que `WarrantOpened.agent` ne correspondait pas. */
+  /** Warrants discarded because `WarrantOpened.agent` did not match. */
   rejectedByOpening: Hex[]
 }
 
 /**
- * Croise les `NewFeedback` d'ERC-8004 avec les règlements de `WarrantEscrow`.
+ * Cross-references ERC-8004's `NewFeedback` events with `WarrantEscrow`'s
+ * settlements.
  *
- * Le verdict retenu est **celui de l'escrow**, jamais celui du feedback : le
- * premier a déplacé des fonds, le second est une déclaration. Une divergence
- * est signalée plutôt que silencieusement arbitrée.
+ * The verdict retained is **the escrow's**, never the feedback's: the former
+ * moved funds, the latter is a declaration. A divergence is reported rather than
+ * silently arbitrated.
  */
 export function crossReference(opts: CrossReferenceOptions): CrossReferenceResult {
   const bySettlement = new Map<string, SettlementRecord>()
@@ -252,7 +253,7 @@ export function crossReference(opts: CrossReferenceOptions): CrossReferenceResul
   return { warrants, unmatched, mismatched, rejectedByOpening }
 }
 
-/** Recoupement puis calcul, en une passe. Le point d'entrée pur habituel. */
+/** Cross-reference then compute, in one pass. The usual pure entry point. */
 export function reputationFromEvents(
   opts: CrossReferenceOptions,
 ): AgentReputation & { crossReference: CrossReferenceResult } {
@@ -261,14 +262,14 @@ export function reputationFromEvents(
 }
 
 /**
- * Formate un score pour l'affichage. `null` devient `'n/a'` : afficher `0.00`
- * pour un agent sans historique le ferait passer pour un agent défaillant.
+ * Formats a score for display. `null` becomes `'n/a'`: showing `0.00` for an
+ * agent with no history would make it look like a failing one.
  */
 export function formatScore(score: number | null, digits = 4): string {
   return score === null ? 'n/a' : score.toFixed(digits)
 }
 
-/** Formate un montant atomique dans ses unités décimales (USDC : 6). */
+/** Formats an atomic amount in its decimal units (USDC: 6). */
 export function formatBond(bond: bigint, decimals: number): string {
   const base = 10n ** BigInt(decimals)
   const whole = bond / base

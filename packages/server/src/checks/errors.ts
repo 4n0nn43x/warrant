@@ -1,17 +1,17 @@
 /**
- * Erreurs de l'évaluateur.
+ * The evaluator's errors.
  *
- * Invariant central (docs/07 § 5) : **échec de lecture ≠ échec de
- * post-condition**. `evaluate()` rend soit un verdict complet, soit une
- * exception. Aucune erreur ne doit jamais être convertie en `slashed` : le
- * doute bénéficie à l'agent, jamais au protocole.
+ * Central invariant (docs/07 § 5): **a failed read is not a failed
+ * post-condition**. `evaluate()` returns either a complete verdict or an
+ * exception. No error must ever be converted into a `slashed`: doubt benefits
+ * the agent, never the protocol.
  *
- * L'appelant traduit `RpcReadError` en retry, puis en expiration du mandat vers
- * `reclaim`. `InvalidSpecError` n'est pas justiciable d'un retry : la spec est
- * malformée et aurait dû être rejetée à l'ouverture.
+ * The caller turns `RpcReadError` into a retry, then into letting the warrant
+ * expire towards `reclaim`. `InvalidSpecError` does not warrant a retry: the
+ * spec is malformed and should have been rejected at opening time.
  */
 
-/** Une lecture onchain a échoué. Retryable. Ne produit jamais de `slashed`. */
+/** An onchain read failed. Retryable. Never produces a `slashed`. */
 export class RpcReadError extends Error {
   readonly operation: string
 
@@ -24,9 +24,9 @@ export class RpcReadError extends Error {
 }
 
 /**
- * Le contexte fourni ne correspond pas à la chaîne lue — typiquement une
- * transaction réorganisée dans un autre bloc que celui annoncé. Traité comme
- * une lecture non concluante : jamais un slash.
+ * The supplied context does not match the chain that was read — typically a
+ * transaction reorged into a block other than the announced one. Treated as an
+ * inconclusive read: never a slash.
  */
 export class ContextMismatchError extends RpcReadError {
   constructor(operation: string, cause?: unknown) {
@@ -36,10 +36,10 @@ export class ContextMismatchError extends RpcReadError {
 }
 
 /**
- * Le vérificateur ne peut pas être décidé de façon sûre sur ce chemin de
- * lecture (cas typique : `native_balance_delta` sur une transaction qui peut
- * contenir des transferts internes, sans tracer disponible). On refuse de
- * deviner : pas de verdict plutôt qu'un verdict faux.
+ * The check cannot be decided soundly on this read path (typical case:
+ * `native_balance_delta` on a transaction that may contain internal transfers,
+ * with no tracer available). We refuse to guess: no verdict rather than a wrong
+ * verdict.
  */
 export class UnsupportedCheckError extends RpcReadError {
   constructor(operation: string, cause?: unknown) {
@@ -48,7 +48,7 @@ export class UnsupportedCheckError extends RpcReadError {
   }
 }
 
-/** La `ConditionSpec` est malformée. Non retryable. */
+/** The `ConditionSpec` is malformed. Not retryable. */
 export class InvalidSpecError extends Error {
   constructor(message: string) {
     super(message)
@@ -56,7 +56,7 @@ export class InvalidSpecError extends Error {
   }
 }
 
-/** `kind` hors du catalogue fermé (docs/07 § 2). */
+/** A `kind` outside the closed catalogue (docs/07 § 2). */
 export class UnknownCheckKindError extends InvalidSpecError {
   constructor(kind: string) {
     super(`unknown check kind: ${JSON.stringify(kind)}`)
@@ -65,8 +65,8 @@ export class UnknownCheckKindError extends InvalidSpecError {
 }
 
 /**
- * Enveloppe une lecture RPC. Toute exception levée par le transport ressort en
- * `RpcReadError`, jamais en `false`.
+ * Wraps an RPC read. Any exception thrown by the transport comes back out as an
+ * `RpcReadError`, never as a `false`.
  */
 export async function read<T>(operation: string, fn: () => Promise<T>): Promise<T> {
   try {

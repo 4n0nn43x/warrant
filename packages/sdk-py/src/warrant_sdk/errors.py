@@ -18,7 +18,7 @@ from ._generated import ERROR_CATALOG
 
 __all__ = ["WarrantError", "WarrantPaymentRequired", "ERROR_CODES"]
 
-#: Les codes connus, dans l'ordre du catalogue généré.
+#: The known codes, in the order of the generated catalogue.
 ERROR_CODES: tuple[str, ...] = tuple(ERROR_CATALOG)
 
 
@@ -67,7 +67,7 @@ class WarrantError(Exception):
             error["details"] = self.details
         return {"error": error}
 
-    def __str__(self) -> str:  # pragma: no cover — confort de débogage
+    def __str__(self) -> str:  # pragma: no cover — debugging convenience
         where = f" ({self.field})" if self.field else ""
         return f"[{self.code}]{where} {self.message} — {self.hint}"
 

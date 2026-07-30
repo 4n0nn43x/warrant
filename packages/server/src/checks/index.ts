@@ -1,9 +1,9 @@
 /**
- * Aiguillage du catalogue fermé de vérificateurs (docs/07 § 2).
+ * Dispatch over the closed catalogue of checks (docs/07 § 2).
  *
- * Le catalogue est **fini et énuméré**. Un `kind` hors liste lève
- * `UnknownCheckKindError` — il n'est jamais interprété, jamais ignoré, et ne
- * produit jamais un `pass` par défaut.
+ * The catalogue is **finite and enumerated**. A `kind` outside the list throws
+ * `UnknownCheckKindError` — it is never interpreted, never ignored, and never
+ * yields a `pass` by default.
  */
 
 import { checkAaveHealthFactor } from './aave.js'

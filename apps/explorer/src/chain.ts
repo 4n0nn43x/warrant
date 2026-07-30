@@ -189,16 +189,17 @@ export function foldLogs(logs: RpcLog[], chainId: number): Warrant[] {
 
 /**
  * The onchain slash reason is the settler's `checks[]` flattened to one line,
- * in the shape `kind: attendu X, observe Y`, joined by ` | `. Unfolding it
+ * in the shape `kind: expected X, observed Y`, joined by ` | `. Unfolding it
  * gives a visitor the failed checks without a Gateway. Anything that does not
  * parse is surfaced verbatim rather than dropped — a reason we fail to read is
  * still evidence, and hiding it would be the one unforgivable bug on this page.
  *
- * `observ(e|é)` is deliberate. What the settler actually writes onchain is
- * unaccented ASCII — checked against the real slash, tx `0x3cecf857…bb21` —
- * while the project's own documentation renders it accented. Accepting both
- * costs one character and avoids a parser that works on paper and fails on the
- * chain.
+ * The parser accepts English *and* the legacy French spelling, and that is not
+ * politeness: the reason is written **onchain, permanently**. Slashes inscribed
+ * before the project moved to English still read `attendu … observé …`, and no
+ * amount of translation can rewrite a settled transaction. A parser that only
+ * spoke the new form would go blind on the protocol's own history — including
+ * the very slash the README cites as proof. Accepting both costs one alternation.
  */
 export function reasonToChecks(reason: string): Check[] {
   return reason
@@ -206,7 +207,7 @@ export function reasonToChecks(reason: string): Check[] {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const m = /^(.+?):\s*attendu\s+(.+?),\s*observ(?:e|é)\s+(.+)$/.exec(part)
+      const m = /^(.+?):\s*(?:expected|attendu)\s+(.+?),\s*(?:observed|observ(?:e|é))\s+(.+)$/.exec(part)
       if (!m) return { kind: 'reason', expected: '—', observed: part, pass: false }
       return { kind: m[1] ?? 'check', expected: m[2] ?? '', observed: m[3] ?? '', pass: false }
     })
@@ -247,7 +248,7 @@ async function resolveTimestamps(url: string, warrants: Warrant[]): Promise<void
         ])
         for (const w of group) w.openedAt = Number(BigInt(b.timestamp))
       } catch {
-        /* âge inconnu : la vue l'affichera comme tel */
+        /* Unknown age: the view will render it as such. */
       }
     }),
   )

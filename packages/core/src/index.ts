@@ -1,17 +1,17 @@
 /**
- * @warrant/core — le noyau agnostique de Warrant.
+ * @warrant/core — Warrant's agnostic kernel.
  *
- * Aucune E/S, aucun réseau, aucune clé. Tout ce qui est ici est pur et
- * rejouable par un tiers : c'est la condition pour qu'un verdict soit
- * vérifiable sans nous faire confiance.
+ * No I/O, no network, no keys. Everything here is pure and replayable by a third
+ * party: that is the condition for a verdict to be verifiable without trusting
+ * us.
  */
 
 export * from './types.js'
 export * from './constants.js'
 
-// Canonicalisation et engagement — une seule implémentation, jamais deux.
-// Une divergence entre client et serveur rendrait tout mandat inévaluable
-// (risque R1 de docs/13-risques.md).
+// Canonicalization and commitment — one implementation, never two.
+// A divergence between client and server would make every warrant unevaluable
+// (risk R1 of docs/13-risques.md).
 export {
   canonicalize,
   CanonicalizationError,
@@ -29,7 +29,7 @@ export {
   actionHash,
 } from './hash.js'
 
-// DSL de post-conditions.
+// Post-condition DSL.
 export {
   type DslIssue,
   DslError,
@@ -51,7 +51,7 @@ export {
   injectCommitmentCheck,
 } from './dsl.js'
 
-// Classification — la catégorie est dérivée du calldata, jamais déclarée.
+// Classification — the category is derived from the calldata, never declared.
 export {
   type ClassificationErrorCode,
   ClassificationError,
@@ -74,7 +74,7 @@ export {
   mainnetRegistryRef,
 } from './registry.js'
 
-// Politique et tarification.
+// Policy and pricing.
 export {
   type CategoryPolicyExtras,
   type PolicyExtras,

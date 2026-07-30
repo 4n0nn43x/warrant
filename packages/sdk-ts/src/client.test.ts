@@ -1,10 +1,10 @@
 /**
- * Tests du client HTTP.
+ * Tests of the HTTP client.
  *
- * Le rail HTTP de x402 v2 utilise des en-têtes qui ont changé de nom entre v1
- * et v2 (`X-PAYMENT` → `PAYMENT-SIGNATURE`, docs/05 § 1.2). Se tromper d'en-tête
- * produit un 402 en boucle sans message d'erreur utile — d'où des tests qui
- * vérifient les noms littéralement.
+ * The HTTP rail of x402 v2 uses headers that were renamed between v1 and v2
+ * (`X-PAYMENT` → `PAYMENT-SIGNATURE`, docs/05 § 1.2). Getting a header wrong
+ * produces a 402 loop with no useful error message — hence tests that check the
+ * names literally.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -53,7 +53,7 @@ function b64(value: unknown): string {
 }
 
 describe('WarrantClient', () => {
-  it('traduit un 402 en payment-required plutôt qu\'en exception', async () => {
+  it('translates a 402 into payment-required rather than an exception', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(null, {
@@ -74,7 +74,7 @@ describe('WarrantClient', () => {
     }
   })
 
-  it('envoie le paiement dans PAYMENT-SIGNATURE et lit PAYMENT-RESPONSE', async () => {
+  it('sends the payment in PAYMENT-SIGNATURE and reads PAYMENT-RESPONSE', async () => {
     const opened = {
       warrantId: `0x${'01'.repeat(32)}`,
       executionId: 'exec_1',
@@ -123,7 +123,7 @@ describe('WarrantClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('aplatit l\'enveloppe du Gateway et traduit le status en entier', async () => {
+  it('flattens the Gateway envelope and translates the status into an integer', async () => {
     const envelope = {
       warrant: {
         id: `0x${'01'.repeat(32)}`,
@@ -166,7 +166,7 @@ describe('WarrantClient', () => {
     expect(view).not.toHaveProperty('id')
   })
 
-  it('laisse passer une réponse déjà plate', async () => {
+  it('lets an already-flat response through', async () => {
     const flat = {
       warrantId: `0x${'01'.repeat(32)}`,
       agent: TREASURY,
@@ -192,7 +192,7 @@ describe('WarrantClient', () => {
     await expect(client.getWarrant(flat.warrantId as `0x${string}`)).resolves.toEqual(flat)
   })
 
-  it('rend null — pas une exception — sur un mandat absent', async () => {
+  it('returns null — not an exception — for a missing warrant', async () => {
     const client = new WarrantClient({
       baseUrl: 'https://api.warrant.sh',
       fetch: vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch,
@@ -200,7 +200,7 @@ describe('WarrantClient', () => {
     await expect(client.getWarrant(`0x${'ff'.repeat(32)}`)).resolves.toBeNull()
   })
 
-  it('transforme une panne réseau en erreur actionnable', async () => {
+  it('turns a network failure into an actionable error', async () => {
     const client = new WarrantClient({
       baseUrl: 'https://api.warrant.sh',
       fetch: vi.fn(async () => {
@@ -212,7 +212,7 @@ describe('WarrantClient', () => {
     })
   })
 
-  it('sérialise les filtres de list_warrants en query string', async () => {
+  it('serialises the list_warrants filters into a query string', async () => {
     const fetchMock = vi.fn(
       async (_url: unknown, _init?: RequestInit) =>
         new Response(
@@ -245,7 +245,7 @@ describe('WarrantClient', () => {
     expect(url).toContain('limit=5')
   })
 
-  it('explique quoi faire quand aucun wallet n\'est configuré', async () => {
+  it('explains what to do when no wallet is configured', async () => {
     const client = new WarrantClient({
       baseUrl: 'https://api.warrant.sh',
       fetch: vi.fn(

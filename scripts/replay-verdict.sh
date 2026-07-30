@@ -1,82 +1,81 @@
 #!/usr/bin/env bash
 #
-# Rejoue un verdict Warrant à partir d'un `warrantId` seul.
+# Replays a Warrant verdict from a `warrantId` alone.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# Ce que ce script est
+# What this script is
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# La contrepartie exécutable de la phrase « on ne demande pas de confiance, on
-# rend le verdict reproductible ». Il ne lit aucun `.env`, ne connaît aucune de
-# nos clés, ne parle à aucun de nos serveurs : un RPC public, un dépôt git
-# public, `cast` et `jq`. C'est le mode d'emploi d'un jury qui veut vérifier au
-# lieu de croire.
+# The executable counterpart of the sentence "we do not ask for trust, we make
+# the verdict reproducible". It reads no `.env`, knows none of our keys, talks to
+# none of our servers: a public RPC, a public git repository, `cast` and `jq`.
+# This is the manual for a jury that wants to verify instead of believe.
 #
-# Six vérifications, dans l'ordre où elles s'enchaînent :
+# Six checks, in the order they chain together:
 #
-#   1. Le mandat existe onchain, et son `status` dit ce que le protocole a fait.
-#   2. Le document de verdict est récupérable à l'URI dérivée du `warrantId`.
-#   3. `keccak256` des octets récupérés = le `feedbackHash` engagé (ERC-8004).
-#   4. `conditionHash` et `actionHash` onchain = keccak des specs du document :
-#      le document décrit bien le mandat qu'on a lu, pas un autre.
-#   5. `fundingRef` onchain = `termsHash(...)` recalculé par le contrat lui-même
-#      sur les champs du mandat — les termes signés n'ont pas bougé.
-#   6. Les `checks[]` sont rejoués contre la chaîne, au bloc figé publié, et le
-#      verdict est recalculé. Il doit valoir celui du document, et le document
-#      doit valoir ce que dit le `status` onchain.
+#   1. The warrant exists onchain, and its `status` says what the protocol did.
+#   2. The verdict document is retrievable at the URI derived from `warrantId`.
+#   3. `keccak256` of the retrieved bytes = the committed `feedbackHash` (ERC-8004).
+#   4. Onchain `conditionHash` and `actionHash` = keccak of the document's specs:
+#      the document really does describe the warrant we read, not another one.
+#   5. Onchain `fundingRef` = `termsHash(...)` recomputed by the contract itself
+#      over the warrant's fields — the signed terms have not moved.
+#   6. The `checks[]` are replayed against the chain, at the published pinned
+#      block, and the verdict is recomputed. It must equal the document's, and the
+#      document must equal what the onchain `status` says.
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# Deux hypothèses, énoncées parce qu'elles sont réfutables
+# Two assumptions, stated because they are refutable
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# a) `jq -cS` est utilisé comme sérialiseur JCS pour rehacher les sous-objets du
-#    document (`conditionSpec`, `actionSpec`). C'est exact ici — clés ASCII, tri
-#    par octet, sortie compacte, et tous les nombres sont des entiers courts,
-#    hors de la zone où jq perd de la précision. Ça ne l'est pas en général : un
-#    flottant ou un entier au-delà de 2^53 exigerait la vraie implémentation
-#    (`packages/core/src/canonical.ts`). Si l'étape 4 échoue alors que tout le
-#    reste passe, c'est la première chose à suspecter.
-# b) Le document est déjà canonique — il l'est par construction, c'est ce que
-#    `verdicts.ts` écrit. L'étape 3 le vérifie de fait : un document reformaté
-#    ne produit plus le `feedbackHash` engagé.
+# a) `jq -cS` is used as a JCS serialiser to rehash the document's sub-objects
+#    (`conditionSpec`, `actionSpec`). That is exact here — ASCII keys, byte-wise
+#    sorting, compact output, and every number is a short integer, outside the
+#    range where jq loses precision. It is not exact in general: a float or an
+#    integer beyond 2^53 would require the real implementation
+#    (`packages/core/src/canonical.ts`). If step 4 fails while everything else
+#    passes, that is the first thing to suspect.
+# b) The document is already canonical — it is so by construction, that is what
+#    `verdicts.ts` writes. Step 3 verifies this as a side effect: a reformatted
+#    document no longer produces the committed `feedbackHash`.
 #
-# `kh` (CLI KeeperHub) est utilisé s'il est présent, pour recouper l'exécution.
-# Son absence ne retire rien : le hash de transaction du document est vérifié
-# contre la chaîne, qui est l'autorité. Le script le dit et continue.
+# `kh` (the KeeperHub CLI) is used when present, to cross-check the execution.
+# Its absence takes nothing away: the document's transaction hash is verified
+# against the chain, which is the authority. The script says so and carries on.
 #
-# Usage :
+# Usage:
 #   scripts/replay-verdict.sh <warrantId> [options]
 #
-#   --rpc URL         RPC public, capable d'archive (défaut : sepolia.base.org)
-#   --escrow ADDR     WarrantEscrow (défaut : déploiement Base Sepolia)
-#   --source SRC      base URI, répertoire ou fichier du document de verdict
-#   --registry ADDR   ReputationRegistry ERC-8004, pour retrouver le
-#                     `feedbackHash` dans un event `NewFeedback`
-#   --span N          largeur de la fenêtre de blocs scannée avec --registry (200).
-#                     `sepolia.base.org` refuse les plages de plus de 2 000 blocs :
-#                     au-delà, `eth_getLogs` échoue et l'étape 3 se dit « muette ».
+#   --rpc URL         public, archive-capable RPC (default: sepolia.base.org)
+#   --escrow ADDR     WarrantEscrow (default: the Base Sepolia deployment)
+#   --source SRC      base URI, directory or file of the verdict document
+#   --registry ADDR   ERC-8004 ReputationRegistry, used to find the
+#                     `feedbackHash` in a `NewFeedback` event
+#   --span N          width of the block window scanned with --registry (200).
+#                     `sepolia.base.org` refuses ranges wider than 2,000 blocks:
+#                     beyond that, `eth_getLogs` fails and step 3 reports "silent".
 #
-# Sortie : 0 le verdict se reproduit, 1 divergence, 2 erreur d'utilisation.
+# Exit: 0 the verdict reproduces, 1 divergence, 2 usage error.
 
 set -euo pipefail
 
-# ─── Valeurs par défaut ──────────────────────────────────────────────────────
-# Publiques, sans exception : ce script doit tourner sur une machine qui n'a
-# jamais vu ce dépôt.
+# ─── Defaults ────────────────────────────────────────────────────────────────
+# Public, without exception: this script must run on a machine that has never
+# seen this repository.
 RPC="https://sepolia.base.org"
 ESCROW="0x3ae9ad53686383c80889F550065e810f72c2ff4e"
 BASE_URI="https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/"
 REGISTRY=""
 SPAN=200
 SOURCE=""
-# Même nom que `VERDICT_INDEX_FILE` côté serveur : c'est le point d'entrée d'un
-# tiers qui n'a qu'un `warrantId` et pas notre journal.
+# Same name as `VERDICT_INDEX_FILE` on the server side: this is the entry point
+# for a third party who has only a `warrantId` and not our journal.
 VERDICT_INDEX="index.json"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_DIR="${SCRIPT_DIR}/../verdicts"
 
-# ─── Rendu ───────────────────────────────────────────────────────────────────
+# ─── Rendering ───────────────────────────────────────────────────────────────
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   B=$'\033[1m'; DIM=$'\033[2m'; GREEN=$'\033[32m'; RED=$'\033[31m'; YELLOW=$'\033[33m'; Z=$'\033[0m'
 else
@@ -88,8 +87,8 @@ SKIPPED=0
 
 section() { printf '\n%s── %s%s\n' "$B" "$1" "$Z"; }
 
-# Alignement à la main : `printf '%-22s'` compte les octets, et une étiquette
-# accentuée compterait double. `${#s}` compte les caractères en locale UTF-8.
+# Manual alignment: `printf '%-22s'` counts bytes, so any non-ASCII label would
+# be padded short. `${#s}` counts characters in a UTF-8 locale.
 field() {
   local pad=$((23 - ${#1}))
   [ "$pad" -lt 1 ] && pad=1
@@ -99,17 +98,17 @@ ok()      { printf '  %s[ok]%s %s\n' "$GREEN" "$Z" "$1"; }
 bad()     { printf '  %s[!!]%s %s\n' "$RED" "$Z" "$1"; FAILURES=$((FAILURES + 1)); }
 skip()    { printf '  %s[--]%s %s\n' "$YELLOW" "$Z" "$1"; SKIPPED=$((SKIPPED + 1)); }
 note()    { printf '  %s%s%s\n' "$DIM" "$1" "$Z"; }
-die()     { printf '%serreur :%s %s\n' "$RED" "$Z" "$1" >&2; exit 2; }
+die()     { printf '%serror:%s %s\n' "$RED" "$Z" "$1" >&2; exit 2; }
 
-# `ok`/`bad` selon l'égalité de deux valeurs, avec l'écart affiché quand il y en
-# a un. Toutes les comparaisons du script passent par ici : un rejeu qui dirait
-# « ok » sans montrer ce qu'il a comparé ne vaudrait pas mieux qu'une promesse.
+# `ok`/`bad` on the equality of two values, with the discrepancy shown when there
+# is one. Every comparison in the script goes through here: a replay that said
+# "ok" without showing what it compared would be worth no more than a promise.
 expect_eq() {
   local label="$1" want="$2" got="$3"
   if [ "$want" = "$got" ]; then
     ok "${label} = ${got}"
   else
-    bad "${label} : attendu ${want}, obtenu ${got}"
+    bad "${label}: expected ${want}, got ${got}"
   fi
 }
 
@@ -117,56 +116,56 @@ expect_eq() {
 WARRANT_ID=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -h|--help) sed -n '/^# Usage :/,/^# Sortie/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --rpc)      RPC="${2:?--rpc attend une URL}"; shift 2 ;;
-    --escrow)   ESCROW="${2:?--escrow attend une adresse}"; shift 2 ;;
-    --source)   SOURCE="${2:?--source attend une URI, un répertoire ou un fichier}"; shift 2 ;;
-    --registry) REGISTRY="${2:?--registry attend une adresse}"; shift 2 ;;
-    --span)     SPAN="${2:?--span attend un nombre de blocs}"; shift 2 ;;
-    -*) die "option inconnue : $1" ;;
-    *)  [ -z "$WARRANT_ID" ] || die "un seul warrantId à la fois"; WARRANT_ID="$1"; shift ;;
+    -h|--help) sed -n '/^# Usage:/,/^# Exit:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --rpc)      RPC="${2:?--rpc expects a URL}"; shift 2 ;;
+    --escrow)   ESCROW="${2:?--escrow expects an address}"; shift 2 ;;
+    --source)   SOURCE="${2:?--source expects a URI, a directory or a file}"; shift 2 ;;
+    --registry) REGISTRY="${2:?--registry expects an address}"; shift 2 ;;
+    --span)     SPAN="${2:?--span expects a number of blocks}"; shift 2 ;;
+    -*) die "unknown option: $1" ;;
+    *)  [ -z "$WARRANT_ID" ] || die "one warrantId at a time"; WARRANT_ID="$1"; shift ;;
   esac
 done
 
-[ -n "$WARRANT_ID" ] || die "usage : $(basename "$0") <warrantId> [--rpc URL] [--source SRC]"
-command -v cast >/dev/null || die "cast (Foundry) est requis : https://getfoundry.sh"
-command -v jq >/dev/null || die "jq est requis"
-# python3 sert uniquement d'arithmétique : les montants sont des uint256, que le
-# shell (64 bits) et jq (flottant double) tronqueraient tous les deux. Une
-# comparaison arrondie transformerait un verdict en loterie — même raison qui
-# impose `bigint` partout dans checks/compare.ts.
-command -v python3 >/dev/null || die "python3 est requis (arithmétique uint256)"
+[ -n "$WARRANT_ID" ] || die "usage: $(basename "$0") <warrantId> [--rpc URL] [--source SRC]"
+command -v cast >/dev/null || die "cast (Foundry) is required: https://getfoundry.sh"
+command -v jq >/dev/null || die "jq is required"
+# python3 is used purely for arithmetic: the amounts are uint256, which both the
+# shell (64-bit) and jq (double float) would truncate. A rounded comparison would
+# turn a verdict into a lottery — the same reason `bigint` is mandatory throughout
+# checks/compare.ts.
+command -v python3 >/dev/null || die "python3 is required (uint256 arithmetic)"
 
-# Minuscules partout : c'est la forme canonique des adresses et des hashs du
-# projet (docs/07 § 4 règle 2), et celle du nom de fichier et de l'URI.
+# Lowercase throughout: this is the project's canonical form for addresses and
+# hashes (docs/07 § 4 rule 2), and the form of the filename and the URI.
 lc() { printf '%s' "$1" | tr 'A-F' 'a-f'; }
 
 WARRANT_ID="$(lc "$WARRANT_ID")"
-[[ "$WARRANT_ID" =~ ^0x[0-9a-f]{64}$ ]] || die "warrantId malformé : $WARRANT_ID"
+[[ "$WARRANT_ID" =~ ^0x[0-9a-f]{64}$ ]] || die "malformed warrantId: $WARRANT_ID"
 
 printf '%swarrant replay%s  %s\n' "$B" "$Z" "$WARRANT_ID"
 note "rpc    ${RPC}"
 note "escrow ${ESCROW}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. Le mandat, lu onchain
+# 1. The warrant, read onchain
 # ─────────────────────────────────────────────────────────────────────────────
-section "1. mandat onchain"
+section "1. onchain warrant"
 
-# Le getter public aplati rend dix valeurs, une par ligne. `feeBpsAtOpen` est en
-# neuvième position, AVANT `status` : lire `status` en huitième donnerait 250,
-# qui n'est aucun statut connu (voir escrow-abi.ts).
+# The flattened public getter returns ten values, one per line. `feeBpsAtOpen` is
+# in ninth position, BEFORE `status`: reading `status` as the eighth would give
+# 250, which is no known status (see escrow-abi.ts).
 WARRANT_RAW="$(cast call "$ESCROW" \
   'warrants(bytes32)(address,address,uint256,bytes32,bytes32,bytes32,uint64,uint64,uint16,uint8)' \
-  "$WARRANT_ID" --rpc-url "$RPC")" || die "lecture du mandat impossible sur ${RPC}"
+  "$WARRANT_ID" --rpc-url "$RPC")" || die "cannot read the warrant on ${RPC}"
 
-# `cast` annote les entiers (`200000 [2e5]`) : on ne garde que le premier champ.
-# `while read` plutôt que `mapfile`, qui n'existe pas dans le bash 3.2 livré par
-# macOS — un script de vérification qui ne tourne que chez nous manquerait sa
-# cible.
+# `cast` annotates integers (`200000 [2e5]`): keep only the first field.
+# `while read` rather than `mapfile`, which does not exist in the bash 3.2 shipped
+# by macOS — a verification script that only runs on our machines would miss its
+# target.
 W=()
 while IFS= read -r line; do W+=("$line"); done < <(printf '%s\n' "$WARRANT_RAW" | awk 'NF {print $1}')
-[ "${#W[@]}" -eq 10 ] || die "réponse inattendue du getter warrants() : $WARRANT_RAW"
+[ "${#W[@]}" -eq 10 ] || die "unexpected response from the warrants() getter: $WARRANT_RAW"
 
 AGENT="${W[0]}" BENEFICIARY="${W[1]}" BOND="${W[2]}"
 CONDITION_HASH="$(lc "${W[3]}")"
@@ -175,51 +174,51 @@ FUNDING_REF="$(lc "${W[5]}")"
 EXPIRY="${W[6]}" OPENED_AT="${W[7]}" FEE_BPS="${W[8]}" STATUS="${W[9]}"
 
 case "$STATUS" in
-  0) die "aucun mandat sous cet identifiant à cette adresse (status=None)" ;;
+  0) die "no warrant under that id at that address (status=None)" ;;
   1) STATUS_NAME="Open"      ; ONCHAIN_VERDICT="" ;;
   2) STATUS_NAME="Honored"   ; ONCHAIN_VERDICT="honored" ;;
   3) STATUS_NAME="Slashed"   ; ONCHAIN_VERDICT="slashed" ;;
   4) STATUS_NAME="Reclaimed" ; ONCHAIN_VERDICT="" ;;
-  *) die "status inconnu : ${STATUS}" ;;
+  *) die "unknown status: ${STATUS}" ;;
 esac
 
 field "agent"         "$AGENT"
 field "beneficiary"   "$BENEFICIARY"
-field "bond"          "${BOND} (unité atomique du token)"
+field "bond"          "${BOND} (atomic unit of the token)"
 field "conditionHash" "$CONDITION_HASH"
 field "actionHash"    "$ACTION_HASH"
 field "fundingRef"    "$FUNDING_REF"
 field "feeBpsAtOpen"  "$FEE_BPS"
 field "status"        "${STATUS} (${STATUS_NAME})"
 
-# `fundingRef` est le nonce EIP-3009, et ce nonce EST le hash des termes :
-# signer l'autorisation de paiement revient à signer le mandat. On le fait
-# recalculer par le contrat, sur les champs qu'on vient de lire.
+# `fundingRef` is the EIP-3009 nonce, and that nonce IS the hash of the terms:
+# signing the payment authorization amounts to signing the warrant. We have the
+# contract recompute it, over the fields we have just read.
 DURATION=$((EXPIRY - OPENED_AT))
 TERMS_HASH="$(lc "$(cast call "$ESCROW" \
   'termsHash(bytes32,address,uint256,bytes32,bytes32,uint64)(bytes32)' \
   "$WARRANT_ID" "$BENEFICIARY" "$BOND" "$CONDITION_HASH" "$ACTION_HASH" "$DURATION" \
   --rpc-url "$RPC")")"
-expect_eq "fundingRef = termsHash(mandat)" "$FUNDING_REF" "$TERMS_HASH"
+expect_eq "fundingRef = termsHash(warrant)" "$FUNDING_REF" "$TERMS_HASH"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Le document de verdict
+# 2. The verdict document
 # ─────────────────────────────────────────────────────────────────────────────
-section "2. document de verdict"
+section "2. verdict document"
 
 DOC=""
 DOC_ORIGIN=""
 
-# Silencieux sur erreur HTTP : un 404 sur l'URI publique est un cas prévu (le
-# verdict n'est pas encore poussé), pas un incident à afficher en brut.
+# Silent on HTTP error: a 404 on the public URI is an expected case (the verdict
+# has not been pushed yet), not an incident to dump raw.
 fetch_http() {
   command -v curl >/dev/null || return 1
   curl -fsL --max-time 20 "$1"
 }
 
-# Une source est soit une base HTTP, soit un répertoire : les deux exposent la
-# même arborescence relative (`<id>`, `index.json`, `batch/<hash>`), c'est tout
-# l'intérêt d'avoir aligné le serveur local sur git-raw.
+# A source is either an HTTP base or a directory: both expose the same relative
+# tree (`<id>`, `index.json`, `batch/<hash>`), which is the whole point of having
+# aligned the local server with git-raw.
 fetch_rel() {
   local src="${1%/}" rel="$2"
   case "$src" in
@@ -232,7 +231,7 @@ try_source() {
   local src="$1" body=""
   case "$src" in
     http://*|https://*)
-      # Une base se termine par `/` ; sinon c'est l'URL complète du document.
+      # A base ends with `/`; otherwise it is the document's full URL.
       case "$src" in */) src="${src}${WARRANT_ID}" ;; esac
       body="$(fetch_http "$src")" || return 1
       ;;
@@ -247,11 +246,11 @@ try_source() {
   DOC_ORIGIN="$src"
 }
 
-# Un mandat honoré n'a pas forcément de document à lui : au-delà de
-# `ERC8004_BATCH_SIZE`, le Settler agrège N verdicts dans un document de lot,
-# engagé par un seul `feedbackHash`. Le mandat est alors dans `warrants[]` d'un
-# fichier `batch/<hash>`, et l'index est le seul moyen de le trouver — sans lui,
-# un `warrantId` réglé en lot serait invérifiable par un tiers.
+# An honored warrant does not necessarily have a document of its own: beyond
+# `ERC8004_BATCH_SIZE`, the Settler aggregates N verdicts into a batch document,
+# committed under a single `feedbackHash`. The warrant is then inside `warrants[]`
+# of a `batch/<hash>` file, and the index is the only way to find it — without it,
+# a batch-settled `warrantId` would be unverifiable by a third party.
 try_batch() {
   local src="$1" index="" hash="" body=""
   index="$(fetch_rel "$src" "$VERDICT_INDEX")" || return 1
@@ -273,43 +272,43 @@ try_batch() {
 resolve_from() { try_source "$1" || try_batch "$1"; }
 
 if [ -n "$SOURCE" ]; then
-  resolve_from "$SOURCE" || die "document introuvable à ${SOURCE} (ni document de mandat, ni lot indexé)"
+  resolve_from "$SOURCE" || die "no document found at ${SOURCE} (neither a warrant document nor an indexed batch)"
 else
-  # L'URI publique d'abord — c'est celle qui est inscrite onchain, donc la seule
-  # dont la disponibilité prouve quelque chose. La copie locale ensuite, pour
-  # que le script serve aussi avant la poussée : un verdict est écrit au
-  # règlement et commité après, la fenêtre existe et il faut la nommer.
+  # The public URI first — it is the one recorded onchain, hence the only one
+  # whose availability proves anything. The local copy second, so the script is
+  # also useful before the push: a verdict is written at settlement and committed
+  # afterwards; the window exists and must be named.
   if resolve_from "$BASE_URI"; then
     :
   elif resolve_from "$LOCAL_DIR"; then
-    note "l'URI publique ne répond pas encore : lecture de la copie locale du dépôt."
-    note "un tiers ne pourra vérifier qu'après le commit et la poussée de verdicts/."
+    note "the public URI does not answer yet: reading the repository's local copy."
+    note "a third party can only verify after verdicts/ is committed and pushed."
   else
-    die "document introuvable, ni à ${BASE_URI}${WARRANT_ID} ni dans ${LOCAL_DIR}"
+    die "no document found, neither at ${BASE_URI}${WARRANT_ID} nor in ${LOCAL_DIR}"
   fi
 fi
 
-field "origine" "$DOC_ORIGIN"
-printf '%s' "$DOC" | jq -e . >/dev/null 2>&1 || die "le document récupéré n'est pas du JSON"
+field "origin" "$DOC_ORIGIN"
+printf '%s' "$DOC" | jq -e . >/dev/null 2>&1 || die "the retrieved document is not JSON"
 
-# Trois formes de document, une seule projection à rejouer :
-#   - `VerdictDocument` brut          → les champs sont à la racine ;
-#   - `SingleFeedbackDocument`        → sous `warrant` ;
-#   - `BatchFeedbackDocument`         → dans `warrants[]`, à retrouver par id.
-# Ce qui est haché reste le document entier ; ce qui est rejoué est la
-# projection. Les deux sont distincts et le restent.
+# Three document shapes, a single projection to replay:
+#   - raw `VerdictDocument`     → the fields are at the root;
+#   - `SingleFeedbackDocument`  → under `warrant`;
+#   - `BatchFeedbackDocument`   → inside `warrants[]`, to be found by id.
+# What gets hashed remains the whole document; what gets replayed is the
+# projection. The two are distinct and stay that way.
 DOC_SHAPE="$(printf '%s' "$DOC" | jq -r '
-  if has("warrants") then "lot" elif has("warrant") then "feedback" else "verdict" end')"
+  if has("warrants") then "batch" elif has("warrant") then "feedback" else "verdict" end')"
 REC="$(printf '%s' "$DOC" | jq -c --arg id "$WARRANT_ID" '
   if has("warrants") then (.warrants[] | select((.warrantId | ascii_downcase) == $id))
   elif has("warrant") then .warrant
   else . end')"
-[ -n "$REC" ] || die "le document récupéré ne contient pas le mandat ${WARRANT_ID}"
+[ -n "$REC" ] || die "the retrieved document does not contain warrant ${WARRANT_ID}"
 r() { printf '%s' "$REC" | jq -r "$1"; }
 
-field "forme" "$DOC_SHAPE"
-if [ "$DOC_SHAPE" = "lot" ]; then
-  note "document de lot : $(printf '%s' "$DOC" | jq -r '.warrants | length') mandat(s) sous un seul feedbackHash."
+field "shape" "$DOC_SHAPE"
+if [ "$DOC_SHAPE" = "batch" ]; then
+  note "batch document: $(printf '%s' "$DOC" | jq -r '.warrants | length') warrant(s) under a single feedbackHash."
 fi
 
 DOC_WARRANT_ID="$(r '.warrantId // ""')"
@@ -327,50 +326,50 @@ field "verdict"          "$DOC_VERDICT"
 field "txHash (action)"  "$TX_HASH"
 field "blockNumber"      "$BLOCK_NUMBER"
 field "evaluatedAtBlock" "$EVAL_BLOCK"
-field "rpcUrl publié"    "$DOC_RPC"
+field "rpcUrl published"  "$DOC_RPC"
 field "settlementTx"     "${SETTLEMENT_TX:-null}"
 field "checks"           "$CHECK_COUNT"
 
-expect_eq "le document parle bien de ce mandat" "$WARRANT_ID" "$DOC_WARRANT_ID"
+expect_eq "the document really is about this warrant" "$WARRANT_ID" "$DOC_WARRANT_ID"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. L'engagement : keccak256 des octets servis
+# 3. The commitment: keccak256 of the served bytes
 # ─────────────────────────────────────────────────────────────────────────────
-section "3. engagement du document"
+section "3. document commitment"
 
-# Hash des octets EXACTS reçus, pas d'une re-sérialisation. `printf '%s'` n'ajoute
-# pas de saut de ligne : un `echo` ici invaliderait le hash de tout document
-# valide, ce qui est le plus vicieux des faux positifs.
+# Hash of the EXACT bytes received, not of a re-serialisation. `printf '%s'` adds
+# no newline: an `echo` here would invalidate the hash of every valid document,
+# which is the nastiest kind of false positive.
 FEEDBACK_HASH="$(printf '%s' "$DOC" | cast keccak | tr 'A-F' 'a-f')"
 field "keccak256(document)" "$FEEDBACK_HASH"
-note "c'est la valeur engagée dans NewFeedback.feedbackHash (ERC-8004)."
+note "this is the value committed in NewFeedback.feedbackHash (ERC-8004)."
 
 if [ -n "$REGISTRY" ]; then
-  # La fenêtre part du **règlement**, pas de l'action : le feedback est écrit dans
-  # la même passe du daemon, quelques blocs après `honor`/`slash`. Partir du bloc
-  # de l'action ferait scanner pour rien la durée de vie du mandat.
+  # The window starts at **settlement**, not at the action: the feedback is
+  # written in the same daemon pass, a few blocks after `honor`/`slash`. Starting
+  # from the action's block would pointlessly scan the warrant's whole lifetime.
   FROM_BLOCK="$BLOCK_NUMBER"
   if [ -n "$SETTLEMENT_TX" ] && [ "$SETTLEMENT_TX" != "null" ]; then
     FROM_BLOCK="$(cast receipt "$SETTLEMENT_TX" --rpc-url "$RPC" --json 2>/dev/null \
       | jq -r '.blockNumber' | while IFS= read -r h; do cast to-dec "$h"; done)" || FROM_BLOCK="$BLOCK_NUMBER"
   fi
   TO_BLOCK=$((FROM_BLOCK + SPAN))
-  note "recherche dans NewFeedback sur [${FROM_BLOCK}, ${TO_BLOCK}]…"
+  note "searching NewFeedback over [${FROM_BLOCK}, ${TO_BLOCK}]…"
 
-  # `feedbackHash` n'est pas indexé : impossible de le filtrer par topic, on le
-  # cherche dans les données des logs du registre. Un `eth_getLogs` non filtré est
-  # lent sur un endpoint public, d'où la fenêtre étroite et le garde-temps : un
-  # script de vérification qui a l'air planté ne sera pas relancé par un jury.
-  # `if/elif` et non une boucle : sous `set -e`, une boucle dont la dernière
-  # itération échoue fait sortir le script — ici, sur une machine sans `timeout`,
-  # c'est-à-dire un macOS sans coreutils.
+  # `feedbackHash` is not indexed: it cannot be filtered by topic, so we look for
+  # it in the data of the registry's logs. An unfiltered `eth_getLogs` is slow on a
+  # public endpoint, hence the narrow window and the timeout guard: a verification
+  # script that looks hung will not be re-run by a jury.
+  # `if/elif` rather than a loop: under `set -e`, a loop whose last iteration fails
+  # exits the script — here, on a machine without `timeout`, that is to say a macOS
+  # without coreutils.
   #
-  # ⚠ La signature compte **cinq** `string`, pas quatre : `indexedTag1` est un
-  # `string indexed`, et un paramètre indexé compte quand même dans la signature
-  # canonique dont on hache le topic0. L'omettre donne
-  # 0x8f29270f… au lieu de 0x6a4a6174…, un topic0 qu'aucun log ne porte — et le
-  # script concluait alors « registre muet » sur un registre qui répondait
-  # parfaitement. Le pire des faux négatifs : il ressemble à une limite du RPC.
+  # ⚠ The signature has **five** `string`s, not four: `indexedTag1` is a
+  # `string indexed`, and an indexed parameter still counts in the canonical
+  # signature whose topic0 we hash. Omitting it yields 0x8f29270f… instead of
+  # 0x6a4a6174…, a topic0 no log carries — and the script then concluded "silent
+  # registry" about a registry that was answering perfectly. The worst kind of
+  # false negative: it looks like an RPC limitation.
   TIMEOUT_BIN=""
   if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
   elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
@@ -380,92 +379,92 @@ if [ -n "$REGISTRY" ]; then
     --from-block "$FROM_BLOCK" --to-block "$TO_BLOCK" 2>/dev/null || true)"
 
   if [ -z "$LOGS" ]; then
-    skip "aucun NewFeedback lisible sur la fenêtre (registre muet, ou RPC qui refuse le scan)"
-    note "réduire --span, ou viser un RPC qui sert eth_getLogs sur des plages."
+    skip "no readable NewFeedback over the window (silent registry, or an RPC that refuses the scan)"
+    note "reduce --span, or aim at an RPC that serves eth_getLogs over ranges."
   elif printf '%s' "$LOGS" | tr 'A-F' 'a-f' | grep -q "${FEEDBACK_HASH#0x}"; then
-    ok "feedbackHash retrouvé dans un event NewFeedback du registre"
+    ok "feedbackHash found in a NewFeedback event of the registry"
   else
-    bad "aucun NewFeedback de la fenêtre ne porte ${FEEDBACK_HASH}"
+    bad "no NewFeedback in the window carries ${FEEDBACK_HASH}"
   fi
 else
-  skip "aucun registre ERC-8004 fourni (--registry) : engagement non recoupé onchain"
-  note "les étapes 4 et 5 lient malgré tout le document au mandat onchain."
+  skip "no ERC-8004 registry supplied (--registry): commitment not cross-checked onchain"
+  note "steps 4 and 5 still bind the document to the onchain warrant."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Les specs du document = celles engagées à l'ouverture
+# 4. The document's specs = the ones committed at open
 # ─────────────────────────────────────────────────────────────────────────────
-section "4. specs engagées"
+section "4. committed specs"
 
-# `jq -cS` comme sérialiseur JCS — voir l'hypothèse (a) en tête de fichier.
+# `jq -cS` as a JCS serialiser — see assumption (a) at the top of the file.
 jcs_hash() { printf '%s' "$REC" | jq -cS "$1" | tr -d '\n' | cast keccak | tr 'A-F' 'a-f'; }
 
 expect_eq "keccak(conditionSpec) = conditionHash" "$CONDITION_HASH" "$(jcs_hash '.conditionSpec')"
 expect_eq "keccak(actionSpec) = actionHash"       "$ACTION_HASH"    "$(jcs_hash '.actionSpec')"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5. La transaction d'action
+# 5. The action transaction
 # ─────────────────────────────────────────────────────────────────────────────
-section "5. transaction d'action"
+section "5. action transaction"
 
-[[ "$TX_HASH" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "txHash absent ou malformé dans le document"
+[[ "$TX_HASH" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "txHash missing or malformed in the document"
 
-RECEIPT="$(cast receipt "$TX_HASH" --rpc-url "$RPC" --json)" || die "receipt introuvable pour ${TX_HASH}"
-TX="$(cast tx "$TX_HASH" --rpc-url "$RPC" --json)" || die "transaction introuvable pour ${TX_HASH}"
+RECEIPT="$(cast receipt "$TX_HASH" --rpc-url "$RPC" --json)" || die "no receipt found for ${TX_HASH}"
+TX="$(cast tx "$TX_HASH" --rpc-url "$RPC" --json)" || die "no transaction found for ${TX_HASH}"
 
 RCPT_BLOCK="$(printf '%s' "$RECEIPT" | jq -r '.blockNumber' | xargs -I{} cast to-dec {})"
 RCPT_STATUS="$(printf '%s' "$RECEIPT" | jq -r '.status')"
 RCPT_GAS="$(printf '%s' "$RECEIPT" | jq -r '.gasUsed' | xargs -I{} cast to-dec {})"
 
-field "bloc d'inclusion" "$RCPT_BLOCK"
-field "gasUsed"          "$RCPT_GAS"
+field "inclusion block" "$RCPT_BLOCK"
+field "gasUsed"         "$RCPT_GAS"
 
-expect_eq "bloc d'inclusion = blockNumber publié" "$BLOCK_NUMBER" "$RCPT_BLOCK"
+expect_eq "inclusion block = published blockNumber" "$BLOCK_NUMBER" "$RCPT_BLOCK"
 if [ "$RCPT_STATUS" = "0x1" ]; then
-  ok "la transaction d'action a réussi onchain"
+  ok "the action transaction succeeded onchain"
 else
-  bad "la transaction d'action a échoué onchain (status=${RCPT_STATUS})"
+  bad "the action transaction failed onchain (status=${RCPT_STATUS})"
 fi
 
-# `evaluateAt: "tx"` évalue au bloc d'inclusion, `"tx+1"` au suivant. Le
-# document publie le bloc résolu : on vérifie qu'il est cohérent avec la spec
-# plutôt que de le croire.
+# `evaluateAt: "tx"` evaluates at the inclusion block, `"tx+1"` at the next one.
+# The document publishes the resolved block: we check it is consistent with the
+# spec rather than take it on trust.
 EVALUATE_AT="$(r '.conditionSpec.evaluateAt // ""')"
 case "$EVALUATE_AT" in
   tx)     expect_eq "evaluatedAtBlock (evaluateAt=tx)"   "$RCPT_BLOCK"        "$EVAL_BLOCK" ;;
   tx+1)   expect_eq "evaluatedAtBlock (evaluateAt=tx+1)" "$((RCPT_BLOCK + 1))" "$EVAL_BLOCK" ;;
-  *)      skip "evaluateAt=${EVALUATE_AT} : bloc figé pris tel quel (${EVAL_BLOCK})" ;;
+  *)      skip "evaluateAt=${EVALUATE_AT}: pinned block taken as-is (${EVAL_BLOCK})" ;;
 esac
 
 if command -v kh >/dev/null 2>&1; then
   if KH_OUT="$(kh execution get "$EXECUTION_ID" --json 2>/dev/null)" && [ -n "$KH_OUT" ]; then
     KH_TX="$(printf '%s' "$KH_OUT" | jq -r '..|.txHash? // empty' | head -1 | tr 'A-F' 'a-f')"
     if [ -n "$KH_TX" ]; then
-      expect_eq "kh: txHash de l'exécution ${EXECUTION_ID}" "$TX_HASH" "$KH_TX"
+      expect_eq "kh: txHash of execution ${EXECUTION_ID}" "$TX_HASH" "$KH_TX"
     else
-      skip "kh a répondu sans txHash pour ${EXECUTION_ID}"
+      skip "kh answered without a txHash for ${EXECUTION_ID}"
     fi
   else
-    skip "kh présent mais sans accès à l'exécution ${EXECUTION_ID} (clé absente ?)"
+    skip "kh present but without access to execution ${EXECUTION_ID} (missing key?)"
   fi
 else
-  skip "kh absent : recoupement KeeperHub sauté"
-  note "sans effet sur le rejeu — la chaîne est l'autorité, pas l'API d'exécution."
+  skip "kh absent: KeeperHub cross-check skipped"
+  note "no effect on the replay — the chain is the authority, not the execution API."
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. Rejeu des post-conditions
+# 6. Replaying the post-conditions
 # ─────────────────────────────────────────────────────────────────────────────
-section "6. rejeu des checks au bloc ${EVAL_BLOCK}"
+section "6. replaying the checks at block ${EVAL_BLOCK}"
 
-# Un résultat par check engagé, sans exception : `checks[]` est publié intégral,
-# y compris les vérifications passées. Un document qui en publierait moins que la
-# spec n'en engage cacherait exactement celle qui a échoué.
+# One result per committed check, without exception: `checks[]` is published in
+# full, including the checks that passed. A document publishing fewer than the
+# spec commits to would be hiding precisely the one that failed.
 SPEC_COUNT="$(r '.conditionSpec.checks | length')"
-expect_eq "checks publiés = checks engagés" "$SPEC_COUNT" "$CHECK_COUNT"
+expect_eq "published checks = committed checks" "$SPEC_COUNT" "$CHECK_COUNT"
 
-# `compare` de checks/compare.ts : eq | lte | gte, exact, sans tolérance. Toute
-# marge voulue est dans la `value` engagée, jamais ici.
+# `compare` from checks/compare.ts: eq | lte | gte, exact, no tolerance. Any
+# intended margin lives in the committed `value`, never here.
 compare_op() {
   python3 -c '
 import sys
@@ -476,15 +475,15 @@ held = observed == expected if op == "eq" else observed <= expected if op == "lt
 sys.exit(0 if held else 1)' "$1" "$2" "$3"
 }
 
-# `pass=true|false` de la comparaison, pour rester lisible à l'appel.
+# `pass=true|false` from the comparison, to keep the call site readable.
 compare_pass() {
   if compare_op "$1" "$2" "$3"; then printf 'true'; else printf 'false'; fi
 }
 
-# Somme signée des `Transfer` du compte dans les logs du receipt — la même règle
-# que checks/erc20.ts : le delta imputable à CETTE transaction, jamais une
-# différence de soldes entre deux blocs, qui imputerait à l'agent ce qu'une
-# autre transaction du même bloc a fait.
+# Signed sum of the account's `Transfer` events in the receipt's logs — the same
+# rule as checks/erc20.ts: the delta attributable to THIS transaction, never a
+# balance difference between two blocks, which would charge the agent for what
+# another transaction in the same block did.
 transfer_delta() {
   local token acct
   token="$(lc "$1")"; acct="$(lc "$2")"
@@ -503,9 +502,9 @@ transfer_delta() {
     | (map("\(.sign) \(.amount)") | join("\n"))'
 }
 
-# Somme des `<signe> <montant hexadécimal>` reçus sur l'entrée standard. Le code
-# passe par `-c` et non par un heredoc : un heredoc occuperait justement stdin,
-# et la somme vaudrait silencieusement 0 — tous les deltas passeraient pour nuls.
+# Sums the `<sign> <hex amount>` lines received on standard input. The code goes
+# through `-c` rather than a heredoc: a heredoc would occupy stdin precisely, and
+# the sum would silently be 0 — every delta would read as zero.
 sum_signed() {
   python3 -c '
 import sys
@@ -535,10 +534,10 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
 
   printf '  %s#%d %s%s  %s\n' "$B" "$i" "$KIND" "$Z" "${DIM}document: pass=${DOC_PASS} observed=${DOC_OBSERVED}${Z}"
 
-  # Le résultat publié doit décrire le check engagé à la même position : c'est ce
-  # qui interdit de publier un `checks[]` réordonné pour cacher un échec.
+  # The published result must describe the check committed at the same position:
+  # this is what forbids publishing a reordered `checks[]` to hide a failure.
   if [ -n "$SPEC_KIND" ] && [ "$SPEC_KIND" != "$KIND" ]; then
-    bad "  position ${i} : la conditionSpec engage ${SPEC_KIND}, le résultat dit ${KIND}"
+    bad "  position ${i}: the conditionSpec commits ${SPEC_KIND}, the result says ${KIND}"
     continue
   fi
 
@@ -570,8 +569,9 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
     aave_health_factor)
       POOL="$(printf '%s' "$SPEC" | jq -r '.pool')"
       USER="$(printf '%s' "$SPEC" | jq -r '.user')"
-      # healthFactor = 6e élément du tuple, en 1e18. Une position sans dette rend
-      # type(uint256).max : la comparaison reste correcte en précision arbitraire.
+      # healthFactor = 6th element of the tuple, in 1e18. A position with no debt
+      # returns type(uint256).max: the comparison stays correct in arbitrary
+      # precision.
       REPLAY_OBSERVED="$(cast call "$POOL" \
         'getUserAccountData(address)(uint256,uint256,uint256,uint256,uint256,uint256)' "$USER" \
         --block "$EVAL_BLOCK" --rpc-url "$RPC" | awk 'NF {print $1}' | sed -n '6p')"
@@ -589,10 +589,10 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
       REPLAY_PASS="$(compare_pass "$REPLAY_OBSERVED" gte "$MIN_COUNT")"
       ;;
     no_new_approvals)
-      # Un `Approval(owner, *, > 0)` dans les logs de la transaction. Remettre
-      # une allowance à zéro est autorisé : c'est l'action de révocation.
-      # `tokens` vide signifie « tous les tokens », jamais « aucun » : une
-      # protection qui se désarme toute seule n'en est pas une.
+      # An `Approval(owner, *, > 0)` in the transaction's logs. Setting an
+      # allowance back to zero is allowed: that is the revocation action.
+      # An empty `tokens` means "every token", never "none": a protection that
+      # disarms itself is not one.
       OWNER="$(lc "$(printf '%s' "$SPEC" | jq -r '.owner')")"
       OFFENDERS="$(printf '%s' "$RECEIPT" | jq -r \
         --arg owner "$OWNER" \
@@ -609,16 +609,16 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
       [ "$OFFENDERS" = "0" ] && REPLAY_PASS=true || REPLAY_PASS=false
       ;;
     calldata_matches_commitment)
-      # Reconstruction de l'ActionSpec depuis la transaction, décapsulation du
-      # forwarder comprise, puis rehachage. Sans la décapsulation ce check
-      # échouerait sur tout mandat sponsorisé — la saisie injuste systématique
-      # décrite dans checks/forwarder.ts.
+      # Reconstructs the ActionSpec from the transaction, forwarder unwrapping
+      # included, then rehashes it. Without the unwrapping this check would fail on
+      # every sponsored warrant — the systematic unjust slash described in
+      # checks/forwarder.ts.
       TX_TO="$(lc "$(printf '%s' "$TX" | jq -r '.to // ""')")"
       TX_INPUT="$(lc "$(printf '%s' "$TX" | jq -r '.input')")"
       TX_VALUE="$(cast to-dec "$(printf '%s' "$TX" | jq -r '.value')")"
       TX_CHAIN_HEX="$(printf '%s' "$TX" | jq -r '.chainId // empty')"
-      # `chainId` est absent des transactions legacy non protégées : on retombe
-      # alors sur la chaîne déclarée dans la ConditionSpec, comme l'évaluateur.
+      # `chainId` is absent from unprotected legacy transactions: we then fall
+      # back on the chain declared in the ConditionSpec, like the evaluator.
       if [ -n "$TX_CHAIN_HEX" ]; then TX_CHAIN="$(cast to-dec "$TX_CHAIN_HEX")"
       else TX_CHAIN="$(r '.conditionSpec.chainId')"; fi
 
@@ -633,10 +633,10 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
           PAYLOAD="${FWD[3]#0x}"
           NBYTES=$(( ${#PAYLOAD} / 2 ))
           INNER=""
-          # signature(65) ‖ métadonnées ‖ calldata : première frontière ≥ 65 à
-          # partir de laquelle le reste fait 4 + 32·n octets. Même règle que
-          # extractInnerCalldata, dont la longueur des métadonnées n'est pas
-          # documentée et n'est donc pas codée en dur.
+          # signature(65) ‖ metadata ‖ calldata: the first boundary ≥ 65 from
+          # which the remainder is 4 + 32·n bytes. Same rule as
+          # extractInnerCalldata, whose metadata length is undocumented and is
+          # therefore not hard-coded.
           off=65
           while [ $((off + 4)) -le "$NBYTES" ]; do
             REST=$((NBYTES - off))
@@ -666,15 +666,15 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
         '{version:$version, chainId:$chainId, target:$target, value:$value, calldata:$calldata, registryRef:$registryRef}')"
       RECONSTRUCTED_HASH="$(lc "$(printf '%s' "$RECONSTRUCTED" | tr -d '\n' | cast keccak)")"
       REPLAY_OBSERVED="${RECONSTRUCTED_HASH}${VIA}"
-      # L'engagement lu onchain prime sur celui recopié dans la spec : c'est le
-      # seul des deux que nous ne contrôlons pas.
+      # The commitment read onchain takes precedence over the one copied into the
+      # spec: it is the only one of the two we do not control.
       if [ "$RECONSTRUCTED_HASH" = "$ACTION_HASH" ]; then REPLAY_PASS=true; else REPLAY_PASS=false; fi
       ;;
     *)
-      skip "  ${KIND} : non rejoué par ce script"
-      note "  kinds rejoués : erc20_balance{,_delta}, erc20_allowance, aave_health_factor,"
-      note "  no_new_approvals, calldata_matches_commitment. Les autres demandent un"
-      note "  tracer ou un décodage ABI que cast ne fait pas seul — utiliser l'évaluateur."
+      skip "  ${KIND}: not replayed by this script"
+      note "  kinds replayed: erc20_balance{,_delta}, erc20_allowance, aave_health_factor,"
+      note "  no_new_approvals, calldata_matches_commitment. The others require a"
+      note "  tracer or ABI decoding that cast does not do alone — use the evaluator."
       continue
       ;;
   esac
@@ -682,16 +682,16 @@ for i in $(seq 0 $((CHECK_COUNT - 1))); do
   REPLAYED=$((REPLAYED + 1))
   [ "$REPLAY_PASS" = "false" ] && RECOMPUTED_VERDICT="slashed"
 
-  # On compare le booléen ET la valeur observée. Le booléen seul laisserait
-  # passer un `observed` maquillé — « la condition tenait, voici un chiffre
-  # arrangé » — alors que c'est justement le chiffre que le verdict prétend
-  # rendre auditable. Les `observed` de l'évaluateur commencent tous par la
-  # valeur, les détails suivent entre parenthèses : on compare le premier champ.
+  # We compare the boolean AND the observed value. The boolean alone would let a
+  # doctored `observed` through — "the condition held, here is a tidied-up
+  # number" — when that number is precisely what the verdict claims to make
+  # auditable. The evaluator's `observed` values all start with the value, with
+  # details following in parentheses: we compare the first field.
   if [ "$REPLAY_PASS" = "$DOC_PASS" ] && [ "${REPLAY_OBSERVED%% *}" = "${DOC_OBSERVED%% *}" ]; then
     AGREED=$((AGREED + 1))
-    ok "  rejeu: pass=${REPLAY_PASS} observed=${REPLAY_OBSERVED}"
+    ok "  replay: pass=${REPLAY_PASS} observed=${REPLAY_OBSERVED}"
   else
-    bad "  rejeu: pass=${REPLAY_PASS} observed=${REPLAY_OBSERVED} — le document annonce pass=${DOC_PASS} observed=${DOC_OBSERVED}"
+    bad "  replay: pass=${REPLAY_PASS} observed=${REPLAY_OBSERVED} — the document claims pass=${DOC_PASS} observed=${DOC_OBSERVED}"
   fi
 done
 
@@ -700,37 +700,37 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 section "verdict"
 
-# Le verdict est une conjonction pure : toutes les post-conditions, sans
-# court-circuit. Recalculé ici sur les seuls checks rejoués — si l'un n'a pas
-# pu l'être, on le dit au lieu de conclure à sa place.
-field "checks rejoués" "${AGREED}/${REPLAYED} d'accord avec le document (${TOTAL} publiés)"
+# The verdict is a pure conjunction: every post-condition, no short-circuiting.
+# Recomputed here over the replayed checks only — if one of them could not be
+# replayed, we say so instead of concluding on its behalf.
+field "checks replayed" "${AGREED}/${REPLAYED} agree with the document (${TOTAL} published)"
 
 DOC_SELF="$(printf '%s' "$REC" | jq -r 'if ([.checks[].pass] | all) then "honored" else "slashed" end')"
-expect_eq "verdict = conjonction des checks publiés" "$DOC_SELF" "$DOC_VERDICT"
+expect_eq "verdict = conjunction of published checks" "$DOC_SELF" "$DOC_VERDICT"
 
 if [ "$REPLAYED" -eq "$TOTAL" ]; then
-  expect_eq "verdict recalculé depuis la chaîne" "$DOC_VERDICT" "$RECOMPUTED_VERDICT"
+  expect_eq "verdict recomputed from the chain" "$DOC_VERDICT" "$RECOMPUTED_VERDICT"
 else
-  skip "verdict non recalculable intégralement : $((TOTAL - REPLAYED)) check(s) non rejoué(s)"
+  skip "verdict not fully recomputable: $((TOTAL - REPLAYED)) check(s) not replayed"
 fi
 
 if [ -n "$ONCHAIN_VERDICT" ]; then
-  expect_eq "status onchain (${STATUS_NAME})" "$DOC_VERDICT" "$ONCHAIN_VERDICT"
+  expect_eq "onchain status (${STATUS_NAME})" "$DOC_VERDICT" "$ONCHAIN_VERDICT"
 else
-  skip "status onchain ${STATUS_NAME} : le protocole n'a pas encore tranché"
+  skip "onchain status ${STATUS_NAME}: the protocol has not decided yet"
 fi
 
 printf '\n'
 if [ "$FAILURES" -eq 0 ] && [ "$REPLAYED" -eq "$TOTAL" ]; then
-  printf '%s%sVERDICT REPRODUIT%s — %s, %d/%d checks rejoués à l’identique au bloc %s.\n' \
+  printf '%s%sVERDICT REPRODUCED%s — %s, %d/%d checks replayed identically at block %s.\n' \
     "$B" "$GREEN" "$Z" "$DOC_VERDICT" "$AGREED" "$TOTAL" "$EVAL_BLOCK"
   exit 0
 elif [ "$FAILURES" -eq 0 ]; then
-  printf '%s%sVERDICT REPRODUIT PARTIELLEMENT%s — %s, %d/%d checks rejoués, aucune divergence. %d vérification(s) sautée(s).\n' \
+  printf '%s%sVERDICT PARTIALLY REPRODUCED%s — %s, %d/%d checks replayed, no divergence. %d check(s) skipped.\n' \
     "$B" "$YELLOW" "$Z" "$DOC_VERDICT" "$REPLAYED" "$TOTAL" "$SKIPPED"
   exit 0
 else
-  printf '%s%sDIVERGENCE%s — %d vérification(s) en échec. Le verdict publié ne se reproduit pas.\n' \
+  printf '%s%sDIVERGENCE%s — %d check(s) failed. The published verdict does not reproduce.\n' \
     "$B" "$RED" "$Z" "$FAILURES"
   exit 1
 fi

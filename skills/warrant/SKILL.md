@@ -205,55 +205,55 @@ Codes worth knowing:
 ## The four tools
 
 <!-- BEGIN GENERATED: tools -->
-<!-- Généré depuis le manifeste. Éditer codegen/skill-template.md, pas ce bloc. -->
+<!-- Generated from the manifest. Edit codegen/skill-template.md, not this block. -->
 
 ### `quote_risk` — free
 
 _Quote the bond for an action_
 
-Estime la caution exigée pour une action, sans rien engager et sans paiement. Classe le calldata, en dérive le notionnel, puis rend la caution, le taux de risque et la post-condition qui sera engagée. Appelle-le avant request_warrant : c'est gratuit, et c'est le seul moyen de connaître le coût avant de s'engager. La catégorie et le notionnel sont dérivés du calldata ; ils ne peuvent pas être déclarés.
+Estimates the bond required for an action, committing nothing and paying nothing. Classifies the calldata, derives the notional from it, then returns the bond, the risk rate and the post-condition that will be committed. Call this before request_warrant: it is free, and it is the only way to learn the cost before committing. The category and the notional are derived from the calldata; they cannot be declared.
 
 | argument | type | required | meaning |
 | --- | --- | --- | --- |
-| `actionSpec` | object | yes | La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés. |
-| `beneficiary` | string | no | Bénéficiaire d'une éventuelle saisie. N'influe pas sur le prix ; sert à construire la post-condition. |
+| `actionSpec` | object | yes | The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared. |
+| `beneficiary` | string | no | Beneficiary of a potential slash. Does not affect the price; used to build the post-condition. |
 
 ### `request_warrant` — **paid** (bond must be funded)
 
 _Open a bonded warrant_
 
-Ouvre un mandat cautionné pour l'action donnée et la fait exécuter par KeeperHub. Payant : la caution doit être financée via x402 avant l'ouverture. Rend le warrantId, l'executionId et les engagements conditionHash / actionHash. Si la post-condition est tenue, la caution revient ; sinon elle va au beneficiary. La caution est dérivée du calldata — elle ne se négocie pas.
+Opens a bonded warrant for the given action and has KeeperHub execute it. Paid: the bond must be funded via x402 before the warrant opens. Returns the warrantId, the executionId and the conditionHash / actionHash commitments. If the post-condition holds, the bond comes back; otherwise it goes to the beneficiary. The bond is derived from the calldata — it is not negotiable.
 
 | argument | type | required | meaning |
 | --- | --- | --- | --- |
-| `actionSpec` | object | yes | La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés. |
-| `beneficiary` | string | yes | Adresse qui reçoit la caution si la post-condition est violée — le propriétaire du capital, jamais l'agent. |
+| `actionSpec` | object | yes | The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared. |
+| `beneficiary` | string | yes | Address that receives the bond if the post-condition is violated — the owner of the capital, never the agent. |
 
 ### `get_warrant` — free
 
 _Read a warrant and its verdict_
 
-Rend un mandat, son état et — s'il est réglé — le verdict complet avec le détail checks[] : une ligne par vérification, y compris celles qui passent, plus le bloc exact d'évaluation. C'est ce qui rend un verdict rejouable par un tiers plutôt que cru sur parole.
+Returns a warrant, its status and — once it is settled — the full verdict with the checks[] detail: one row per check, including the ones that pass, plus the exact block of evaluation. That is what makes a verdict replayable by a third party rather than taken on trust.
 
 | argument | type | required | meaning |
 | --- | --- | --- | --- |
-| `warrantId` | string | yes | Identifiant du mandat, tel que rendu par request_warrant. |
+| `warrantId` | string | yes | Warrant identifier, as returned by request_warrant. |
 
 ### `list_warrants` — free
 
 _List an agent warrants and statistics_
 
-Énumère les mandats d'un agent avec leurs statistiques agrégées : nombre honoré, saisi, total cautionné, taux d'honneur. Filtrable par état, catégorie et fenêtre temporelle. Sert à répondre à « quel est le bilan de cet agent ? » sans lire la chaîne.
+Lists an agent's warrants along with their aggregated statistics: number honored, number slashed, total bonded, honor rate. Filterable by status, category and time window. Use it to answer "what is this agent's track record?" without reading the chain.
 
 | argument | type | required | meaning |
 | --- | --- | --- | --- |
-| `agent` | string | yes | Wallet agentique dont on énumère les mandats. |
-| `status` | string | no | Ne garder que les mandats dans cet état. |
-| `category` | string | no | Filtre a posteriori sur la catégorie dérivée. Ne peut pas être déclarée à l'ouverture. |
-| `since` | integer | no | Borne basse sur openedAt, en secondes Unix. |
-| `until` | integer | no | Borne haute sur openedAt, en secondes Unix. |
-| `limit` | integer | no | Nombre maximal de mandats rendus (défaut 20). |
-| `cursor` | string | no | Curseur de pagination rendu par un appel précédent. |
+| `agent` | string | yes | Agentic wallet whose warrants are being listed. |
+| `status` | string | no | Keep only the warrants in this status. |
+| `category` | string | no | After-the-fact filter on the derived category. Cannot be declared at opening time. |
+| `since` | integer | no | Lower bound on openedAt, in Unix seconds. |
+| `until` | integer | no | Upper bound on openedAt, in Unix seconds. |
+| `limit` | integer | no | Maximum number of warrants returned (default 20). |
+| `cursor` | string | no | Pagination cursor returned by a previous call. |
 <!-- END GENERATED: tools -->
 
 ## What Warrant does not do
@@ -267,5 +267,5 @@ it is an action whose stated outcome is now backed by money.
 ---
 
 Tool definitions above are generated from the Warrant single source of truth,
-manifest `sha256:9423096deebe38d11100cea8c730030de4b89d517b43d69ce3a759c34c766a1b`. If a tool here disagrees with what the Gateway
+manifest `sha256:b4ca574277f0079d493f116a68447823b382abeec793e515ed169846c0e1a2c2`. If a tool here disagrees with what the Gateway
 serves, this skill is stale — `clawhub update @warrant/warrant`.

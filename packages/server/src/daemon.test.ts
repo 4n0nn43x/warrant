@@ -26,7 +26,7 @@ import type { Execution } from './keeperhub.js'
 import { fileVerdictPublisher } from './verdicts.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Décor
+// Fixtures
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WARRANT_ID = `0x${'11'.repeat(32)}` as Hex
@@ -52,9 +52,9 @@ const actionSpec: ActionSpec = {
 }
 
 /**
- * Post-condition volontairement minimale : `event_emitted` ne lit que les logs
- * du receipt, donc le client n'a besoin de rien d'autre que ce que la
- * transaction porte déjà. C'est l'évaluateur réel qui tourne, pas un double.
+ * Deliberately minimal post-condition: `event_emitted` reads nothing but the
+ * receipt's logs, so the client needs nothing beyond what the transaction
+ * already carries. It is the real evaluator running here, not a double.
  */
 const conditionSpec: ConditionSpec = {
   version: 1,
@@ -110,7 +110,7 @@ function execution(over: Partial<Execution> = {}): Execution {
   }
 }
 
-/** Un receipt dont les logs satisfont — ou non — le `event_emitted` engagé. */
+/** A receipt whose logs satisfy — or not — the committed `event_emitted`. */
 function receipt(withTransfer: boolean) {
   return {
     blockNumber: 11_368_824n,
@@ -179,9 +179,9 @@ function walletSpy(): { calls: Submitted[]; client: { writeContract: (a: never) 
 }
 
 /**
- * `IdentityRegistry` qui autorise la notation : `isAuthorizedOrOwner` faux
- * signifie que le Settler n'est ni owner ni operator, donc que `giveFeedback`
- * passera (ReputationRegistryUpgradeable.sol:110).
+ * `IdentityRegistry` that authorizes rating: `isAuthorizedOrOwner` false means
+ * the Settler is neither owner nor operator, hence that `giveFeedback` will go
+ * through (ReputationRegistryUpgradeable.sol:110).
  */
 function identityAllows(authorized: boolean) {
   return {
@@ -248,15 +248,15 @@ function build(over: DaemonOver = {}) {
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('daemon — un daemon diffère, il ne renonce pas', () => {
-  it('exécution encore en cours : on repasse au tour suivant, sans rien soumettre', async () => {
+describe('daemon — a daemon defers, it does not give up', () => {
+  it('execution still running: we come back next round, submitting nothing', async () => {
     const { daemon, wallet } = build({ execution: execution({ status: 'running' }) })
     const report = await daemon.tick()
     expect(report.outcomes[0]?.kind).toBe('deferred')
     expect(wallet.calls).toHaveLength(0)
   })
 
-  it('audit trail illisible : différé, jamais saisi', async () => {
+  it('unreadable audit trail: deferred, never slashed', async () => {
     const wallet = walletSpy()
     const report = await daemonWithFailingExecutions(wallet).tick()
     expect(report.outcomes[0]).toMatchObject({ kind: 'deferred' })
@@ -264,7 +264,7 @@ describe('daemon — un daemon diffère, il ne renonce pas', () => {
     expect(wallet.calls).toHaveLength(0)
   })
 
-  it('aucune spec au journal : différé — un hash n’est pas inversible', async () => {
+  it('no spec in the journal: deferred — a hash is not invertible', async () => {
     const { daemon, wallet } = build({ mandate: undefined })
     const report = await daemon.tick()
     expect(report.outcomes[0]?.kind).toBe('deferred')
@@ -273,47 +273,47 @@ describe('daemon — un daemon diffère, il ne renonce pas', () => {
   })
 })
 
-describe('daemon — le journal n’est jamais cru sur parole', () => {
-  it('conditionSpec qui ne correspond pas à l’engagement onchain : abstention', async () => {
+describe('daemon — the journal is never taken at its word', () => {
+  it('conditionSpec that does not match the onchain commitment: abstention', async () => {
     const { daemon, wallet } = build({
       warrant: warrant({ conditionHash: `0x${'ff'.repeat(32)}` as Hex }),
     })
     const report = await daemon.tick()
     expect(report.outcomes[0]?.kind).toBe('skipped')
-    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/conditionHash divergent/)
-    // Le point qui compte : une ligne de journal falsifiée ne fait jamais saisir.
+    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/conditionHash diverges/)
+    // The point that matters: a forged journal line never causes a slash.
     expect(wallet.calls).toHaveLength(0)
   })
 
-  it('actionSpec qui ne correspond pas à l’engagement onchain : abstention', async () => {
+  it('actionSpec that does not match the onchain commitment: abstention', async () => {
     const { daemon, wallet } = build({
       warrant: warrant({ actionHash: `0x${'ff'.repeat(32)}` as Hex }),
     })
     const report = await daemon.tick()
-    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/actionHash divergent/)
+    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/actionHash diverges/)
     expect(wallet.calls).toHaveLength(0)
   })
 })
 
-describe('daemon — invariant I9, la fenêtre de règlement', () => {
-  it('n’émet rien quand l’expiration est trop proche', async () => {
+describe('daemon — invariant I9, the settlement window', () => {
+  it('emits nothing when expiry is too close', async () => {
     const { daemon, wallet } = build({ warrant: warrant({ expiry: NOW + 30 }) })
     const report = await daemon.tick()
     expect(report.outcomes[0]?.kind).toBe('skipped')
-    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/fenêtre de règlement close/)
+    expect((report.outcomes[0] as { reason: string }).reason).toMatch(/settlement window closed/)
     expect(wallet.calls).toHaveLength(0)
   })
 
-  it('ignore un mandat déjà réglé', async () => {
+  it('ignores a warrant that is already settled', async () => {
     const { daemon, wallet } = build({ warrant: warrant({ status: WarrantStatus.Honored }) })
     const report = await daemon.tick()
-    expect(report.outcomes[0]).toMatchObject({ kind: 'skipped', reason: 'statut Honored' })
+    expect(report.outcomes[0]).toMatchObject({ kind: 'skipped', reason: 'status Honored' })
     expect(wallet.calls).toHaveLength(0)
   })
 })
 
-describe('daemon — règlement', () => {
-  it('post-condition tenue → honor, et le verdict est publié', async () => {
+describe('daemon — settlement', () => {
+  it('post-condition held → honor, and the verdict is published', async () => {
     const { daemon, wallet, publisher: pub } = build({ postConditionHeld: true })
     const report = await daemon.tick()
 
@@ -329,14 +329,14 @@ describe('daemon — règlement', () => {
       rpcUrl: string
       settlementTx: string
     }
-    // Ce qu'un tiers doit trouver pour rejouer : les checks, le bloc, le RPC.
+    // What a third party must find in order to replay: the checks, the block, the RPC.
     expect(document.checks).toHaveLength(1)
     expect(document.evaluatedAtBlock).toBe('11368824')
     expect(document.rpcUrl).toBe('https://sepolia.drpc.org')
     expect(document.settlementTx).toBe(SETTLEMENT_TX)
   })
 
-  it('post-condition violée → slash, avec la raison inscrite onchain', async () => {
+  it('post-condition violated → slash, with the reason recorded onchain', async () => {
     const { daemon, wallet } = build({ postConditionHeld: false })
     const report = await daemon.tick()
 
@@ -345,7 +345,7 @@ describe('daemon — règlement', () => {
     expect(String(wallet.calls[0]?.args[2])).toMatch(/event_emitted/)
   })
 
-  it('mode observation : décide et publie, ne soumet rien', async () => {
+  it('observation mode: decides and publishes, submits nothing', async () => {
     const { daemon, wallet } = build({ submit: false })
     const report = await daemon.tick()
     expect(report.outcomes[0]?.kind).toBe('let-expire')
@@ -353,8 +353,8 @@ describe('daemon — règlement', () => {
   })
 })
 
-describe('daemon — inscription ERC-8004', () => {
-  it('une saisie s’inscrit immédiatement', async () => {
+describe('daemon — ERC-8004 recording', () => {
+  it('a slash is recorded immediately', async () => {
     const { daemon, wallet } = build({
       postConditionHeld: false,
       reputation: true,
@@ -364,7 +364,7 @@ describe('daemon — inscription ERC-8004', () => {
 
     const feedback = wallet.calls.find((c) => c.functionName === 'giveFeedback')
     expect(feedback).toBeDefined()
-    // Les huit arguments, dans l'ordre de l'ABI. `tag2` porte le verdict.
+    // The eight arguments, in ABI order. `tag2` carries the verdict.
     expect(feedback?.args[0]).toBe(7n)
     expect(feedback?.args[1]).toBe(-100n)
     expect(feedback?.args[4]).toBe('slashed')
@@ -374,7 +374,7 @@ describe('daemon — inscription ERC-8004', () => {
     expect(outcome.reputation.written).toBe(true)
   })
 
-  it('l’URI inscrite onchain sert bien le document dont le hash est engagé', async () => {
+  it('the URI recorded onchain does serve the document whose hash is committed', async () => {
     const { daemon, wallet, publisher: pub } = build({
       postConditionHeld: false,
       reputation: true,
@@ -387,7 +387,7 @@ describe('daemon — inscription ERC-8004', () => {
     expect(hashCanonical(pub.read(WARRANT_ID) as string)).toBe(feedback?.args[7])
   })
 
-  it('un mandat honoré part en lot, pas en écriture immédiate', async () => {
+  it('an honored warrant leaves in a batch, not as an immediate write', async () => {
     const { daemon, wallet, sink } = build({
       postConditionHeld: true,
       reputation: true,
@@ -398,28 +398,28 @@ describe('daemon — inscription ERC-8004', () => {
     expect(wallet.calls.filter((c) => c.functionName === 'giveFeedback')).toHaveLength(0)
     expect(sink?.pending()).toBe(1)
     expect((report.outcomes[0] as { reputation: { reason: string } }).reputation.reason).toMatch(
-      /lot/,
+      /batched/,
     )
 
-    // À l'arrêt, le lot part.
+    // On shutdown, the batch leaves.
     const flushed = await daemon.flushReputation(true)
     expect(flushed[0]).toMatchObject({ written: true, scope: 'batch', count: 1 })
     expect(wallet.calls.filter((c) => c.functionName === 'giveFeedback')).toHaveLength(1)
   })
 
-  it('un Settler qui ne peut pas noter l’agent n’empêche pas le règlement', async () => {
+  it('a Settler that cannot rate the agent does not prevent settlement', async () => {
     const { daemon, wallet } = build({
       postConditionHeld: false,
       reputation: true,
-      authorized: true, // isAuthorizedOrOwner = vrai → giveFeedback reverterait
+      authorized: true, // isAuthorizedOrOwner = true → giveFeedback would revert
       mandate: mandate({ agentId: 7n }),
     })
     const report = await daemon.tick()
 
-    // La saisie a bien eu lieu…
+    // The slash did happen…
     expect(report.outcomes[0]).toMatchObject({ kind: 'settled', action: 'slash' })
     expect(wallet.calls.some((c) => c.functionName === 'slash')).toBe(true)
-    // …et l'inscription a été refusée proprement, avec sa raison.
+    // …and the recording was refused cleanly, with its reason.
     expect(wallet.calls.some((c) => c.functionName === 'giveFeedback')).toBe(false)
     const reputation = (report.outcomes[0] as { reputation: { written: boolean; reason: string } })
       .reputation
@@ -427,7 +427,7 @@ describe('daemon — inscription ERC-8004', () => {
     expect(reputation.reason).toMatch(/Self-feedback|owner|operator/)
   })
 
-  it('sans identité ERC-8004, le mandat est réglé et le verdict publié quand même', async () => {
+  it('without an ERC-8004 identity, the warrant is settled and the verdict published anyway', async () => {
     const { daemon, wallet, publisher: pub } = build({
       postConditionHeld: false,
       reputation: true,
@@ -443,7 +443,7 @@ describe('daemon — inscription ERC-8004', () => {
   })
 })
 
-/** Variante à source d'exécutions défaillante, pour le test de l'audit trail. */
+/** Variant with a failing execution source, for the audit-trail test. */
 function daemonWithFailingExecutions(wallet: ReturnType<typeof walletSpy>) {
   return createSettlementDaemon({
     escrow: '0x00000000000000000000000000000000000000ee' as Address,
@@ -471,7 +471,7 @@ function daemonWithFailingExecutions(wallet: ReturnType<typeof walletSpy>) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// viemEscrowReader — le décodage de la struct `Warrant`
+// viemEscrowReader — decoding the `Warrant` struct
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('viemEscrowReader.read', () => {
@@ -479,8 +479,8 @@ describe('viemEscrowReader.read', () => {
   const FUNDING_NONCE = `0x${'f3'.repeat(32)}` as Hex
 
   /**
-   * La struct telle que `getWarrant` la rend : **dix** membres nommés, dont
-   * `feeBpsAtOpen` en neuvième position, juste avant `status`.
+   * The struct as `getWarrant` returns it: **ten** named members, with
+   * `feeBpsAtOpen` in ninth position, just before `status`.
    */
   function onchain(over: Record<string, unknown> = {}) {
     return {
@@ -511,15 +511,15 @@ describe('viemEscrowReader.read', () => {
     return { seen, reader: viemEscrowReader({ client, address: ESCROW, fromBlock: 0n }) }
   }
 
-  it('lit par `getWarrant`, qui rend une struct nommée', async () => {
+  it('reads through `getWarrant`, which returns a named struct', async () => {
     const { seen, reader } = readerOver(onchain())
     await reader.read(WARRANT_ID)
-    // Et non le getter `warrants`, qui aplatit en dix valeurs positionnelles où
-    // un membre inséré décale tout ce qui suit.
+    // And not the `warrants` getter, which flattens into ten positional values
+    // where an inserted member shifts everything that follows.
     expect(seen[0]?.['functionName']).toBe('getWarrant')
   })
 
-  it('décode les dix membres, `status` compris', async () => {
+  it('decodes all ten members, `status` included', async () => {
     const { reader } = readerOver(onchain())
     await expect(reader.read(WARRANT_ID)).resolves.toEqual({
       id: WARRANT_ID,
@@ -536,33 +536,33 @@ describe('viemEscrowReader.read', () => {
     })
   })
 
-  it("ne confond pas `status` avec `feeBpsAtOpen` — le décalage d'un champ", async () => {
-    // La régression que cette migration devait éviter. Un décodage positionnel
-    // écrit contre l'ancienne struct à neuf membres lirait `status` à l'index 8,
-    // c'est-à-dire `feeBpsAtOpen` : 250 sur le déploiement courant. Or
-    // `WarrantStatus[250]` vaut `undefined` et 250 !== WarrantStatus.None, donc
-    // `read()` rendrait un mandat de statut inconnu au lieu de `Open` — sans
-    // lever. Le daemon le rejetterait en `skipped` et laisserait la caution
-    // expirer vers `reclaim`, silencieusement.
+  it('does not confuse `status` with `feeBpsAtOpen` — the one-field shift', async () => {
+    // The regression this migration had to avoid. A positional decoding written
+    // against the old nine-member struct would read `status` at index 8, that
+    // is, `feeBpsAtOpen`: 250 on the current deployment. But
+    // `WarrantStatus[250]` is `undefined` and 250 !== WarrantStatus.None, so
+    // `read()` would return a warrant of unknown status instead of `Open` —
+    // without throwing. The daemon would reject it as `skipped` and let the
+    // bond expire towards `reclaim`, silently.
     const w = await readerOver(onchain()).reader.read(WARRANT_ID)
     expect(w?.status).toBe(WarrantStatus.Open)
     expect(w?.status).not.toBe(250)
     expect(w?.feeBpsAtOpen).toBe(250)
-    // Et les deux restent distincts quand le taux change.
+    // And the two stay distinct when the rate changes.
     const other = await readerOver(onchain({ feeBpsAtOpen: 0 })).reader.read(WARRANT_ID)
     expect(other?.status).toBe(WarrantStatus.Open)
     expect(other?.feeBpsAtOpen).toBe(0)
   })
 
-  it('rend `undefined` sur un mandat inconnu de l’escrow', async () => {
+  it('returns `undefined` for a warrant unknown to the escrow', async () => {
     const { reader } = readerOver(onchain({ status: 0 }))
     await expect(reader.read(WARRANT_ID)).resolves.toBeUndefined()
   })
 
-  it('le `fundingRef` est un nonce, et il est normalisé en minuscules', async () => {
+  it('the `fundingRef` is a nonce, and it is normalised to lowercase', async () => {
     const w = await readerOver(onchain()).reader.read(WARRANT_ID)
-    // Ce n'est plus un hash de transaction : c'est le nonce EIP-3009 que le
-    // contrat inscrit, et dont le token garantit l'unicité par autorisant.
+    // It is no longer a transaction hash: it is the EIP-3009 nonce the contract
+    // writes, and whose uniqueness per authorizer the token guarantees.
     expect(w?.fundingRef).toBe(FUNDING_NONCE)
   })
 })

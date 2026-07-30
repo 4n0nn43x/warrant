@@ -22,15 +22,15 @@ classifiers = [
   "Topic :: Software Development :: Libraries",
 ]
 
-# Deux dépendances, et pas une de plus. Le transport HTTP est `urllib` de la
-# bibliothèque standard : ce paquet est installé par `uvx` dans le runtime d'un
-# agent, où chaque dépendance transitive de plus est un conflit de version en
-# puissance avec ce que l'hôte importe déjà.
+# Two dependencies, and not one more. HTTP transport is the standard library's
+# `urllib`: this package is installed by `uvx` into an agent's runtime, where every
+# extra transitive dependency is a potential version conflict with whatever the
+# host already imports.
 #
-#   pydantic     — les modèles d'arguments générés, et ce que les deux
-#                  frameworks attendent comme `args_schema` ;
-#   eth-account  — la signature EIP-712 de l'autorisation EIP-3009, plus
-#                  keccak256 et l'encodage ABI dont dépend `termsHash`.
+#   pydantic     — the generated argument models, and what both frameworks expect
+#                  as `args_schema`;
+#   eth-account  — the EIP-712 signature over the EIP-3009 authorization, plus the
+#                  keccak256 and ABI encoding that `termsHash` depends on.
 dependencies = ["pydantic>=2.7", "eth-account>=0.13"]
 
 [project.optional-dependencies]

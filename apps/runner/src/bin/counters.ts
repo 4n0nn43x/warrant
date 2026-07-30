@@ -1,16 +1,16 @@
 /**
- * Compteur public, en lecture seule — ce que le dashboard et le jury lisent.
+ * Public, read-only counter — what the dashboard and the jury read.
  *
- * Séparé du runner par nécessité, pas par goût : le chiffre doit être vérifiable
- * **sans** faire tourner le runner, et par quelqu'un qui n'a ni les clés ni
- * l'envie de lancer une campagne. Ce binaire n'ouvre rien, ne signe rien, ne
- * touche à aucune clé privée : il lit le journal pour connaître la liste des
- * mandats, puis la chaîne pour connaître leur statut. Les deux sources sont
- * celles que n'importe qui peut rejouer.
+ * Split out from the runner by necessity, not by taste: the number has to be
+ * verifiable **without** running the runner, and by someone who has neither the
+ * keys nor any desire to launch a campaign. This binary opens nothing, signs
+ * nothing, touches no private key: it reads the ledger to learn the list of
+ * warrants, then the chain to learn their status. Both sources are ones anyone
+ * can replay.
  *
- * Usage :
- *   pnpm --filter @warrant/runner counters            # tableau lisible + JSON
- *   pnpm --filter @warrant/runner counters -- --json  # JSON seul, pour un pipe
+ * Usage:
+ *   pnpm --filter @warrant/runner counters            # readable table + JSON
+ *   pnpm --filter @warrant/runner counters -- --json  # JSON only, for a pipe
  */
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
@@ -31,17 +31,17 @@ function render(title: string, t: Tally): string {
   const settled = t.honored + t.slashed
   return [
     title,
-    line('mandats ouverts (total)', t.opened),
-    line('  honorés', t.honored),
-    line('  saisis', t.slashed),
-    line('  réclamés (expirés)', t.reclaimed),
-    line('  encore ouverts', t.open),
-    line('réglés', settled),
-    line('taux de saisie', `${(t.slashRateBps / 100).toFixed(2)} %`),
-    line('capital immobilisé', `${t.locked_usdc} USDC`),
-    line('capital détruit (saisies)', `${t.destroyed_usdc} USDC`),
-    line('frais payés (honorés)', `${t.fees_usdc} USDC`),
-    line('capital rendu à l’agent', `${t.refunded_usdc} USDC`),
+    line('warrants opened (total)', t.opened),
+    line('  honored', t.honored),
+    line('  slashed', t.slashed),
+    line('  reclaimed (expired)', t.reclaimed),
+    line('  still open', t.open),
+    line('settled', settled),
+    line('slash rate', `${(t.slashRateBps / 100).toFixed(2)} %`),
+    line('capital locked', `${t.locked_usdc} USDC`),
+    line('capital destroyed (slashes)', `${t.destroyed_usdc} USDC`),
+    line('fees paid (honored)', `${t.fees_usdc} USDC`),
+    line('capital returned to agent', `${t.refunded_usdc} USDC`),
   ].join('\n')
 }
 
@@ -66,14 +66,14 @@ async function main(): Promise<void> {
     console.error(
       [
         '',
-        `WARRANT — compteur onchain  (chainId ${chainId}, escrow ${escrow})`,
-        `calculé le ${counters.at}`,
+        `WARRANT — onchain counter  (chainId ${chainId}, escrow ${escrow})`,
+        `computed at ${counters.at}`,
         '',
-        render(`Campagne « ${campaign} »`, counters.campaignTally),
+        render(`Campaign "${campaign}"`, counters.campaignTally),
         '',
-        render('Tous mandats du journal', counters.total),
+        render('All warrants in the ledger', counters.total),
         counters.unknown > 0
-          ? `\n  ⚠ ${counters.unknown} mandat(s) du journal introuvables onchain — journal désynchronisé`
+          ? `\n  ⚠ ${counters.unknown} ledger warrant(s) not found onchain — ledger out of sync`
           : '',
         '',
       ].join('\n'),
@@ -81,8 +81,8 @@ async function main(): Promise<void> {
   }
   console.log(JSON.stringify(counters, null, 2))
 
-  // Le fichier est écrit aussi par ce binaire : c'est ce qui permet à un
-  // dashboard de rester à jour quand le runner ne tourne pas.
+  // This binary writes the file too: that is what lets a dashboard stay up to
+  // date while the runner is not running.
   const out = resolve(repoRoot, optional('RUNNER_COUNTERS_FILE', '.warrant/counters.json'))
   mkdirSync(dirname(out), { recursive: true })
   const tmp = `${out}.${process.pid}.tmp`
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 
 main().catch((e: unknown) => {
   console.error(
-    JSON.stringify({ msg: 'counters: échec', error: e instanceof Error ? e.message : String(e) }),
+    JSON.stringify({ msg: 'counters: failed', error: e instanceof Error ? e.message : String(e) }),
   )
   process.exit(1)
 })

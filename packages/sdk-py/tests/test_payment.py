@@ -1,13 +1,13 @@
 """Le rail de paiement : x402 v2, EIP-3009 `ReceiveWithAuthorization`, `termsHash`.
 
-Ces tests existent parce que les deux pièges du financement d'une caution sont
-**silencieux**. Signer `TransferWithAuthorization` produit un payload
-indiscernable d'un payload correct ; tirer un nonce au hasard produit une
-autorisation valide pour le token et refusée par l'escrow. Les deux ne se
-découvrent, sans ces tests, qu'en lisant un revert onchain.
+These tests exist because both traps in funding a bond are **silent**. Signing
+`TransferWithAuthorization` produces a payload indistinguishable from a correct
+one; drawing a random nonce produces an authorization the token accepts and the
+escrow refuses. Without these tests, neither is discovered except by reading an
+onchain revert.
 
-On vérifie donc que le SDK fait ce qu'il faut **et** qu'un client qui se trompe se
-fait refuser avec une phrase qui nomme la faute.
+So we verify that the SDK does the right thing **and** that a client which gets it
+wrong is refused with a sentence that names the fault.
 """
 
 from __future__ import annotations
@@ -123,14 +123,14 @@ def test_the_warrant_id_is_derived_from_the_signer(
     ).payment_required
     terms = commitment_terms(challenge or {})
     expected = warrant_id_of(DEMO_ADDRESS, terms["nonce"], terms["actionHash"])
-    # Le même nonce de mandat, rejoué à la main, doit produire l'id que le Gateway
-    # inscrira. On ne peut pas comparer au mandat ouvert plus haut : chaque 402
-    # émet un nonce neuf.
+    # The same warrant nonce, replayed by hand, must produce the id the Gateway
+    # will record. We cannot compare against the warrant opened above: every 402
+    # issues a fresh nonce.
     assert expected.startswith("0x") and len(expected) == 66
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Les deux pièges, éprouvés
+# The two traps, put to the test
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -255,7 +255,7 @@ def test_a_random_nonce_is_refused_as_a_terms_mismatch(
     assert outcome.kind == "payment-required"
     error = (outcome.payment_required or {}).get("error", "")
     assert "terms_mismatch" in error
-    # Le refus doit rendre les six termes : l'agent n'a alors qu'à resigner.
+    # The refusal must return all six terms: the agent then only has to re-sign.
     for term in ("beneficiary=", "bond=", "conditionHash=", "actionHash=", "duration="):
         assert term in error, f"the refusal does not report {term}"
 
@@ -315,7 +315,7 @@ def test_the_signer_refuses_the_spec_default_transfer_method() -> None:
                         "extra": {
                             "name": "USDC",
                             "version": "2",
-                            # Le 402 se contredit : type receive, méthode transfer.
+                            # The 402 contradicts itself: receive type, transfer method.
                             "primaryType": RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE,
                             "assetTransferMethod": "eip3009",
                         },

@@ -160,15 +160,15 @@ export function stakeWeightedScore(stats: Stats): number | null {
   return Number((honored * 10000n) / total) / 10000
 }
 
-// Port 8402 — celui du Gateway (`PORT` dans packages/server/src/bin/gateway.ts).
-// L'ancienne valeur 8787 est le port du serveur MCP : l'explorer interrogeait
-// donc un service qui ne sert pas cette route, et retombait systématiquement.
+// Port 8402 — the Gateway's own (`PORT` in packages/server/src/bin/gateway.ts).
+// The former value 8787 is the MCP server's port: the explorer was therefore
+// querying a service that does not serve this route, and always fell through.
 const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:8402'
-// Doit être un nœud d'ARCHIVE : reconstruire l'historique des mandats se fait
-// par `eth_getLogs` sur des plages passées, ce qui est une requête d'archive.
-// `ethereum-sepolia-rpc.publicnode.com` — l'ancienne valeur — les refuse toutes
-// (`-32602 Archive requests require a personal token`) et rendait donc cette
-// source inutilisable, exactement quand elle sert : Gateway indisponible.
+// Must be an ARCHIVE node: rebuilding the warrant history means `eth_getLogs`
+// over past ranges, which is an archive query.
+// `ethereum-sepolia-rpc.publicnode.com` — the former value — refuses every one
+// of them (`-32602 Archive requests require a personal token`) and so made this
+// source useless exactly when it earns its keep: Gateway unavailable.
 const RPC = import.meta.env.VITE_RPC_URL ?? 'https://sepolia.drpc.org'
 const ESCROW_ADDRESS = import.meta.env.VITE_ESCROW_ADDRESS ?? ESCROW
 const CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID ?? SEPOLIA)

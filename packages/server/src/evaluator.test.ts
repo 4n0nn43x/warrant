@@ -1,16 +1,15 @@
 /**
- * Tests de l'évaluateur de post-conditions.
+ * Tests for the post-condition evaluator.
  *
- * Approche : un `PublicClient` simulé qui se comporte comme une petite chaîne
- * indexée par bloc. Choisi contre un fork anvil parce que les propriétés à
- * prouver ici sont *temporelles et adversariales* — « une transaction tierce du
- * même bloc ne doit pas être imputée à l'agent », « lire au mauvais bloc change
- * le verdict », « une panne RPC ne saisit jamais » — et qu'elles se construisent
- * exactement, en millisecondes, sans dépendre d'un binaire externe ni d'un état
- * de fork.
+ * Approach: a simulated `PublicClient` behaving like a small chain indexed by
+ * block. Chosen over an anvil fork because the properties to be proven here are
+ * *temporal and adversarial* — "a third-party transaction in the same block
+ * must not be imputed to the agent", "reading at the wrong block changes the
+ * verdict", "an RPC outage never slashes" — and they are built exactly, in
+ * milliseconds, without depending on an external binary or on fork state.
  *
- * Le mock **refuse toute lecture sans `blockNumber`** : la règle « jamais
- * `latest` » est donc vérifiée par construction sur chacun des tests.
+ * The mock **refuses every read that carries no `blockNumber`**: the "never
+ * `latest`" rule is therefore verified by construction on each of these tests.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -37,7 +36,7 @@ import { actionHash as defaultActionHash, canonicalize } from '@warrant/core'
 import type { Check, ConditionSpec } from './checks/types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Décor
+// Fixtures
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TOKEN = '0x1111111111111111111111111111111111111111' as const
@@ -72,7 +71,7 @@ const REVOKE_CALLDATA = encodeFunctionData({
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Chaîne simulée
+// Simulated chain
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface MockLog {
@@ -98,7 +97,7 @@ interface MockReceipt {
   logs: MockLog[]
 }
 
-/** État onchain déclaré à un bloc donné ; les blocs suivants héritent. */
+/** Onchain state declared at a given block; later blocks inherit it. */
 interface Snapshot {
   allowance?: Record<string, bigint>
   balanceOf?: Record<string, bigint>
@@ -112,13 +111,13 @@ interface Scenario {
   snapshots: Record<number, Snapshot>
   txs: Record<string, { tx: MockTx; receipt: MockReceipt }>
   rpcUrl?: string
-  /** Méthodes qui doivent échouer, pour simuler une panne RPC. */
+  /** Methods that must fail, so as to simulate an RPC outage. */
   failing?: string[]
 }
 
 interface MockClient {
   client: PublicClient
-  /** Journal des lectures : `method@block`. Sert à prouver l'absence de `latest`. */
+  /** Read log: `method@block`. Serves to prove the absence of `latest`. */
   reads: string[]
 }
 
@@ -153,7 +152,7 @@ function createMockClient(scenario: Scenario): MockClient {
   const reads: string[] = []
   const failing = new Set(scenario.failing ?? [])
 
-  /** Toute lecture d'état doit porter un bloc explicite. Jamais `latest`. */
+  /** Every state read must carry an explicit block. Never `latest`. */
   const requireBlock = (method: string, blockNumber: bigint | undefined): bigint => {
     if (blockNumber === undefined || blockNumber === null) {
       throw new Error(`FORBIDDEN: ${method} called without an explicit blockNumber (latest read)`)
@@ -240,7 +239,7 @@ function createMockClient(scenario: Scenario): MockClient {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Constructeurs de logs
+// Log builders
 // ─────────────────────────────────────────────────────────────────────────────
 
 const topicOf = (address: string): Hex => pad(address as Hex, { size: 32 })
@@ -252,7 +251,7 @@ const transferLog = (token: string, from: string, to: string, value: bigint): Mo
   data: amountData(value),
 })
 
-/** `Transfer` ERC-721 : le `tokenId` est indexé, donc 4 topics. */
+/** ERC-721 `Transfer`: the `tokenId` is indexed, hence 4 topics. */
 const erc721TransferLog = (token: string, from: string, to: string, id: bigint): MockLog => ({
   address: token,
   topics: [TOPIC_TRANSFER, topicOf(from), topicOf(to), amountData(id)],
@@ -266,7 +265,7 @@ const approvalLog = (token: string, owner: string, spender: string, value: bigin
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scénario de base : révocation d'allowance, le cas Circuit/Bankr
+// Base scenario: allowance revocation, the Circuit/Bankr case
 // ─────────────────────────────────────────────────────────────────────────────
 
 function baseScenario(overrides: Partial<Scenario> = {}): Scenario {
@@ -341,7 +340,7 @@ async function run(
   return { result, reads }
 }
 
-/** Un seul check : raccourci de lecture. */
+/** A single check: a reading shortcut. */
 async function one(
   check: Check,
   scenario: Scenario = baseScenario(),
@@ -366,14 +365,14 @@ describe('erc20_allowance', () => {
     value,
   })
 
-  it('passe : l’allowance a bien été révoquée au bloc de la transaction', async () => {
+  it('passes: the allowance was indeed revoked at the transaction block', async () => {
     const result = await one(check('0'))
     expect(result.pass).toBe(true)
     expect(result.observed).toBe('0')
     expect(result.expected).toContain('eq 0')
   })
 
-  it('échoue : l’allowance est toujours ouverte', async () => {
+  it('fails: the allowance is still open', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.allowance = { [key(TOKEN, TREASURY, SPENDER)]: 1n }
     const result = await one(check('0'), scenario)
@@ -381,7 +380,7 @@ describe('erc20_allowance', () => {
     expect(result.observed).toBe('1')
   })
 
-  it('cas limite : uint256 max comparé sans perte de précision', async () => {
+  it('edge case: uint256 max compared without loss of precision', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.allowance = { [key(TOKEN, TREASURY, SPENDER)]: UINT256_MAX }
     const exact = await one(check(UINT256_MAX.toString(), 'lte'), scenario)
@@ -404,29 +403,29 @@ describe('erc20_balance', () => {
     value,
   })
 
-  it('passe : la destination autorisée a bien reçu', async () => {
+  it('passes: the allowed destination did receive', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.balanceOf = { [key(TOKEN, DEST)]: 1_000_000_000n }
     const result = await one(check(DEST, 'gte', '1000000000'), scenario)
     expect(result.pass).toBe(true)
   })
 
-  it('échoue : la destination autorisée n’a rien reçu', async () => {
+  it('fails: the allowed destination received nothing', async () => {
     const result = await one(check(DEST, 'gte', '1000000000'))
     expect(result.pass).toBe(false)
     expect(result.observed).toBe('0')
   })
 
-  it('cas limite : égalité stricte à la borne, aucune tolérance implicite', async () => {
+  it('edge case: strict equality at the bound, no implicit tolerance', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.balanceOf = { [key(TOKEN, DEST)]: 999_999_999n }
     const result = await one(check(DEST, 'gte', '1000000000'), scenario)
-    expect(result.pass).toBe(false) // 1 unité atomique manquante suffit
+    expect(result.pass).toBe(false) // one missing atomic unit is enough
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.3 erc20_balance_delta — le vérificateur qu'on corrige
+// 2.3 erc20_balance_delta — the checker being fixed
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('erc20_balance_delta', () => {
@@ -444,49 +443,49 @@ describe('erc20_balance_delta', () => {
     return scenario
   }
 
-  it('passe : la sortie du trésor reste dans la borne engagée', async () => {
+  it('passes: the treasury outflow stays within the committed bound', async () => {
     const scenario = withTransfers([transferLog(TOKEN, TREASURY, DEST, 200n)])
     const result = await one(check('gte', '-300'), scenario)
     expect(result.pass).toBe(true)
     expect(result.observed).toContain('-200')
   })
 
-  it('échoue : la sortie dépasse la borne engagée', async () => {
+  it('fails: the outflow exceeds the committed bound', async () => {
     const scenario = withTransfers([transferLog(TOKEN, TREASURY, DEST, 500n)])
     const result = await one(check('gte', '-300'), scenario)
     expect(result.pass).toBe(false)
     expect(result.observed).toContain('-500')
   })
 
-  it('cas limite : un auto-transfert s’annule, delta nul', async () => {
+  it('edge case: a self-transfer cancels out, zero delta', async () => {
     const scenario = withTransfers([transferLog(TOKEN, TREASURY, TREASURY, 10n ** 12n)])
     const result = await one(check('eq', '0'), scenario)
     expect(result.pass).toBe(true)
     expect(result.observed).toContain('0 (in=1000000000000, out=1000000000000')
   })
 
-  it('cas limite : un Transfer ERC-721 (4 topics) n’est pas un montant fongible', async () => {
+  it('edge case: an ERC-721 Transfer (4 topics) is not a fungible amount', async () => {
     const scenario = withTransfers([erc721TransferLog(TOKEN, TREASURY, DEST, 777n)])
     const result = await one(check('eq', '0'), scenario)
     expect(result.pass).toBe(true)
   })
 
-  it('cas limite : les transferts d’un autre token ne comptent pas', async () => {
+  it('edge case: transfers of another token do not count', async () => {
     const scenario = withTransfers([transferLog(OTHER_TOKEN, TREASURY, DEST, 10_000n)])
     const result = await one(check('eq', '0'), scenario)
     expect(result.pass).toBe(true)
   })
 
-  it('LE BUG CORRIGÉ : une transaction tierce du même bloc n’est pas imputée à l’agent', async () => {
-    // Bloc 100 : le trésor détient 1 000 000 000.
-    // Bloc 101 : la transaction de l'agent sort 200. Une transaction tierce,
-    // incluse dans le même bloc, en sort 500 de plus. Le solde final est donc
-    // inférieur de 700 — mais 500 ne sont pas le fait de l'agent.
+  it('THE BUG THAT WAS FIXED: a third-party transaction in the same block is not imputed to the agent', async () => {
+    // Block 100: the treasury holds 1,000,000,000.
+    // Block 101: the agent's transaction sends 200 out. A third-party
+    // transaction, included in the same block, sends 500 more out. The closing
+    // balance is therefore 700 lower — but 500 of that is not the agent's doing.
     const scenario = withTransfers([transferLog(TOKEN, TREASURY, DEST, 200n)])
     scenario.snapshots[101]!.balanceOf = { [key(TOKEN, TREASURY)]: 999_999_300n }
 
-    // On prouve d'abord que le piège est réel : la différence de soldes entre
-    // blocs vaut bien -700 et saisirait la caution.
+    // First we prove the trap is real: the difference of balances between
+    // blocks does read -700 and would slash the bond.
     const { client } = createMockClient(scenario)
     const before = (await (client as unknown as {
       readContract(a: unknown): Promise<bigint>
@@ -504,9 +503,9 @@ describe('erc20_balance_delta', () => {
       args: [TREASURY],
       blockNumber: 101n,
     })) as bigint
-    expect(after - before).toBe(-700n) // la lecture naïve : saisie injuste
+    expect(after - before).toBe(-700n) // the naive read: an unjust slash
 
-    // L'évaluateur, lui, ne retient que les Transfer de la transaction engagée.
+    // The evaluator, for its part, keeps only the Transfers of the committed transaction.
     const result = await one(check('gte', '-300'), scenario)
     expect(result.observed).toContain('-200')
     expect(result.pass).toBe(true)
@@ -525,7 +524,7 @@ describe('native_balance_delta', () => {
     value,
   })
 
-  /** Transfert natif pur : pas de calldata, destinataire sans code. */
+  /** Pure native transfer: no calldata, recipient with no code. */
   function plainTransfer(): Scenario {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]! = {
@@ -541,37 +540,37 @@ describe('native_balance_delta', () => {
     return scenario
   }
 
-  it('passe : le destinataire d’un transfert natif pur crédite exactement `value`', async () => {
+  it('passes: the recipient of a pure native transfer is credited exactly `value`', async () => {
     const result = await one(check(TREASURY, 'eq', (10n ** 18n).toString()), plainTransfer())
     expect(result.pass).toBe(true)
     expect(result.observed).toContain((10n ** 18n).toString())
   })
 
-  it('échoue : le débit de l’émetteur dépasse la borne', async () => {
+  it("fails: the sender's debit exceeds the bound", async () => {
     const result = await one(check(AGENT, 'gte', '-1000000000000000000'), plainTransfer())
     expect(result.pass).toBe(false) // value + gas > 1e18
   })
 
-  it('cas limite : le gas de l’émetteur est compté, exactement', async () => {
+  it("edge case: the sender's gas is counted, exactly", async () => {
     const gas = 21_000n * 10n ** 9n
     const exact = -(10n ** 18n) - gas
     const result = await one(check(AGENT, 'eq', exact.toString()), plainTransfer())
     expect(result.pass).toBe(true)
   })
 
-  it('cas limite : un tiers non impliqué a un delta nul', async () => {
+  it('edge case: an uninvolved third party has a zero delta', async () => {
     const result = await one(check(THIRD_PARTY, 'eq', '0'), plainTransfer())
     expect(result.pass).toBe(true)
   })
 
-  it('non décidable sans tracer : lève, ne saisit pas', async () => {
-    // La transaction de base porte du calldata : des transferts internes sont
-    // possibles et invisibles depuis le receipt.
+  it('not decidable without a tracer: throws, does not slash', async () => {
+    // The base transaction carries calldata: internal transfers are possible
+    // and invisible from the receipt.
     await expect(one(check(TREASURY, 'gte', '0'))).rejects.toBeInstanceOf(UnsupportedCheckError)
     await expect(one(check(TREASURY, 'gte', '0'))).rejects.toBeInstanceOf(RpcReadError)
   })
 
-  it('non décidable si le destinataire a du code : son receive() peut redistribuer', async () => {
+  it('not decidable if the recipient has code: its receive() may redistribute', async () => {
     const scenario = plainTransfer()
     scenario.snapshots[100]!.code = { ...scenario.snapshots[100]!.code, [TREASURY]: '0x6080' }
     await expect(one(check(TREASURY, 'gte', '0'), scenario)).rejects.toBeInstanceOf(
@@ -579,7 +578,7 @@ describe('native_balance_delta', () => {
     )
   })
 
-  it('décidable avec un tracer injecté, appels internes compris', async () => {
+  it('decidable with an injected tracer, internal calls included', async () => {
     const result = await one(check(TREASURY, 'eq', '500000000000000000'), baseScenario(), {}, {
       traceNativeTransfers: async () => [
         { from: TOKEN as Hex, to: TREASURY as Hex, value: 5n * 10n ** 17n },
@@ -603,13 +602,13 @@ describe('aave_health_factor', () => {
     value,
   })
 
-  it('passe : health factor à 2,0 pour un plancher à 1,5', async () => {
+  it('passes: health factor at 2.0 for a floor at 1.5', async () => {
     const result = await one(check('gte', '1500000000000000000'))
     expect(result.pass).toBe(true)
     expect(result.observed).toBe('2000000000000000000')
   })
 
-  it('échoue : health factor tombé à 1,2', async () => {
+  it('fails: health factor down to 1.2', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101] = {
       ...scenario.snapshots[101],
@@ -620,7 +619,7 @@ describe('aave_health_factor', () => {
     expect(result.observed).toBe('1200000000000000000')
   })
 
-  it('cas limite : position sans dette, uint256 max, comparé en bigint', async () => {
+  it('edge case: position with no debt, uint256 max, compared as bigint', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101] = {
       ...scenario.snapshots[101],
@@ -631,10 +630,10 @@ describe('aave_health_factor', () => {
     expect(result.observed).toBe(UINT256_MAX.toString())
   })
 
-  it('cas limite : le 6e élément du tuple est bien celui lu', async () => {
+  it('edge case: the 6th element of the tuple is indeed the one read', async () => {
     const scenario = baseScenario()
-    // ltv (5e élément) très grand, healthFactor (6e) très petit : un évaluateur
-    // qui se tromperait d'index passerait.
+    // ltv (5th element) very large, healthFactor (6th) very small: an
+    // evaluator that got the index wrong would pass.
     scenario.snapshots[101] = {
       ...scenario.snapshots[101],
       aave: { [key(POOL, TREASURY)]: [1n, 2n, 3n, 4n, UINT256_MAX, 1n] },
@@ -663,13 +662,13 @@ describe('staticcall_result', () => {
     value,
   })
 
-  it('passe : la lecture view rend 0 au bloc d’évaluation', async () => {
+  it('passes: the view read returns 0 at the evaluation block', async () => {
     const result = await one(check('lte', '0'))
     expect(result.pass).toBe(true)
     expect(result.observed).toBe('0')
   })
 
-  it('échoue : la lecture view rend une valeur hors borne', async () => {
+  it('fails: the view read returns an out-of-bound value', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.call = {
       [key(TOKEN, '0xdeadbeef')]: encodeAbiParameters([{ type: 'uint256' }], [7n]),
@@ -679,7 +678,7 @@ describe('staticcall_result', () => {
     expect(result.observed).toBe('7')
   })
 
-  it('cas limite : décodage int256 négatif', async () => {
+  it('edge case: negative int256 decoding', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.call = {
       [key(TOKEN, '0xdeadbeef')]: encodeAbiParameters([{ type: 'int256' }], [-5n]),
@@ -689,7 +688,7 @@ describe('staticcall_result', () => {
     expect(result.observed).toBe('-5')
   })
 
-  it('cas limite : décodage bool et address', async () => {
+  it('edge case: bool and address decoding', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.call = {
       [key(TOKEN, '0xdeadbeef')]: encodeAbiParameters([{ type: 'bool' }], [true]),
@@ -706,14 +705,14 @@ describe('staticcall_result', () => {
     expect(asAddress.observed).toBe(DEST.toLowerCase())
   })
 
-  it('un revert est une lecture non concluante, pas un échec de post-condition', async () => {
+  it('a revert is an inconclusive read, not a post-condition failure', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.call = {}
     scenario.snapshots[100]!.call = {}
     await expect(one(check('lte', '0'), scenario)).rejects.toBeInstanceOf(RpcReadError)
   })
 
-  it('rejette un decodeAs hors catalogue', async () => {
+  it('rejects a decodeAs outside the catalogue', async () => {
     const bad = { ...(check('eq', '0') as Record<string, unknown>), decodeAs: 'string' } as Check
     await expect(one(bad)).rejects.toBeInstanceOf(InvalidSpecError)
   })
@@ -731,24 +730,24 @@ describe('event_emitted', () => {
     minCount,
   })
 
-  it('passe : l’Approval attendu est présent dans les logs de la transaction', async () => {
+  it('passes: the expected Approval is present in the transaction logs', async () => {
     const result = await one(check(1))
     expect(result.pass).toBe(true)
     expect(result.observed).toBe('1')
   })
 
-  it('échoue : l’événement attendu n’a pas été émis par cette adresse', async () => {
+  it('fails: the expected event was not emitted by that address', async () => {
     const result = await one(check(1, OTHER_TOKEN))
     expect(result.pass).toBe(false)
     expect(result.observed).toBe('0')
   })
 
-  it('cas limite : minCount = 0 passe même sans occurrence', async () => {
+  it('edge case: minCount = 0 passes even with no occurrence', async () => {
     const result = await one(check(0, OTHER_TOKEN))
     expect(result.pass).toBe(true)
   })
 
-  it('cas limite : minCount = 2 avec exactement 2 occurrences', async () => {
+  it('edge case: minCount = 2 with exactly 2 occurrences', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(TOKEN, TREASURY, SPENDER, 0n),
@@ -758,13 +757,13 @@ describe('event_emitted', () => {
     expect((await one(check(3), scenario)).pass).toBe(false)
   })
 
-  it('rejette un minCount négatif', async () => {
+  it('rejects a negative minCount', async () => {
     await expect(one(check(-1))).rejects.toBeInstanceOf(InvalidSpecError)
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.8 nonce_advanced — un DELTA, jamais un absolu
+// 2.8 nonce_advanced — a DELTA, never an absolute
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('nonce_advanced', () => {
@@ -775,13 +774,13 @@ describe('nonce_advanced', () => {
     value,
   })
 
-  it('passe : exactement une transaction, malgré un nonce absolu de 4 000 001', async () => {
+  it('passes: exactly one transaction, despite an absolute nonce of 4,000,001', async () => {
     const result = await one(check('eq', '1'))
     expect(result.pass).toBe(true)
     expect(result.observed).toContain('1 (before=4000000, after=4000001)')
   })
 
-  it('échoue : une action parasite supplémentaire a été émise', async () => {
+  it('fails: one extra parasitic action was emitted', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.nonce = { [AGENT]: 4_000_002 }
     const result = await one(check('eq', '1'), scenario)
@@ -789,15 +788,15 @@ describe('nonce_advanced', () => {
     expect(result.observed).toContain('2 (')
   })
 
-  it('cas limite : le nonce absolu, arbitrairement grand, n’influence pas le verdict', async () => {
+  it('edge case: the absolute nonce, arbitrarily large, does not sway the verdict', async () => {
     const scenario = baseScenario()
     scenario.snapshots[100]!.nonce = { [AGENT]: 999_999_999 }
     scenario.snapshots[101]!.nonce = { [AGENT]: 1_000_000_000 }
     const result = await one(check('eq', '1'), scenario)
-    expect(result.pass).toBe(true) // un test sur l'absolu aurait échoué ici
+    expect(result.pass).toBe(true) // a test on the absolute would have failed here
   })
 
-  it('cas limite : delta nul quand le compte n’a rien émis', async () => {
+  it('edge case: zero delta when the account emitted nothing', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.nonce = { [AGENT]: 4_000_000 }
     expect((await one(check('eq', '0'), scenario)).pass).toBe(true)
@@ -805,7 +804,7 @@ describe('nonce_advanced', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2.9 no_new_approvals — le vecteur Bankr
+// 2.9 no_new_approvals — the Bankr vector
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('no_new_approvals', () => {
@@ -815,13 +814,13 @@ describe('no_new_approvals', () => {
     tokens: tokens as Hex[],
   })
 
-  it('passe : une révocation (Approval à 0) est autorisée', async () => {
+  it('passes: a revocation (Approval to 0) is allowed', async () => {
     const result = await one(check())
     expect(result.pass).toBe(true)
     expect(result.observed).toBe('0 new approvals')
   })
 
-  it('échoue : une approbation non nulle a été glissée dans la transaction', async () => {
+  it('fails: a non-zero approval was slipped into the transaction', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(TOKEN, TREASURY, SPENDER, 0n),
@@ -832,7 +831,7 @@ describe('no_new_approvals', () => {
     expect(result.observed).toContain(THIRD_PARTY)
   })
 
-  it('cas limite : une approbation d’un autre owner ne concerne pas le mandat', async () => {
+  it('edge case: an approval by another owner does not concern the warrant', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(TOKEN, THIRD_PARTY, SPENDER, UINT256_MAX),
@@ -840,17 +839,17 @@ describe('no_new_approvals', () => {
     expect((await one(check(), scenario)).pass).toBe(true)
   })
 
-  it('cas limite : `tokens` vide surveille tous les tokens, il ne se désarme pas', async () => {
+  it('edge case: an empty `tokens` watches every token, it does not disarm itself', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(OTHER_TOKEN, TREASURY, THIRD_PARTY, 1n),
     ]
     expect((await one(check([]), scenario)).pass).toBe(false)
-    // …et reste silencieux si la liste ne couvre pas ce token.
+    // …and stays silent when the list does not cover that token.
     expect((await one(check([TOKEN]), scenario)).pass).toBe(true)
   })
 
-  it('cas limite : un ApprovalForAll ERC-721 (4 topics) n’est pas un Approval ERC-20', async () => {
+  it('edge case: an ERC-721 ApprovalForAll (4 topics) is not an ERC-20 Approval', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       {
@@ -877,14 +876,14 @@ describe('calldata_matches_commitment', () => {
     registryRef: REGISTRY_REF,
   })
 
-  it('passe : la transaction exécutée est celle engagée', async () => {
+  it('passes: the executed transaction is the committed one', async () => {
     const result = await one({ kind: 'calldata_matches_commitment', actionHash: committed })
     expect(result.pass).toBe(true)
   })
 
-  it('échoue : action engagée ≠ action exécutée, et le check fautif est nommé', async () => {
+  it('fails: committed action ≠ executed action, and the offending check is named', async () => {
     const scenario = baseScenario()
-    // Même sélecteur, même cible, mais un montant d'approbation illimité.
+    // Same selector, same target, but an unlimited approval amount.
     scenario.txs[TX_HASH.toLowerCase()]!.tx.input = encodeFunctionData({
       abi: [
         {
@@ -910,7 +909,7 @@ describe('calldata_matches_commitment', () => {
     expect(result.checks[0]!.pass).toBe(false)
   })
 
-  it('cas limite : la casse de l’adresse engagée n’ouvre pas deux hashs', async () => {
+  it('edge case: the case of the committed address does not open two hashes', async () => {
     const checksummed = defaultActionHash({
       version: 1,
       chainId: 1,
@@ -919,7 +918,7 @@ describe('calldata_matches_commitment', () => {
       calldata: REVOKE_CALLDATA,
       registryRef: REGISTRY_REF,
     })
-    // La normalisation en minuscules doit rendre les deux hashs identiques.
+    // Lowercase normalisation must make the two hashes identical.
     expect(checksummed).toBe(
       defaultActionHash({
         version: 1,
@@ -932,7 +931,7 @@ describe('calldata_matches_commitment', () => {
     )
   })
 
-  it('cas limite : un registryRef différent change le hash, la classification est rejouable', async () => {
+  it('edge case: a different registryRef changes the hash, classification stays replayable', async () => {
     const otherRef = `0x${'ef'.repeat(32)}` as Hex
     const result = await one(
       { kind: 'calldata_matches_commitment', actionHash: committed },
@@ -943,7 +942,7 @@ describe('calldata_matches_commitment', () => {
     expect(result.pass).toBe(false)
   })
 
-  it('accepte un hasher injecté — celui de @warrant/core en intégration', async () => {
+  it("accepts an injected hasher — @warrant/core's one in integration", async () => {
     const injected = `0x${'11'.repeat(32)}` as Hex
     const result = await one(
       { kind: 'calldata_matches_commitment', actionHash: injected },
@@ -954,19 +953,19 @@ describe('calldata_matches_commitment', () => {
     expect(result.pass).toBe(true)
   })
 
-  it('canonicalise en JCS : clés triées, pas d’espace', () => {
+  it('canonicalises to JCS: sorted keys, no whitespace', () => {
     expect(canonicalize({ b: '2', a: 1, c: [true, null] })).toBe('{"a":1,"b":"2","c":[true,null]}')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bloc figé, idempotence, publication intégrale
+// Frozen block, idempotence, full publication
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('lecture à bloc figé', () => {
-  it('evaluateAt est respecté : lire au mauvais bloc change le verdict', async () => {
+describe('reading at a frozen block', () => {
+  it('evaluateAt is honoured: reading at the wrong block changes the verdict', async () => {
     const scenario = baseScenario()
-    // Au bloc 102, une transaction ultérieure a vidé le trésor.
+    // At block 102, a later transaction emptied the treasury.
     scenario.snapshots[102] = { balanceOf: { [key(TOKEN, TREASURY)]: 0n } }
 
     const check: Check = {
@@ -987,7 +986,7 @@ describe('lecture à bloc figé', () => {
     expect(atTx.checks[0]!.observed).not.toBe(atTxPlusOne.checks[0]!.observed)
   })
 
-  it('evaluateAt: { block: n } lit exactement ce bloc', async () => {
+  it('evaluateAt: { block: n } reads exactly that block', async () => {
     const scenario = baseScenario()
     const check: Check = {
       kind: 'erc20_allowance',
@@ -999,10 +998,10 @@ describe('lecture à bloc figé', () => {
     }
     const before = (await run([check], scenario, { evaluateAt: { block: 100 } })).result
     expect(before.evaluatedAtBlock).toBe('100')
-    expect(before.verdict).toBe('slashed') // l'allowance était encore ouverte
+    expect(before.verdict).toBe('slashed') // the allowance was still open
   })
 
-  it('aucune lecture ne part sans blockNumber explicite', async () => {
+  it('no read leaves without an explicit blockNumber', async () => {
     const { reads } = await run([
       { kind: 'erc20_allowance', token: TOKEN, owner: TREASURY, spender: SPENDER, op: 'eq', value: '0' },
       { kind: 'erc20_balance', token: TOKEN, account: TREASURY, op: 'gte', value: '0' },
@@ -1015,7 +1014,7 @@ describe('lecture à bloc figé', () => {
     for (const entry of stateReads) expect(entry).toMatch(/@\d+$/)
   })
 
-  it('resolveEvaluateAt rejette une forme inconnue', () => {
+  it('resolveEvaluateAt rejects an unknown shape', () => {
     expect(resolveEvaluateAt('tx', 10n)).toBe(10n)
     expect(resolveEvaluateAt('tx+1', 10n)).toBe(11n)
     expect(resolveEvaluateAt({ block: 7 }, 10n)).toBe(7n)
@@ -1023,7 +1022,7 @@ describe('lecture à bloc figé', () => {
   })
 })
 
-describe('idempotence et auditabilité', () => {
+describe('idempotence and auditability', () => {
   const fullSpec: Check[] = [
     { kind: 'erc20_allowance', token: TOKEN, owner: TREASURY, spender: SPENDER, op: 'eq', value: '0' },
     { kind: 'no_new_approvals', owner: TREASURY, tokens: [TOKEN] },
@@ -1031,7 +1030,7 @@ describe('idempotence et auditabilité', () => {
     { kind: 'nonce_advanced', account: AGENT, op: 'eq', value: '1' },
   ]
 
-  it('deux évaluations du même mandat rendent un résultat identique', async () => {
+  it('two evaluations of the same warrant return an identical result', async () => {
     const first = (await run(fullSpec)).result
     const second = (await run(fullSpec)).result
     expect(second).toEqual(first)
@@ -1039,7 +1038,7 @@ describe('idempotence et auditabilité', () => {
     expect(first.verdict).toBe('honored')
   })
 
-  it('checks[] est publié intégralement, vérifications passées comprises', async () => {
+  it('checks[] is published in full, passing verifications included', async () => {
     const scenario = baseScenario()
     scenario.snapshots[101]!.allowance = { [key(TOKEN, TREASURY, SPENDER)]: 1n }
     const { result } = await run(fullSpec, scenario)
@@ -1054,17 +1053,17 @@ describe('idempotence et auditabilité', () => {
     }
   })
 
-  it('publie le rpcUrl, ce qui rend le verdict rejouable', async () => {
+  it('publishes the rpcUrl, which makes the verdict replayable', async () => {
     const { result } = await run(fullSpec)
     expect(result.rpcUrl).toBe('https://rpc.independent.example/eth')
   })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le doute bénéficie à l'agent
+// Doubt benefits the agent
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('échec de lecture ≠ échec de post-condition', () => {
+describe('a read failure ≠ a post-condition failure', () => {
   const check: Check = {
     kind: 'erc20_allowance',
     token: TOKEN,
@@ -1074,19 +1073,19 @@ describe('échec de lecture ≠ échec de post-condition', () => {
     value: '0',
   }
 
-  it('une panne RPC lève RpcReadError et ne rend jamais de verdict', async () => {
+  it('an RPC outage raises RpcReadError and never returns a verdict', async () => {
     const scenario = baseScenario({ failing: ['allowance'] })
     await expect(run([check], scenario)).rejects.toBeInstanceOf(RpcReadError)
   })
 
-  it('une panne sur le receipt lève avant toute évaluation', async () => {
+  it('an outage on the receipt throws before any evaluation', async () => {
     const scenario = baseScenario({ failing: ['getTransactionReceipt'] })
     await expect(run([check], scenario)).rejects.toBeInstanceOf(RpcReadError)
   })
 
-  it('une panne partielle ne dégénère pas en slashed, même si un autre check échoue', async () => {
-    // Le check de solde échouerait franchement ; la lecture d'allowance, elle,
-    // est en panne. Le verdict ne doit pas exister.
+  it('a partial outage does not degenerate into slashed, even if another check fails', async () => {
+    // The balance check would fail outright; the allowance read, meanwhile, is
+    // down. The verdict must not exist.
     const scenario = baseScenario({ failing: ['allowance'] })
     const failing: Check = {
       kind: 'erc20_balance',
@@ -1104,7 +1103,7 @@ describe('échec de lecture ≠ échec de post-condition', () => {
     expect(verdict).toBeUndefined()
   })
 
-  it('la première erreur relevée est déterministe : deux exécutions, même message', async () => {
+  it('the first error raised is deterministic: two runs, same message', async () => {
     const scenario = baseScenario({ failing: ['allowance', 'balanceOf'] })
     const checks: Check[] = [
       { kind: 'erc20_balance', token: TOKEN, account: DEST, op: 'gte', value: '0' },
@@ -1116,7 +1115,7 @@ describe('échec de lecture ≠ échec de post-condition', () => {
     expect(String(first)).toContain('balanceOf')
   })
 
-  it('un bloc d’inclusion inattendu (réorg) lève, il ne saisit pas', async () => {
+  it('an unexpected inclusion block (reorg) throws, it does not slash', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.blockNumber = 105n
     await expect(run([check], scenario)).rejects.toBeInstanceOf(ContextMismatchError)
@@ -1125,10 +1124,10 @@ describe('échec de lecture ≠ échec de post-condition', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation de la spec
+// Spec validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('validation de la ConditionSpec', () => {
+describe('ConditionSpec validation', () => {
   const filler = (i: number): Check => ({
     kind: 'erc20_balance',
     token: TOKEN,
@@ -1137,22 +1136,22 @@ describe('validation de la ConditionSpec', () => {
     value: '0',
   })
 
-  it('rejette un kind hors catalogue', async () => {
+  it('rejects a kind outside the catalogue', async () => {
     await expect(run([{ kind: 'price_was_good' } as unknown as Check])).rejects.toBeInstanceOf(
       UnknownCheckKindError,
     )
   })
 
-  it('rejette une liste de checks vide', async () => {
+  it('rejects an empty checks list', async () => {
     await expect(run([])).rejects.toBeInstanceOf(InvalidSpecError)
   })
 
-  it('rejette plus de 8 checks déclarés', async () => {
+  it('rejects more than 8 declared checks', async () => {
     const nine = Array.from({ length: 9 }, (_, i) => filler(i + 1))
     await expect(run(nine)).rejects.toBeInstanceOf(InvalidSpecError)
   })
 
-  it('calldata_matches_commitment est hors quota : 8 + 1 est accepté', async () => {
+  it('calldata_matches_commitment is outside the quota: 8 + 1 is accepted', async () => {
     const eight = Array.from({ length: 8 }, (_, i) => filler(i + 1))
     const committed = defaultActionHash({
       version: 1,
@@ -1167,7 +1166,7 @@ describe('validation de la ConditionSpec', () => {
     expect(result.verdict).toBe('honored')
   })
 
-  it('rejette un calldata_matches_commitment dupliqué (tentative de surcharge)', async () => {
+  it('rejects a duplicated calldata_matches_commitment (override attempt)', async () => {
     const hash = `0x${'00'.repeat(32)}` as Hex
     await expect(
       run([
@@ -1177,13 +1176,13 @@ describe('validation de la ConditionSpec', () => {
     ).rejects.toBeInstanceOf(InvalidSpecError)
   })
 
-  it('rejette une version de DSL inconnue', async () => {
+  it('rejects an unknown DSL version', async () => {
     await expect(run([filler(1)], baseScenario(), { version: 2 as 1 })).rejects.toBeInstanceOf(
       InvalidSpecError,
     )
   })
 
-  it('rejette une value qui n’est pas un entier décimal', async () => {
+  it('rejects a value that is not a decimal integer', async () => {
     const bad: Check = {
       kind: 'erc20_balance',
       token: TOKEN,
@@ -1196,23 +1195,23 @@ describe('validation de la ConditionSpec', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le scénario complet de la doc § 6.1
+// The complete scenario from the doc § 6.1
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('scénario Circuit/Bankr (docs/07 § 6.1)', () => {
+describe('Circuit/Bankr scenario (docs/07 § 6.1)', () => {
   const checks: Check[] = [
     { kind: 'erc20_allowance', token: TOKEN, owner: TREASURY, spender: SPENDER, op: 'eq', value: '0' },
     { kind: 'no_new_approvals', owner: TREASURY, tokens: [TOKEN] },
     { kind: 'erc20_balance_delta', token: TOKEN, account: TREASURY, op: 'gte', value: '0' },
   ]
 
-  it('révocation propre → honored', async () => {
+  it('clean revocation → honored', async () => {
     const { result } = await run(checks)
     expect(result.verdict).toBe('honored')
     expect(result.checks.every((c) => c.pass)).toBe(true)
   })
 
-  it('révocation qui rouvre une permission ailleurs → slashed, sur le bon check', async () => {
+  it('revocation that reopens a permission elsewhere → slashed, on the right check', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(TOKEN, TREASURY, SPENDER, 0n),
@@ -1225,7 +1224,7 @@ describe('scénario Circuit/Bankr (docs/07 § 6.1)', () => {
     expect(failed[0]!.kind).toBe('no_new_approvals')
   })
 
-  it('révocation qui draine le trésor au passage → slashed sur le delta', async () => {
+  it('revocation that drains the treasury along the way → slashed on the delta', async () => {
     const scenario = baseScenario()
     scenario.txs[TX_HASH.toLowerCase()]!.receipt.logs = [
       approvalLog(TOKEN, TREASURY, SPENDER, 0n),

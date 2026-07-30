@@ -1,45 +1,47 @@
 /**
- * Point d'entrée du daemon de règlement.
+ * Entry point of the settlement daemon.
  *
- * Le composant qui manquait : sans lui, des mandats s'ouvrent, des actions
- * s'exécutent, et rien ne se règle jamais. C'est le seul processus du système
- * qui déplace des fonds vers un tiers, et c'est pour ça qu'il porte une clé
- * distincte de celle du Gateway (invariant I10).
+ * The component that was missing: without it, warrants open, actions execute, and
+ * nothing ever settles. It is the only process in the system that moves funds to
+ * a third party, and that is why it carries a key distinct from the Gateway's
+ * (invariant I10).
  *
- * Ce qu'il fait, en boucle :
+ * What it does, in a loop:
  *
- *   1. balaye `WarrantOpened` et relit `warrants(id)` — la chaîne fait autorité ;
- *   2. récupère la spec du mandat dans le journal, et la **vérifie** contre les
- *      engagements onchain avant de s'en servir ;
- *   3. interroge l'audit trail KeeperHub pour localiser la transaction ;
- *   4. attend les confirmations sur un RPC indépendant, réévalue la
- *      post-condition à bloc figé, et appelle `decide()` ;
- *   5. soumet `honor` / `slash`, ou s'abstient et laisse `reclaim` rembourser ;
- *   6. publie le document de verdict à une URI stable qu'il sert lui-même ;
- *   7. inscrit le verdict dans ERC-8004 : immédiat sur `slashed`, par lots sur
- *      `honored`, jamais sur `reclaimed`.
+ *   1. sweeps `WarrantOpened` and re-reads `warrants(id)` — the chain is
+ *      authoritative;
+ *   2. fetches the warrant's spec from the ledger, and **verifies** it against the
+ *      onchain commitments before using it;
+ *   3. queries the KeeperHub audit trail to locate the transaction;
+ *   4. waits for confirmations on an independent RPC, re-evaluates the
+ *      post-condition at a pinned block, and calls `decide()`;
+ *   5. submits `honor` / `slash`, or abstains and lets `reclaim` refund;
+ *   6. publishes the verdict document at a stable URI it serves itself;
+ *   7. records the verdict in ERC-8004: immediately on `slashed`, in batches on
+ *      `honored`, never on `reclaimed`.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Ce qui fait échouer le démarrage, et pourquoi
+ * What makes startup fail, and why
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Un daemon de règlement mal configuré est pire qu'un daemon absent : il brûle
- * du gas sur des transactions qui révertent, ou — bien plus grave — il juge sur
- * des lectures fausses. Quatre vérifications précèdent donc la première boucle,
- * et chacune est bloquante :
+ * A misconfigured settlement daemon is worse than an absent one: it burns gas on
+ * transactions that revert, or — far more serious — it judges on false reads.
+ * Four checks therefore precede the first loop, and each one is blocking:
  *
- *   • le `chainId` du RPC de l'escrow est celui annoncé ;
- *   • `settler()` onchain **est** l'adresse dérivée de `SETTLER_PRIVATE_KEY` —
- *     sinon `honor` et `slash` reverteraient en `NotSettler()` ;
- *   • le RPC d'évaluation sait répondre à une **lecture à bloc passé**. Une
- *     évaluation à bloc figé est, au sens JSON-RPC, une requête d'archive : un
- *     nœud qui les refuse rend tout verdict irrejouable et, pire, ferait juger
- *     sur des lectures qui ne sont pas celles annoncées ;
- *   • le solde en gas du Settler est non nul, sinon aucun règlement ne partira.
+ *   • the `chainId` of the escrow's RPC is the one announced;
+ *   • the onchain `settler()` **is** the address derived from
+ *     `SETTLER_PRIVATE_KEY` — otherwise `honor` and `slash` would revert with
+ *     `NotSettler()`;
+ *   • the evaluation RPC knows how to answer a **read at a past block**. An
+ *     evaluation at a pinned block is, in JSON-RPC terms, an archive request: a
+ *     node that refuses them makes every verdict unreplayable and, worse, would
+ *     have us judge on reads that are not the ones announced;
+ *   • the Settler's gas balance is non-zero, otherwise no settlement will ever go
+ *     out.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/server settler
- *   SETTLER_ONCE=1 pnpm --filter @warrant/server settler   # un seul tour
+ *   SETTLER_ONCE=1 pnpm --filter @warrant/server settler   # a single pass
  */
 
 import { readFileSync } from 'node:fs'
@@ -63,20 +65,20 @@ import { VerdictBatcher } from '../reputation.js'
 import { createVerdictServer, fileVerdictPublisher } from '../verdicts.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Environnement
+// Environment
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Un nom canonique par variable, **aucun alias** : c'est la convention de
- * `.env.example`, et sa raison est qu'un binaire qui accepte deux orthographes
- * finit par lire celle qui n'est pas renseignée.
+ * One canonical name per variable, **no alias**: that is the `.env.example`
+ * convention, and its reason is that a binary accepting two spellings ends up
+ * reading the one that is not filled in.
  */
 function required(name: string): string {
   const value = process.env[name]
   if (!value || value.trim() === '') {
     throw new Error(
-      `variable d'environnement manquante: ${name} — ` +
-        'voir packages/server/src/bin/settler.ts pour la liste complète',
+      `missing environment variable: ${name} — ` +
+        'see packages/server/src/bin/settler.ts for the full list',
     )
   }
   return value.trim()
@@ -93,33 +95,33 @@ function flag(name: string): boolean {
 
 function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${name} : adresse EVM attendue, reçu "${value}"`)
+    throw new Error(`${name}: EVM address expected, got "${value}"`)
   }
   return value.toLowerCase() as Address
 }
 
 /**
- * Chaînes connues. Les testnets sont énumérés explicitement : c'est cette liste
- * qui autorise une écriture ERC-8004 sans confirmation supplémentaire.
+ * Known chains. The testnets are enumerated explicitly: it is this list that
+ * authorizes an ERC-8004 write without further confirmation.
  */
 const CHAINS = { 1: mainnet, 8453: base, 84532: baseSepolia, 11155111: sepolia } as const
 
 /**
- * Chaînes de test. Toute chaîne absente de cet ensemble est traitée comme un
- * **mainnet**, et l'écriture ERC-8004 y est refusée sauf autorisation
- * explicite. Le défaut-refus est volontaire : la liste des mainnets est ouverte,
- * celle des testnets qu'on utilise ne l'est pas.
+ * Test chains. Any chain absent from this set is treated as a **mainnet**, and
+ * the ERC-8004 write is refused there barring explicit authorization. Refusal by
+ * default is deliberate: the list of mainnets is open-ended, the list of testnets
+ * we use is not.
  */
 const TESTNET_CHAIN_IDS = new Set([11155111, 84532, 421614, 11155420, 17000, 80002, 97])
 
 /**
- * Table `adresse d'agent → agentId` ERC-8004.
+ * The `agent address → agentId` ERC-8004 table.
  *
- * L'`IdentityRegistry` n'expose aucune recherche inverse par propriétaire, et
- * balayer `Registered` depuis le bloc de genèse n'est pas praticable sur un RPC
- * public. La table est donc fournie à l'exploitation. Son absence n'empêche
- * rien : le mandat est réglé et le verdict publié, seule l'inscription
- * ERC-8004 est sautée avec une raison explicite.
+ * The `IdentityRegistry` exposes no reverse lookup by owner, and sweeping
+ * `Registered` from the genesis block is not practicable on a public RPC. The
+ * table is therefore supplied by operations. Its absence prevents nothing: the
+ * warrant is settled and the verdict published, only the ERC-8004 record is
+ * skipped, with an explicit reason.
  */
 function loadAgentIds(): AgentIdResolver | undefined {
   const file = optional('ERC8004_AGENT_IDS_FILE', '')
@@ -133,25 +135,24 @@ function loadAgentIds(): AgentIdResolver | undefined {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Vérifications de démarrage
+// Startup checks
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le RPC d'évaluation sait-il lire un état **passé** ?
+ * Does the evaluation RPC know how to read **past** state?
  *
- * Beaucoup de nœuds publics servent `latest` et refusent l'archive : la réponse
- * est alors une erreur JSON-RPC, pas un silence, et elle n'apparaît qu'au
- * premier verdict — c'est-à-dire trop tard. On sonde donc au démarrage, sur un
- * bloc suffisamment ancien pour être hors de la fenêtre chaude d'un nœud
- * non-archive.
+ * Many public nodes serve `latest` and refuse archive: the answer is then a
+ * JSON-RPC error, not a silence, and it only appears at the first verdict — that
+ * is to say, too late. So we probe at startup, on a block old enough to be
+ * outside the hot window of a non-archive node.
  *
- * La sonde porte sur `eth_getBalance` et **non** sur un appel à l'escrow. Un
- * `eth_call` sur le contrat confondait deux échecs très différents : « ce nœud
- * refuse l'archive » et « le contrat n'existait pas encore à ce bloc ». Un
- * escrow fraîchement déployé faisait donc échouer le démarrage sur un nœud
- * d'archive parfaitement capable — le message accusait le RPC à tort. Le solde
- * d'une adresse, lui, est défini à tout bloc depuis la genèse : l'échec ne peut
- * plus signifier qu'une chose.
+ * The probe is on `eth_getBalance` and **not** on a call to the escrow. An
+ * `eth_call` against the contract conflated two very different failures: "this
+ * node refuses archive" and "the contract did not exist yet at that block". A
+ * freshly deployed escrow therefore failed startup on a perfectly capable archive
+ * node — the message accused the RPC wrongly. An address's balance, on the other
+ * hand, is defined at every block since genesis: the failure can no longer mean
+ * more than one thing.
  */
 async function assertArchiveCapable(
   client: PublicClient,
@@ -164,48 +165,48 @@ async function assertArchiveCapable(
     await client.getBalance({ address: escrow, blockNumber: probed })
   } catch (e) {
     throw new Error(
-      `le RPC d'évaluation ne sait pas lire à bloc passé (essai au bloc ${probed}, ` +
-        `tête ${head}) : ${e instanceof Error ? e.message : String(e)}.\n` +
-        "L'évaluation d'une post-condition est une lecture à bloc figé, donc une " +
-        "requête d'archive. Sur un nœud non-archive, aucun verdict n'est rejouable " +
-        'et le Settler jugerait sur des lectures qui ne sont pas celles annoncées. ' +
-        'Configurer EVALUATOR_RPC sur un nœud d’archive (voir .env).',
+      `the evaluation RPC cannot read at a past block (tried at block ${probed}, ` +
+        `head ${head}): ${e instanceof Error ? e.message : String(e)}.\n` +
+        'Evaluating a post-condition is a read at a pinned block, hence an archive ' +
+        'request. On a non-archive node, no verdict is replayable and the Settler ' +
+        'would judge on reads that are not the ones announced. ' +
+        'Point EVALUATOR_RPC at an archive node (see .env).',
     )
   }
   return { probedBlock: probed }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Démarrage
+// Startup
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  // Le script `pnpm settler` charge déjà `../../.env` via
-  // `node --env-file-if-exists`. Ce repli sert au lancement direct
-  // (`tsx src/bin/settler.ts`) : sans lui, le même fichier serait chargé dans un
-  // cas et pas dans l'autre, et la différence ne se verrait qu'à la première
-  // variable manquante. Node ≥ 20.12 sait le faire sans dépendance.
+  // The `pnpm settler` script already loads `../../.env` via
+  // `node --env-file-if-exists`. This fallback covers the direct launch
+  // (`tsx src/bin/settler.ts`): without it, the same file would be loaded in one
+  // case and not in the other, and the difference would only show up at the first
+  // missing variable. Node ≥ 20.12 can do it with no dependency.
   for (const candidate of [optional('WARRANT_ENV_FILE', ''), '.env', '../../.env']) {
     if (!candidate) continue
     try {
       process.loadEnvFile(candidate)
       break
     } catch {
-      // Absent ou illisible : on essaie le suivant, puis l'environnement du
-      // processus fait foi.
+      // Absent or unreadable: we try the next one, then the process environment
+      // is authoritative.
     }
   }
 
   const escrowChainId = Number(optional('WARRANT_ESCROW_CHAIN_ID', '11155111'))
   const chain = CHAINS[escrowChainId as keyof typeof CHAINS]
-  if (!chain) throw new Error(`WARRANT_ESCROW_CHAIN_ID non supportée: ${escrowChainId}`)
+  if (!chain) throw new Error(`unsupported WARRANT_ESCROW_CHAIN_ID: ${escrowChainId}`)
 
   const escrow = address('WARRANT_ESCROW_ADDRESS', required('WARRANT_ESCROW_ADDRESS'))
   const escrowRpc = optional('WARRANT_ESCROW_RPC', chain.rpcUrls.default.http[0])
   /**
-   * RPC d'évaluation : **indépendant de KeeperHub**, et publié tel quel dans
-   * chaque verdict. Utiliser le même fournisseur pour exécuter et pour juger
-   * réintroduirait la circularité que tout le projet cherche à éviter.
+   * Evaluation RPC: **independent of KeeperHub**, and published as-is in every
+   * verdict. Using the same provider to execute and to judge would reintroduce
+   * the circularity the whole project sets out to avoid.
    */
   const evaluatorRpc = optional('EVALUATOR_RPC', escrowRpc)
 
@@ -217,15 +218,15 @@ async function main(): Promise<void> {
   const localWallet = createWalletClient({ account, chain, transport: http(escrowRpc) })
 
   /**
-   * Le compte **local** est réinjecté à chaque écriture.
+   * The **local** account is re-injected on every write.
    *
-   * `SubmitOptions.account` est typé `Address`, et viem traite une adresse nue
-   * comme un compte JSON-RPC : il tente alors `eth_sendTransaction`, que les
-   * nœuds publics ne servent pas — la transaction de règlement échouerait avec
-   * « method is not available », c'est-à-dire au pire moment, une fois la
-   * décision prise. Réinjecter l'objet `Account` restaure la signature locale
-   * sans toucher à `settler.ts`, dont la signature reste juste : l'adresse est
-   * bien ce qui identifie le Settler, elle n'est simplement pas ce qui signe.
+   * `SubmitOptions.account` is typed `Address`, and viem treats a bare address as
+   * a JSON-RPC account: it then attempts `eth_sendTransaction`, which public nodes
+   * do not serve — the settlement transaction would fail with "method is not
+   * available", that is to say at the worst possible moment, once the decision has
+   * been taken. Re-injecting the `Account` object restores local signing without
+   * touching `settler.ts`, whose signature remains correct: the address is indeed
+   * what identifies the Settler, it simply is not what signs.
    */
   const walletClient = {
     ...localWallet,
@@ -233,12 +234,12 @@ async function main(): Promise<void> {
       localWallet.writeContract({ ...args, account } as never),
   } as unknown as ReturnType<typeof createWalletClient>
 
-  // ── Vérifications bloquantes ───────────────────────────────────────────────
+  // ── Blocking checks ────────────────────────────────────────────────────────
   const observedChainId = await escrowClient.getChainId()
   if (observedChainId !== escrowChainId) {
     throw new Error(
-      `le RPC ${escrowRpc} répond chainId ${observedChainId}, alors que ` +
-        `WARRANT_ESCROW_CHAIN_ID annonce ${escrowChainId} : un règlement partirait sur la mauvaise chaîne`,
+      `RPC ${escrowRpc} answers chainId ${observedChainId}, while ` +
+        `WARRANT_ESCROW_CHAIN_ID announces ${escrowChainId}: a settlement would go out on the wrong chain`,
     )
   }
 
@@ -249,8 +250,8 @@ async function main(): Promise<void> {
   })) as Address
   if (onchainSettler.toLowerCase() !== settler) {
     throw new Error(
-      `settler() onchain vaut ${onchainSettler}, la clé configurée est ${settler} : ` +
-        'honor et slash reverteraient en NotSettler(). Rien ne serait jamais réglé.',
+      `onchain settler() is ${onchainSettler}, the configured key is ${settler}: ` +
+        'honor and slash would revert with NotSettler(). Nothing would ever be settled.',
     )
   }
 
@@ -263,12 +264,12 @@ async function main(): Promise<void> {
   const gas = await escrowClient.getBalance({ address: settler })
   if (gas === 0n) {
     throw new Error(
-      `le Settler ${settler} n'a aucun gas sur la chaîne ${escrowChainId} : ` +
-        'aucune transaction de règlement ne pourrait être diffusée',
+      `Settler ${settler} has no gas on chain ${escrowChainId}: ` +
+        'no settlement transaction could be broadcast',
     )
   }
 
-  // ── Journal, verdicts, ERC-8004 ────────────────────────────────────────────
+  // ── Ledger, verdicts, ERC-8004 ─────────────────────────────────────────────
   const journal = fileWarrantStore({
     path: optional('WARRANT_JOURNAL_FILE', '.warrant/warrants.jsonl'),
   })
@@ -291,11 +292,11 @@ async function main(): Promise<void> {
   )
 
   /**
-   * Refus par défaut sur mainnet.
+   * Refusal by default on mainnet.
    *
-   * Une écriture ERC-8004 est une transaction réelle, avec un coût réel et une
-   * trace publique définitive. Rien ici ne doit pouvoir partir sur un mainnet
-   * par simple héritage d'une variable d'environnement.
+   * An ERC-8004 write is a real transaction, with a real cost and a permanent
+   * public trace. Nothing here must be able to go out on a mainnet by mere
+   * inheritance of an environment variable.
    */
   const mainnetBlocked = !isTestnet && !flag('ERC8004_ALLOW_MAINNET')
   const erc8004Enabled =
@@ -326,14 +327,14 @@ async function main(): Promise<void> {
   })
 
   /**
-   * Premier bloc balayé.
+   * First block swept.
    *
-   * Sans valeur explicite, on ne repart pas du bloc 0 : un mandat vit au plus
-   * `MAX_DURATION` = 7 jours (WarrantEscrow.sol), donc **aucun** mandat plus
-   * ancien que cette fenêtre ne peut encore être en statut `Open`. Balayer
-   * au-delà coûterait des centaines de requêtes `eth_getLogs` à chaque
-   * démarrage pour ne rien découvrir de réglable. 60 000 blocs couvrent 7 jours
-   * sur une chaîne à 12 s de bloc, avec de la marge.
+   * With no explicit value, we do not restart from block 0: a warrant lives at
+   * most `MAX_DURATION` = 7 days (WarrantEscrow.sol), so **no** warrant older
+   * than that window can still be in `Open` status. Sweeping beyond it would cost
+   * hundreds of `eth_getLogs` requests at every startup to discover nothing
+   * settleable. 60,000 blocks cover 7 days on a chain with 12 s blocks, with room
+   * to spare.
    */
   const head = await escrowClient.getBlockNumber()
   const lookback = BigInt(optional('SETTLER_LOOKBACK_BLOCKS', '60000'))
@@ -352,17 +353,17 @@ async function main(): Promise<void> {
       address: escrow,
       fromBlock,
       chunkBlocks: BigInt(optional('SETTLER_LOG_CHUNK', '9000')),
-      onScanError: (error) => emit({ msg: 'settler: balayage incomplet', error }),
+      onScanError: (error) => emit({ msg: 'settler: incomplete sweep', error }),
     }),
     mandates: journalMandateSource(journal, loadAgentIds()),
-    // L'audit trail localise et date ; il ne décide de rien.
+    // The audit trail locates and dates; it decides nothing.
     executions: { get: (id) => kh.getDirectExecution(id) },
     actionClient: actionClient as PublicClient,
     evaluatorRpcUrl: evaluatorRpc,
     escrowClient,
-    // Sans `SETTLER_DRY_RUN`, le daemon écrit onchain. Le mode observation est
-    // explicite : un daemon qu'on croit actif et qui ne règle rien serait le
-    // pire des deux mondes.
+    // Without `SETTLER_DRY_RUN`, the daemon writes onchain. Observation mode is
+    // explicit: a daemon believed to be active that settles nothing would be the
+    // worst of both worlds.
     ...(flag('SETTLER_DRY_RUN')
       ? {}
       : { submitOptions: { escrow, walletClient, account: settler, chain } }),
@@ -372,7 +373,7 @@ async function main(): Promise<void> {
     confirmationTimeoutMs: Number(optional('SETTLER_CONFIRMATION_TIMEOUT_MS', '120000')),
   })
 
-  // ── Serveur de verdicts ────────────────────────────────────────────────────
+  // ── Verdict server ─────────────────────────────────────────────────────────
   const verdictServer = createVerdictServer({ dir: verdictDir, baseUri: verdictBaseUri })
   serve({ fetch: verdictServer.fetch, port })
 
@@ -396,10 +397,10 @@ async function main(): Promise<void> {
       : {
           disabled: true,
           reason: mainnetBlocked
-            ? `chaîne ${erc8004ChainId} traitée comme mainnet : écriture refusée sans ERC8004_ALLOW_MAINNET=1`
+            ? `chain ${erc8004ChainId} treated as a mainnet: write refused without ERC8004_ALLOW_MAINNET=1`
             : erc8004ChainId !== escrowChainId
-              ? `ERC8004_CHAIN_ID=${erc8004ChainId} ≠ chaîne de l'escrow ${escrowChainId} : ` +
-                "le Settler ne signe que sur une chaîne à la fois"
+              ? `ERC8004_CHAIN_ID=${erc8004ChainId} ≠ escrow chain ${escrowChainId}: ` +
+                'the Settler signs on one chain at a time only'
               : 'ERC8004_DISABLED',
         },
   })
@@ -411,11 +412,11 @@ async function main(): Promise<void> {
   const stop = async (signal: string): Promise<void> => {
     if (stopping) return
     stopping = true
-    emit({ msg: 'settler: arrêt', signal })
-    // Les lots en attente partent avant l'arrêt : les garder en mémoire
-    // reviendrait à perdre des verdicts déjà rendus.
+    emit({ msg: 'settler: stopping', signal })
+    // Pending batches go out before the stop: keeping them in memory would amount
+    // to losing verdicts that have already been rendered.
     const flushed = await daemon.flushReputation(true)
-    if (flushed.length > 0) emit({ msg: 'settler: lots vidés', flushed })
+    if (flushed.length > 0) emit({ msg: 'settler: batches flushed', flushed })
     process.exit(0)
   }
   process.on('SIGINT', () => void stop('SIGINT'))
@@ -428,29 +429,29 @@ async function main(): Promise<void> {
       emit({
         msg: 'settler: tick',
         open: report.open,
-        traités: report.outcomes.length,
-        réglés: report.outcomes.filter((o) => o.kind === 'settled').length,
-        différés: report.outcomes.filter((o) => o.kind === 'deferred').length,
-        échecs: report.outcomes.filter((o) => o.kind === 'failed').length,
+        processed: report.outcomes.length,
+        settled: report.outcomes.filter((o) => o.kind === 'settled').length,
+        deferred: report.outcomes.filter((o) => o.kind === 'deferred').length,
+        failed: report.outcomes.filter((o) => o.kind === 'failed').length,
         reputation: report.reputation,
         ...(report.scanError ? { scanError: report.scanError } : {}),
         durationMs: Date.now() - started,
       })
     } catch (e) {
-      // Un tour raté ne tue pas le daemon : le suivant retentera. Un Settler
-      // arrêté laisse expirer des mandats qu'il aurait pu régler.
-      emit({ msg: 'settler: tick en échec', error: e instanceof Error ? e.message : String(e) })
+      // A failed pass does not kill the daemon: the next one will retry. A stopped
+      // Settler lets warrants expire that it could have settled.
+      emit({ msg: 'settler: tick failed', error: e instanceof Error ? e.message : String(e) })
     }
     if (once) {
       const flushed = await daemon.flushReputation(true)
-      if (flushed.length > 0) emit({ msg: 'settler: lots vidés', flushed })
+      if (flushed.length > 0) emit({ msg: 'settler: batches flushed', flushed })
       process.exit(0)
     }
     await sleep(intervalMs)
   }
 }
 
-/** Journal structuré, une ligne JSON par événement. Jamais de secret. */
+/** Structured log, one JSON line per event. Never a secret. */
 function emit(event: Record<string, unknown>): void {
   console.log(JSON.stringify(event, (_k, v) => (typeof v === 'bigint' ? v.toString(10) : v)))
 }
@@ -460,6 +461,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 main().catch((e: unknown) => {
-  console.error(JSON.stringify({ msg: 'settler: démarrage impossible', error: String(e) }))
+  console.error(JSON.stringify({ msg: 'settler: startup failed', error: String(e) }))
   process.exit(1)
 })

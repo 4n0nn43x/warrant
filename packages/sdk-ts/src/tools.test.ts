@@ -1,10 +1,10 @@
 /**
- * Tests de la source unique.
+ * Tests of the single source.
  *
- * Ce qui est vérifié ici est vrai pour **toutes** les surfaces d'intégration à
- * la fois — MCP, Vercel AI, LangChain, CrewAI, skill OpenClaw — puisqu'aucune
- * ne redéfinit ni schéma ni logique. C'est tout l'intérêt de n'avoir qu'une
- * source : un invariant testé une fois est tenu cinq fois.
+ * What is verified here is true of **all** the integration surfaces at once —
+ * MCP, Vercel AI, LangChain, CrewAI, the OpenClaw skill — since none of them
+ * redefines a schema or any logic. That is the whole point of having only one
+ * source: an invariant tested once is upheld five times.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -79,7 +79,7 @@ function stubGateway(overrides: Partial<GatewayClient> = {}): GatewayClient {
 }
 
 describe('catalogue', () => {
-  it('contient exactement les quatre outils de docs/09 § 2', () => {
+  it('contains exactly the four tools of docs/09 § 2', () => {
     expect(WARRANT_TOOLS.map((t) => t.name)).toEqual([
       'quote_risk',
       'request_warrant',
@@ -88,25 +88,25 @@ describe('catalogue', () => {
     ])
   })
 
-  it('n\'a qu\'un seul outil payant', () => {
+  it('has only one paid tool', () => {
     expect(WARRANT_TOOLS.filter((t) => t.paid).map((t) => t.name)).toEqual(['request_warrant'])
   })
 
-  it('décrit chaque outil pour un modèle, pas pour un humain pressé', () => {
+  it('describes each tool for a model, not for a human in a hurry', () => {
     for (const tool of WARRANT_TOOLS) {
       expect(tool.description.length).toBeGreaterThan(80)
       expect(tool.title).toBeTruthy()
     }
   })
 
-  it('se résout par nom', () => {
+  it('resolves by name', () => {
     expect(warrantToolByName('quote_risk')).toBe(quoteRiskTool)
     expect(warrantToolByName('execute_metered')).toBeUndefined()
   })
 })
 
-describe('rien n\'est déclaré', () => {
-  it('aucun schéma n\'expose category ni notional', () => {
+describe('nothing is declared', () => {
+  it('no schema exposes category or notional', () => {
     for (const tool of WARRANT_TOOLS) {
       const keys = Object.keys(tool.input.shape)
       expect(keys).not.toContain('notional')
@@ -115,7 +115,7 @@ describe('rien n\'est déclaré', () => {
     }
   })
 
-  it('retire les champs parasites avant de toucher le Gateway', async () => {
+  it('strips stray fields before reaching the Gateway', async () => {
     const gateway = stubGateway()
     await quoteRiskTool.run(gateway, {
       actionSpec: { ...ACTION_SPEC, category: 'aavev3.repay', notionalUSD: '1' },
@@ -136,7 +136,7 @@ describe('rien n\'est déclaré', () => {
 })
 
 describe('validation', () => {
-  it('nomme le champ fautif et propose une correction', async () => {
+  it('names the offending field and suggests a fix', async () => {
     const gateway = stubGateway()
     await expect(
       quoteRiskTool.run(gateway, { actionSpec: { ...ACTION_SPEC, target: '0x1234' } }),
@@ -147,25 +147,25 @@ describe('validation', () => {
     })
   })
 
-  it('remonte les erreurs du noyau avec leur chemin', async () => {
+  it('surfaces core errors together with their path', async () => {
     const gateway = stubGateway()
-    // `value` passe le regex Zod mais dépasse uint256 : c'est @warrant/core qui
-    // attrape, et c'est bien lui l'autorité sur ce qui est hachable.
+    // `value` passes the Zod regex but overflows uint256: it is @warrant/core
+    // that catches it, and it is indeed the authority on what is hashable.
     const huge = (2n ** 256n).toString()
     await expect(
       quoteRiskTool.run(gateway, { actionSpec: { ...ACTION_SPEC, value: huge } }),
     ).rejects.toMatchObject({ name: 'WarrantError', field: '$.value' })
   })
 
-  it('chaque erreur porte hint et docs', () => {
-    const err = new WarrantError('classification_failed', 'inconnu')
+  it('every error carries hint and docs', () => {
+    const err = new WarrantError('classification_failed', 'unknown')
     expect(err.toJSON().error.hint).toBeTruthy()
     expect(err.toJSON().error.docs).toMatch(/^https:\/\//)
   })
 })
 
-describe('boucle de paiement', () => {
-  it('remonte le PaymentRequired quand aucun wallet n\'est fourni', async () => {
+describe('payment loop', () => {
+  it('surfaces the PaymentRequired when no wallet is supplied', async () => {
     const outcome = await runTool(stubGateway(), requestWarrantTool, {
       actionSpec: ACTION_SPEC,
       beneficiary: TREASURY,
@@ -173,7 +173,7 @@ describe('boucle de paiement', () => {
     expect(outcome.kind).toBe('payment-required')
   })
 
-  it('signe et rejoue une seule fois quand un wallet est fourni', async () => {
+  it('signs and replays exactly once when a wallet is supplied', async () => {
     let paid = false
     const gateway = stubGateway({
       requestWarrant: vi.fn(async (_req, payment?: PaymentPayload) => {
@@ -198,7 +198,7 @@ describe('boucle de paiement', () => {
     const wallet = {
       createPayment: vi.fn((required: PaymentRequired): PaymentPayload => {
         const accepted = required.accepts[0]
-        if (!accepted) throw new Error('offre absente')
+        if (!accepted) throw new Error('offer missing')
         return { x402Version: 2, resource: required.resource, accepted, payload: { type: 'proof' } }
       }),
     }
@@ -214,7 +214,7 @@ describe('boucle de paiement', () => {
     if (outcome.kind === 'ok') expect(outcome.settlement?.success).toBe(true)
   })
 
-  it('borne les rejeux face à un Gateway qui répond 402 en boucle', async () => {
+  it('bounds the replays against a Gateway that answers 402 forever', async () => {
     const wallet = {
       createPayment: vi.fn((required: PaymentRequired): PaymentPayload => ({
         x402Version: 2,
@@ -234,7 +234,7 @@ describe('boucle de paiement', () => {
     expect(wallet.createPayment).toHaveBeenCalledTimes(2)
   })
 
-  it('rend un refus de signature actionnable', async () => {
+  it('turns a refused signature into something actionable', async () => {
     const wallet = {
       createPayment: () => {
         throw new Error('user rejected')
@@ -250,7 +250,7 @@ describe('boucle de paiement', () => {
     ).rejects.toMatchObject({ code: 'payment_invalid' })
   })
 
-  it('refuse un outil inconnu en listant les quatre existants', async () => {
+  it('rejects an unknown tool while listing the four that exist', async () => {
     await expect(runToolByName(stubGateway(), 'execute_metered', {})).rejects.toMatchObject({
       code: 'invalid_input',
     })

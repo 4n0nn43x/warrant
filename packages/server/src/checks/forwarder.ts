@@ -1,29 +1,28 @@
 /**
- * Décapsulation des transactions sponsorisées.
+ * Unwrapping of sponsored transactions.
  *
- * Quand KeeperHub sponsorise le gas, la transaction onchain **n'est pas** celle
- * qu'on croit avoir demandée :
+ * When KeeperHub sponsors the gas, the onchain transaction **is not** the one we
+ * think we asked for:
  *
- *   tx.from  = un relayer, pas le wallet de l'organisation
- *   tx.to    = un forwarder, pas le contrat cible
+ *   tx.from  = a relayer, not the organisation's wallet
+ *   tx.to    = a forwarder, not the target contract
  *   tx.input = execute(address wallet, address target, uint256 value, bytes data)
  *
- * et le calldata réellement exécuté est encapsulé dans `data`, précédé d'une
- * signature de 65 octets et de métadonnées.
+ * and the calldata actually executed is wrapped inside `data`, preceded by a
+ * 65-byte signature and by metadata.
  *
- * Vérifié en direct le 28/07/2026 sur Base Sepolia, transaction
- * `0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315` :
+ * Verified live on 2026-07-28 on Base Sepolia, transaction
+ * `0xaf65a4e68a3a567729c95c3b2fef324612d70544aae930f2f7ae09a43cb4d315`:
  * forwarder `0x5aF5194B4b0909eB978e3Cf1e25333852277f07D`, relayer
  * `0x6331eb4571DE9284f7E9eAD98ac7b0661a091E99`.
  *
- * Sans cette décapsulation, `calldata_matches_commitment` échouerait sur
- * **chaque** mandat dès que le gas est sponsorisé — c'est-à-dire une saisie
- * injuste systématique.
+ * Without this unwrapping, `calldata_matches_commitment` would fail on **every**
+ * warrant as soon as the gas is sponsored — that is, a systematic unjust slash.
  */
 
 import { decodeFunctionData, type Hex } from 'viem'
 
-/** `execute(address,address,uint256,bytes)` — sélecteur `0x9aefaff8`. */
+/** `execute(address,address,uint256,bytes)` — selector `0x9aefaff8`. */
 export const FORWARDER_EXECUTE_SELECTOR = '0x9aefaff8' as const
 
 export const FORWARDER_ABI = [
@@ -41,23 +40,23 @@ export const FORWARDER_ABI = [
   },
 ] as const
 
-/** L'appel effectif, une fois l'enveloppe de sponsoring retirée. */
+/** The effective call, once the sponsoring envelope has been removed. */
 export interface EffectiveCall {
   target: Hex
   value: bigint
   calldata: Hex
-  /** Wallet pour le compte duquel le forwarder agit. */
+  /** Wallet on whose behalf the forwarder is acting. */
   wallet?: Hex
-  /** `true` si l'appel a dû être extrait d'une enveloppe de forwarder. */
+  /** `true` if the call had to be extracted from a forwarder envelope. */
   viaForwarder: boolean
 }
 
 /**
- * Retire l'enveloppe de sponsoring si elle est présente.
+ * Removes the sponsoring envelope if one is present.
  *
- * Conservateur par construction : si le motif n'est pas reconnu **exactement**,
- * on rend la transaction telle quelle plutôt que de deviner. Un faux positif
- * ici validerait un mandat qui ne devrait pas l'être.
+ * Conservative by construction: if the pattern is not recognised **exactly**, we
+ * return the transaction as it stands rather than guess. A false positive here
+ * would validate a warrant that should not be.
  */
 export function unwrapForwarder(tx: {
   to: string | null
@@ -80,7 +79,7 @@ export function unwrapForwarder(tx: {
     const res = decodeFunctionData({ abi: FORWARDER_ABI, data: tx.input })
     decoded = res.args as readonly unknown[]
   } catch {
-    // Le sélecteur coïncide mais la forme ne suit pas : on ne suppose rien.
+    // The selector matches but the shape does not follow: we assume nothing.
     return direct
   }
 
@@ -100,21 +99,21 @@ export function unwrapForwarder(tx: {
 }
 
 /**
- * Extrait le calldata cible du payload signé du forwarder.
+ * Extracts the target calldata from the forwarder's signed payload.
  *
- * Le payload est `signature(65) ‖ métadonnées ‖ calldata`. La longueur des
- * métadonnées n'est pas documentée et pourrait changer, donc on ne la code pas
- * en dur : on cherche la **dernière** frontière plausible à partir de laquelle
- * le reste forme un calldata ABI valide, c'est-à-dire `4 + 32·n` octets.
+ * The payload is `signature(65) ‖ metadata ‖ calldata`. The length of the
+ * metadata is undocumented and could change, so we do not hardcode it: we look
+ * for the **last** plausible boundary from which the remainder forms a valid ABI
+ * calldata, that is `4 + 32·n` bytes.
  *
- * Rend `undefined` si aucune découpe ne convient — auquel cas l'appelant
- * retombe sur la transaction brute et le check échouera, ce qui est le bon
- * comportement : mieux vaut un verdict conservateur qu'une extraction inventée.
+ * Returns `undefined` if no cut fits — in which case the caller falls back to
+ * the raw transaction and the check will fail, which is the right behaviour: a
+ * conservative verdict beats an invented extraction.
  */
 export function extractInnerCalldata(payload: Hex): Hex | undefined {
   const hex = payload.slice(2)
   const bytes = hex.length / 2
-  // 65 octets de signature au minimum, plus 4 octets de sélecteur.
+  // 65 signature bytes at minimum, plus 4 selector bytes.
   if (bytes < 69) return undefined
 
   for (let offset = 65; offset + 4 <= bytes; offset++) {

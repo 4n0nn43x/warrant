@@ -1,13 +1,14 @@
 /**
- * `aave_health_factor` — santé d'une position Aave V3 au bloc d'évaluation.
+ * `aave_health_factor` — health of an Aave V3 position at the evaluation block.
  *
- * `Pool.getUserAccountData(user)` retourne
+ * `Pool.getUserAccountData(user)` returns
  * `(totalCollateralBase, totalDebtBase, availableBorrowsBase,
  *   currentLiquidationThreshold, ltv, healthFactor)`.
- * Le `healthFactor` est le **6e** élément, en 1e18 — `1500000000000000000` = 1,5.
+ * The `healthFactor` is the **6th** element, scaled by 1e18 —
+ * `1500000000000000000` = 1.5.
  *
- * Cas limite : une position sans dette rend `type(uint256).max`. La comparaison
- * `gte` reste correcte en `bigint`, ce qui ne serait pas le cas en `number`.
+ * Edge case: a position with no debt returns `type(uint256).max`. The `gte`
+ * comparison stays correct in `bigint`, which would not be true in `number`.
  */
 
 import { AAVE_HEALTH_FACTOR_INDEX, aavePoolAbi } from './abi.js'

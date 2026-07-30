@@ -1,39 +1,39 @@
 /**
- * Ouverture d'un mandat de bout en bout — outil d'exploitation, pas un service.
+ * Opening a warrant end to end — an operations tool, not a service.
  *
- * À quoi il sert : éprouver le daemon de règlement contre la vraie chaîne.
- * Sans mandat ouvert, un Settler qui tourne ne prouve rien. Ce script en ouvre
- * un **par le chemin réel** — `open()` signé par le wallet KeeperHub, action
- * exécutée par KeeperHub, journal alimenté — puis rend la main. Le daemon fait
- * le reste, sans savoir que ce mandat vient d'ici.
+ * What it is for: putting the settlement daemon to the test against the real
+ * chain. With no warrant open, a Settler that runs proves nothing. This script
+ * opens one **by the real path** — `open()` signed by the KeeperHub wallet,
+ * action executed by KeeperHub, ledger fed — then hands back. The daemon does
+ * the rest, without knowing this warrant came from here.
  *
- * Ce n'est **pas** une alternative au Gateway : il n'y a ni 402, ni x402, ni
- * MPP, et l'USDC de l'agent est frappé sur le MockUSDC de développement au lieu
- * d'être détenu. Ce qui est identique au chemin de production, en revanche, et
- * c'est ce qui rend l'épreuve valable :
+ * It is **not** an alternative to the Gateway: there is no 402, no x402, no MPP,
+ * and the agent's USDC is minted on the development MockUSDC instead of being
+ * held. What is identical to the production path, on the other hand — and this
+ * is what makes the test worth anything:
  *
- *   • la classification, la tarification et la `ConditionSpec` sortent de
- *     `classify` / `priceRisk`, exactement comme dans `priceAction` ;
- *   • `conditionHash` et `actionHash` sont calculés par `@warrant/core` ;
- *   • l'ouverture passe par `keeperHubEscrow`, le port réellement déployé ;
- *   • **la caution est tirée par `open()` contre une autorisation EIP-3009 que
- *     l'agent signe**, exactement comme le Gateway le fait avec l'autorisation
- *     que le rail x402 lui transporte. Seule l'origine de la signature diffère :
- *     ici une clé locale, là un agent tiers. Le contrat, lui, ne voit aucune
- *     différence — il dérive l'agent de la signature dans les deux cas ;
- *   • l'enregistrement est écrit dans le même journal, au même format.
+ *   • classification, pricing and the `ConditionSpec` come out of
+ *     `classify` / `priceRisk`, exactly as in `priceAction`;
+ *   • `conditionHash` and `actionHash` are computed by `@warrant/core`;
+ *   • the opening goes through `keeperHubEscrow`, the port actually deployed;
+ *   • **the bond is pulled by `open()` against an EIP-3009 authorization the
+ *     agent signs**, exactly as the Gateway does with the authorization the x402
+ *     rail carries to it. Only the origin of the signature differs: a local key
+ *     here, a third-party agent there. The contract itself sees no difference —
+ *     it derives the agent from the signature in both cases;
+ *   • the record is written to the same ledger, in the same format.
  *
- * Deux scénarios, et le second est celui qui compte :
+ * Two scenarios, and the second is the one that counts:
  *
- *   --scenario honored   l'action exécutée est celle engagée ;
- *   --scenario diverted  l'action **exécutée** transfère vers une autre
- *                        destination que celle **engagée**. C'est le détournement
- *                        de docs/13 § 5 : la post-condition, écrite par la
- *                        politique et non par l'agent, désigne la destination de
- *                        l'allowlist. Un transfert détourné échoue donc par
- *                        construction, et la caution part au bénéficiaire.
+ *   --scenario honored   the executed action is the one committed to;
+ *   --scenario diverted  the **executed** action transfers to a destination
+ *                        other than the one **committed to**. This is the
+ *                        diversion of docs/13 § 5: the post-condition, written by
+ *                        the policy and not by the agent, names the allowlist
+ *                        destination. A diverted transfer therefore fails by
+ *                        construction, and the bond goes to the beneficiary.
  *
- * Usage :
+ * Usage:
  *   pnpm --filter @warrant/server open-warrant -- --scenario honored
  *   pnpm --filter @warrant/server open-warrant -- --scenario diverted --amount 1000000
  */
@@ -64,7 +64,7 @@ import {
   escrowAuthorizationOf,
 } from '../x402.js'
 
-/** ABI du MockUSDC de développement. `mint` y est publique, par conception. */
+/** ABI of the development MockUSDC. `mint` is public there, by design. */
 const mockUsdcAbi = [
   {
     type: 'function',
@@ -93,10 +93,10 @@ const mockUsdcAbi = [
     inputs: [{ name: '', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
-  // Le `name` du domaine EIP-712 : lu onchain, jamais supposé. Une divergence
-  // d'un seul caractère change le `DOMAIN_SEPARATOR`, donc le digest, donc
-  // l'adresse recouvrée — et `receiveWithAuthorization` révèrte en
-  // `InvalidSignature` sans dire pourquoi.
+  // The EIP-712 domain `name`: read onchain, never assumed. A divergence of one
+  // single character changes the `DOMAIN_SEPARATOR`, hence the digest, hence the
+  // recovered address — and `receiveWithAuthorization` reverts with
+  // `InvalidSignature` without saying why.
   {
     type: 'function',
     name: 'name',
@@ -106,11 +106,11 @@ const mockUsdcAbi = [
   },
 ] as const
 
-/** Un nom canonique par variable, aucun alias — convention de `.env.example`. */
+/** One canonical name per variable, no alias — the `.env.example` convention. */
 function required(name: string): string {
   const value = process.env[name]
   if (!value || value.trim() === '') {
-    throw new Error(`variable d'environnement manquante: ${name}`)
+    throw new Error(`missing environment variable: ${name}`)
   }
   return value.trim()
 }
@@ -122,7 +122,7 @@ function optional(name: string, fallback: string): string {
 
 function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${name} : adresse EVM attendue, reçu "${value}"`)
+    throw new Error(`${name}: EVM address expected, got "${value}"`)
   }
   return value.toLowerCase() as Address
 }
@@ -142,29 +142,28 @@ async function main(): Promise<void> {
       process.loadEnvFile(candidate)
       break
     } catch {
-      /* suivant */
+      /* next one */
     }
   }
 
   const scenario = arg('scenario', 'honored')
   if (scenario !== 'honored' && scenario !== 'diverted') {
-    throw new Error(`--scenario doit valoir honored ou diverted, reçu "${scenario}"`)
+    throw new Error(`--scenario must be honored or diverted, got "${scenario}"`)
   }
 
-  // Table des chaînes, alignée sur celle de `bin/gateway.ts`. L'outil était
-  // verrouillé sur Ethereum Sepolia : coder une chaîne en dur dans un outil
-  // d'exploitation le rend inutilisable dès qu'on redéploie ailleurs, ce qui est
-  // exactement ce qui arrive quand le facilitateur de paiement n'existe que sur
-  // une autre chaîne. Une chaîne absente de la table fait échouer le démarrage
-  // plutôt que de laisser viem deviner un RPC — ouvrir sur la mauvaise chaîne
-  // est irréversible.
+  // Chain table, aligned with the one in `bin/gateway.ts`. The tool used to be
+  // locked onto Ethereum Sepolia: hard-coding a chain into an operations tool
+  // makes it unusable the moment you redeploy elsewhere, which is exactly what
+  // happens when the payment facilitator only exists on another chain. A chain
+  // absent from the table fails startup rather than letting viem guess an RPC —
+  // opening on the wrong chain is irreversible.
   const CHAINS = { 1: mainnet, 8453: base, 11155111: sepolia, 84532: baseSepolia } as const
   const chainId = Number(optional('WARRANT_ESCROW_CHAIN_ID', String(baseSepolia.id)))
   const chain = CHAINS[chainId as keyof typeof CHAINS]
   if (!chain) {
     throw new Error(
-      `WARRANT_ESCROW_CHAIN_ID non supportée: ${chainId} — ` +
-        `valeurs acceptées : ${Object.keys(CHAINS).join(', ')}`,
+      `unsupported WARRANT_ESCROW_CHAIN_ID: ${chainId} — ` +
+        `accepted values: ${Object.keys(CHAINS).join(', ')}`,
     )
   }
 
@@ -172,45 +171,45 @@ async function main(): Promise<void> {
   const escrow = required('WARRANT_ESCROW_ADDRESS').toLowerCase() as Address
   const token = required('WARRANT_ASSET').toLowerCase() as Address
 
-  // L'agent : celui qui paie la caution et à qui elle revient si le mandat est
-  // honoré. Sa clé n'a **aucun** rôle onchain sur l'escrow — `opener` est le
-  // wallet KeeperHub, `settler` est une troisième clé (invariant I10). Elle sert
-  // ici à **signer l'autorisation EIP-3009**, ce qui est désormais son seul rôle
-  // dans l'ouverture : le contrat dérive l'agent de cette signature.
+  // The agent: the one who pays the bond and to whom it returns if the warrant
+  // is honored. Its key has **no** onchain role on the escrow — `opener` is the
+  // KeeperHub wallet, `settler` is a third key (invariant I10). Here it serves to
+  // **sign the EIP-3009 authorization**, which is now its only role in the
+  // opening: the contract derives the agent from that signature.
   const agentAccount = privateKeyToAccount(required('OPENER_PRIVATE_KEY') as Hex)
   const agent = agentAccount.address.toLowerCase() as Address
 
   /**
-   * Le bénéficiaire d'une saisie — `WARRANT_BENEFICIARY`, et requis.
+   * The beneficiary of a slash — `WARRANT_BENEFICIARY`, and required.
    *
-   * Ce paramètre valait `optional('WARRANT_TREASURY', agent)`, ce que l'audit a
-   * relevé : les deux branches sont désormais des reverts. La trésorerie est
-   * refusée par `BeneficiaryIsTreasury` (une saisie ne doit pas enrichir le
-   * protocole, invariant I6) ; l'agent lui-même est refusé par `BadBeneficiary`
-   * (une saisie rembourserait le fautif, la caution ne veut plus rien dire).
-   * Aucun repli ne peut donc être correct — et un repli qui révèrte à coup sûr
-   * est pire qu'une variable manquante, parce qu'il ne se découvre qu'onchain.
+   * This parameter used to be `optional('WARRANT_TREASURY', agent)`, which the
+   * audit flagged: both branches are now reverts. The treasury is refused by
+   * `BeneficiaryIsTreasury` (a slash must not enrich the protocol, invariant I6);
+   * the agent itself is refused by `BadBeneficiary` (a slash would reimburse the
+   * party at fault, and the bond would no longer mean anything). No fallback can
+   * therefore be correct — and a fallback that reverts for certain is worse than
+   * a missing variable, because it is only discovered onchain.
    */
   const beneficiary = address('WARRANT_BENEFICIARY', required('WARRANT_BENEFICIARY'))
   if (beneficiary === agent) {
     throw new Error(
-      `WARRANT_BENEFICIARY (${beneficiary}) est l'agent lui-même : open() révèrterait ` +
-        'en BadBeneficiary(). Une saisie rembourserait le fautif.',
+      `WARRANT_BENEFICIARY (${beneficiary}) is the agent itself: open() would revert ` +
+        'with BadBeneficiary(). A slash would reimburse the party at fault.',
     )
   }
   if (beneficiary === escrow) {
     throw new Error(
-      `WARRANT_BENEFICIARY (${beneficiary}) est l'escrow : open() révèrterait en ` +
-        'BadBeneficiary(). La caution sortirait du passif sans sortir du contrat.',
+      `WARRANT_BENEFICIARY (${beneficiary}) is the escrow: open() would revert with ` +
+        'BadBeneficiary(). The bond would leave the liabilities without leaving the contract.',
     )
   }
 
   const publicClient = createPublicClient({ chain, transport: http(rpc) })
   const wallet = createWalletClient({ account: agentAccount, chain, transport: http(rpc) })
 
-  // La trésorerie **du contrat**, pas celle de la politique locale : c'est à
-  // elle que `open()` compare le bénéficiaire. `treasury` est `immutable`, donc
-  // cette lecture est définitive pour ce déploiement.
+  // The treasury **of the contract**, not that of the local policy: this is what
+  // `open()` compares the beneficiary against. `treasury` is `immutable`, so this
+  // read is final for this deployment.
   const onchainTreasury = (
     (await publicClient.readContract({
       address: escrow,
@@ -220,9 +219,9 @@ async function main(): Promise<void> {
   ).toLowerCase() as Address
   if (beneficiary === onchainTreasury) {
     throw new Error(
-      `WARRANT_BENEFICIARY (${beneficiary}) est la trésorerie de l'escrow : open() ` +
-        'révèrterait en BeneficiaryIsTreasury(). Une saisie ne peut pas alimenter le ' +
-        'protocole (invariant I6).',
+      `WARRANT_BENEFICIARY (${beneficiary}) is the escrow's treasury: open() would ` +
+        'revert with BeneficiaryIsTreasury(). A slash cannot feed the protocol ' +
+        '(invariant I6).',
     )
   }
 
@@ -231,11 +230,11 @@ async function main(): Promise<void> {
     baseUrl: optional('KH_BASE_URL', 'https://app.keeperhub.com'),
   })
   const executor = ((await kh.getWallet()).walletAddress ?? '').toLowerCase() as Address
-  if (!executor) throw new Error("KeeperHub ne rapporte aucun wallet d'organisation")
+  if (!executor) throw new Error('KeeperHub reports no organization wallet')
 
   const registryFile = optional(
     'WARRANT_REGISTRY_FILE',
-    // Le registre suit la chaîne : un `registryRef` est propre à un réseau.
+    // The registry follows the chain: a `registryRef` is specific to a network.
     optional(
       'WARRANT_REGISTRY_FILE',
       new URL('../../../../deployments/registry-ethereum-sepolia.json', import.meta.url).pathname,
@@ -245,29 +244,29 @@ async function main(): Promise<void> {
   const registryRef = registryRefOf(registry)
 
   const amount = BigInt(arg('amount', '1000000'))
-  // Le plancher de la politique, et non une constante : sur une chaîne dont le
-  // capital vient d'un faucet plafonné, un bond en dur rend l'outil
-  // inutilisable — c'est ce qui est arrivé sur Base Sepolia, où le faucet CDP
-  // délivre 1 USDC par adresse et par 24 h.
+  // The policy's floor, and not a constant: on a chain whose capital comes from a
+  // capped faucet, a hard-coded bond makes the tool unusable — which is what
+  // happened on Base Sepolia, where the CDP faucet hands out 1 USDC per address
+  // per 24 h.
   const bond = BigInt(arg('bond', optional('WARRANT_MIN_BOND', '5000000')))
   const duration = Number(arg('duration', '1800'))
 
-  // Destination **engagée**, celle de l'allowlist de la politique.
+  // The **committed** destination, the one on the policy's allowlist.
   const allowedDest = optional('DEMO_ALLOWED_DEST', '0x000000000000000000000000000000000000dEaD')
     .toLowerCase() as Address
-  // Destination réellement servie. Elle ne diffère que dans le scénario détourné.
+  // The destination actually served. It differs only in the diverted scenario.
   const executedDest =
     scenario === 'diverted'
       ? (optional('DEMO_DIVERTED_DEST', '0x00000000000000000000000000000000DeaDBeef').toLowerCase() as Address)
       : allowedDest
 
   /**
-   * La politique du propriétaire du capital.
+   * The capital owner's policy.
    *
-   * `treasury` est le compte **protégé** : ici le wallet d'exécution KeeperHub,
-   * puisque c'est lui qui détient et déplace les fonds. `allowedDest` est
-   * l'allowlist — c'est elle, et non le calldata, qui décide de la destination
-   * engagée dans la post-condition.
+   * `treasury` is the **protected** account: here the KeeperHub execution wallet,
+   * since that is what holds and moves the funds. `allowedDest` is the allowlist
+   * — it is the allowlist, and not the calldata, that decides the destination
+   * committed to in the post-condition.
    */
   const policy: Policy = {
     beneficiary,
@@ -284,7 +283,7 @@ async function main(): Promise<void> {
     },
   }
 
-  // 1. L'action engagée. Seul intrant de la classification et de la tarification.
+  // 1. The committed action. The only input to classification and pricing.
   const actionSpec: ActionSpec = {
     version: 1,
     chainId,
@@ -308,7 +307,7 @@ async function main(): Promise<void> {
   const warrantId = warrantIdOf(agent, nonce, actionHash)
 
   log({
-    msg: 'mandat préparé',
+    msg: 'warrant prepared',
     scenario,
     warrantId,
     agent,
@@ -322,14 +321,14 @@ async function main(): Promise<void> {
     checks: conditionSpec.checks.map((c) => c.kind),
   })
 
-  // 2. Approvisionner **l'agent**, et non le coffre.
+  // 2. Fund **the agent**, and not the escrow.
   //
-  //    C'est le changement de fond de cette étape. `open()` ne s'attend plus à
-  //    trouver les fonds sur le contrat — il les *tire* de l'agent, contre sa
-  //    signature, dans sa propre transaction. Verser d'avance au coffre
-  //    reconstituerait exactement la faille corrigée : un solde libre que
-  //    l'`opener` peut s'attribuer, et qu'aucune fonction ne sait balayer si
-  //    l'ouverture n'a pas lieu.
+  //    This is the substantive change in this step. `open()` no longer expects to
+  //    find the funds on the contract — it *pulls* them from the agent, against
+  //    the agent's signature, in its own transaction. Paying the escrow in
+  //    advance would reconstitute exactly the flaw that was fixed: a free balance
+  //    the `opener` can assign to itself, and that no function knows how to sweep
+  //    if the opening never happens.
   const agentBalance = (await publicClient.readContract({
     address: token,
     abi: mockUsdcAbi,
@@ -344,18 +343,18 @@ async function main(): Promise<void> {
       args: [agent, bond * 10n],
     })
     await publicClient.waitForTransactionReceipt({ hash: funded })
-    log({ msg: 'agent approvisionné', tx: funded, bond: bond.toString(10) })
+    log({ msg: 'agent funded', tx: funded, bond: bond.toString(10) })
   }
 
-  // 3. L'autorisation EIP-3009, signée par l'agent.
+  // 3. The EIP-3009 authorization, signed by the agent.
   //
-  //    ⚠ `ReceiveWithAuthorization`, **pas** `TransferWithAuthorization`. Les
-  //    deux types portent les mêmes champs et produisent deux typehashes
-  //    différents, donc deux digests différents. Le contrat appelle la variante
-  //    `receive` parce qu'elle impose `to == msg.sender` : sans elle, un tiers
-  //    pourrait soumettre l'autorisation au token directement, consommer le
-  //    nonce, et faire révèrter l'`open` légitime. Signer le mauvais type ne
-  //    produit aucune erreur ici — seulement un `InvalidSignature()` onchain.
+  //    ⚠ `ReceiveWithAuthorization`, **not** `TransferWithAuthorization`. The two
+  //    types carry the same fields and produce two different typehashes, hence
+  //    two different digests. The contract calls the `receive` variant because it
+  //    enforces `to == msg.sender`: without it, a third party could submit the
+  //    authorization to the token directly, consume the nonce, and make the
+  //    legitimate `open` revert. Signing the wrong type produces no error here —
+  //    only an `InvalidSignature()` onchain.
   const assetName = (await publicClient.readContract({
     address: token,
     abi: mockUsdcAbi,
@@ -364,18 +363,18 @@ async function main(): Promise<void> {
   const assetVersion = optional('WARRANT_ASSET_VERSION', '2')
 
   /**
-   * Le nonce de l'autorisation **n'est pas aléatoire** : il vaut le hash des
-   * termes du mandat, et le contrat le vérifie (`TermsMismatch`).
+   * The authorization's nonce **is not random**: it equals the hash of the
+   * warrant's terms, and the contract checks it (`TermsMismatch`).
    *
-   * C'est la parade au détournement d'autorisation. EIP-3009 ne signe que six
-   * champs, dont aucun ne dit *pour quel mandat* : un `opener` pouvait donc
-   * prendre une autorisation et ouvrir des termes de son choix — autre
-   * bénéficiaire, autre post-condition, `duration` au maximum. Comme le nonce
-   * est dans le digest signé, le contraindre à valoir `termsHash(...)` fait que
-   * signer le paiement revient à signer les termes. Une seule signature.
+   * This is the defence against authorization diversion. EIP-3009 signs only six
+   * fields, none of which says *for which warrant*: an `opener` could therefore
+   * take an authorization and open terms of its own choosing — another
+   * beneficiary, another post-condition, `duration` at maximum. Since the nonce
+   * is inside the signed digest, constraining it to equal `termsHash(...)` makes
+   * signing the payment amount to signing the terms. One single signature.
    *
-   * L'unicité qu'EIP-3009 exige du nonce reste assurée : `warrantId` contient
-   * `nonce`, lui aléatoire, et entre dans le hash.
+   * The uniqueness EIP-3009 demands of the nonce still holds: `warrantId`
+   * contains `nonce`, which is itself random, and goes into the hash.
    */
   const authNonce = termsHashOf({
     id: warrantId,
@@ -399,8 +398,8 @@ async function main(): Promise<void> {
     primaryType: 'ReceiveWithAuthorization',
     message: {
       from: agent,
-      // `to` est l'escrow, et le contrat passera `address(this)` au token : les
-      // deux doivent coïncider, sinon `CallerMustBePayee()`.
+      // `to` is the escrow, and the contract will pass `address(this)` to the
+      // token: the two must coincide, otherwise `CallerMustBePayee()`.
       to: escrow,
       value: bond,
       validAfter,
@@ -422,9 +421,9 @@ async function main(): Promise<void> {
   })
   const fundingRef = authorization.nonce
   log({
-    msg: 'autorisation EIP-3009 signée',
+    msg: 'EIP-3009 authorization signed',
     primaryType: 'ReceiveWithAuthorization',
-    // Le nonce EST le hash des termes : la signature lie le paiement au mandat.
+    // The nonce IS the terms hash: the signature binds the payment to the warrant.
     nonceIsTermsHash: true,
     from: agent,
     to: escrow,
@@ -432,7 +431,7 @@ async function main(): Promise<void> {
     fundingRef,
   })
 
-  // 4. Le wallet d'exécution doit détenir de quoi transférer.
+  // 4. The execution wallet must hold enough to transfer.
   const executorBalance = (await publicClient.readContract({
     address: token,
     abi: mockUsdcAbi,
@@ -447,17 +446,17 @@ async function main(): Promise<void> {
       args: [executor, amount * 10n],
     })
     await publicClient.waitForTransactionReceipt({ hash: topUp })
-    log({ msg: "wallet d'exécution approvisionné", tx: topUp })
+    log({ msg: 'execution wallet funded', tx: topUp })
   }
 
-  // 5. Ouverture. Cette transaction encaisse la caution **et** ouvre le mandat :
-  //    si elle révèrte, le nonce n'est pas consommé et rien n'a bougé.
+  // 5. Opening. This transaction collects the bond **and** opens the warrant: if
+  //    it reverts, the nonce is not consumed and nothing has moved.
   //
-  //    Le port suit `WARRANT_ESCROW_PORT`, comme le Gateway, parce que le
-  //    contrat supporte les deux topologies : `keeperhub` quand l'`opener` est
-  //    le wallet de l'organisation (ouverture sponsorisée en gas, le cas du
-  //    volume), `viem` quand c'est une clé locale. Coder l'une des deux en dur
-  //    rendait l'outil inutilisable sur la moitié des déploiements.
+  //    The port follows `WARRANT_ESCROW_PORT`, like the Gateway, because the
+  //    contract supports both topologies: `keeperhub` when the `opener` is the
+  //    organization's wallet (gas-sponsored opening, the volume case), `viem` when
+  //    it is a local key. Hard-coding either one made the tool unusable on half
+  //    the deployments.
   const escrowPort =
     optional('WARRANT_ESCROW_PORT', 'keeperhub') === 'viem'
       ? viemEscrow(
@@ -482,11 +481,11 @@ async function main(): Promise<void> {
     duration,
     authorization,
   })
-  // `waitForTransactionReceipt` et non `getTransactionReceipt` : le second ne
-  // patiente pas, et sur un RPC public le receipt n'est pas encore indexé quand
-  // la transaction vient de partir. L'outil échouait donc APRÈS avoir ouvert le
-  // mandat onchain — et sans écrire le journal, ce qui rendait la caution
-  // inévaluable par le Settler jusqu'à expiration.
+  // `waitForTransactionReceipt` and not `getTransactionReceipt`: the latter does
+  // not wait, and on a public RPC the receipt is not yet indexed when the
+  // transaction has just gone out. The tool therefore failed AFTER having opened
+  // the warrant onchain — and without writing the ledger, which left the bond
+  // unevaluable by the Settler until expiry.
   const openReceipt = await publicClient.waitForTransactionReceipt({
     hash: openTx,
     confirmations: 1,
@@ -494,10 +493,10 @@ async function main(): Promise<void> {
   const openedAt = Number(
     (await publicClient.getBlock({ blockNumber: openReceipt.blockNumber })).timestamp,
   )
-  log({ msg: 'mandat ouvert', warrantId, openTx, openedAt, expiry: openedAt + duration })
+  log({ msg: 'warrant opened', warrantId, openTx, openedAt, expiry: openedAt + duration })
 
-  // 6. L'action. Dans le scénario détourné, ce qui part sur la chaîne n'est
-  //    **pas** ce qui a été engagé — c'est tout l'intérêt.
+  // 6. The action. In the diverted scenario, what goes out on the chain is
+  //    **not** what was committed to — that is the whole point.
   const execution = await kh.executeContractCall(
     {
       chainId,
@@ -509,7 +508,7 @@ async function main(): Promise<void> {
     warrantId,
   )
   log({
-    msg: 'action exécutée',
+    msg: 'action executed',
     executionId: execution.executionId,
     status: execution.status,
     txHash: execution.txHash,
@@ -518,10 +517,10 @@ async function main(): Promise<void> {
     diverted: executedDest !== allowedDest,
   })
 
-  // 7. Le journal. C'est la seule chose que le Settler ne peut pas retrouver
-  //    seul : la chaîne ne porte que des hashs. `openTx` y est indispensable :
-  //    c'est la transaction qui a encaissé la caution, donc la seule preuve de
-  //    paiement résoluble — `fundingRef` n'est plus qu'un nonce.
+  // 7. The ledger. It is the only thing the Settler cannot recover on its own:
+  //    the chain carries nothing but hashes. `openTx` is indispensable there: it
+  //    is the transaction that collected the bond, hence the only resolvable
+  //    proof of payment — `fundingRef` is now no more than a nonce.
   const journal = fileWarrantStore({ path: optional('WARRANT_JOURNAL_FILE', '.warrant/warrants.jsonl') })
   journal.put({
     id: warrantId,
@@ -544,18 +543,18 @@ async function main(): Promise<void> {
     simulation: { success: true },
     settlement: {
       success: true,
-      // La transaction de règlement **est** l'ouverture, depuis que `open()`
-      // tire le paiement EIP-3009 lui-même.
+      // The settlement transaction **is** the opening, ever since `open()` pulls
+      // the EIP-3009 payment itself.
       transaction: openTx,
       network: `eip155:${chainId}`,
       payer: agent,
       amount: bond.toString(10),
     },
   })
-  log({ msg: 'journal écrit', path: journal.path, warrantId })
+  log({ msg: 'ledger line written', path: journal.path, warrantId })
 }
 
 main().catch((e: unknown) => {
-  console.error(JSON.stringify({ msg: 'ouverture impossible', error: String(e) }))
+  console.error(JSON.stringify({ msg: 'opening failed', error: String(e) }))
   process.exit(1)
 })

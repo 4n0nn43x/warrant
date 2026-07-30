@@ -1,10 +1,10 @@
 /**
- * Vérificateurs portant sur les logs de la transaction d'action :
- * `event_emitted` et `no_new_approvals`.
+ * Checks that read the logs of the action transaction: `event_emitted` and
+ * `no_new_approvals`.
  *
- * Les deux lisent le receipt de la transaction engagée, pas une plage de blocs.
- * C'est ce qui les rend attribuables : seul ce que cette transaction a émis
- * peut être reproché à l'agent.
+ * Both read the receipt of the committed transaction, not a block range. That is
+ * what makes them attributable: only what this transaction emitted can be held
+ * against the agent.
  */
 
 import { ERC20_EVENT_TOPIC_COUNT, TOPIC_APPROVAL } from './abi.js'
@@ -46,17 +46,17 @@ export async function checkEventEmitted(
 }
 
 /**
- * `no_new_approvals` — aucun `Approval(owner, *, > 0)` dans les logs de la
- * transaction. Cible le vecteur Bankr : un appel qui débloque silencieusement
- * des permissions au passage.
+ * `no_new_approvals` — no `Approval(owner, *, > 0)` in the transaction's logs.
+ * Aimed at the Bankr vector: a call that silently hands out permissions along
+ * the way.
  *
- * Décision non tranchée par la doc : **`tokens` vide signifie « tous les
- * tokens »**, pas « aucun ». La lecture stricte de § 2.9 est « aucun événement
- * `Approval(owner, *, > 0)` n'apparaît dans les logs » ; une liste vide qui
- * passerait à vide serait une protection qui se désarme toute seule.
+ * Decision the docs left open: **an empty `tokens` means "every token"**, not
+ * "no token". The strict reading of § 2.9 is "no `Approval(owner, *, > 0)` event
+ * appears in the logs"; an empty list that vacuously passed would be a
+ * protection that disarms itself.
  *
- * Un `Approval` remettant l'allowance à zéro est autorisé : c'est précisément
- * l'action de révocation qu'on veut permettre.
+ * An `Approval` resetting the allowance to zero is allowed: that is precisely
+ * the revocation we want to permit.
  */
 export async function checkNoNewApprovals(
   check: NoNewApprovalsCheck,
@@ -67,7 +67,7 @@ export async function checkNoNewApprovals(
 
   for (const log of env.receipt.logs) {
     if (!watchAll && !check.tokens.some((token) => addressEquals(log.address, token))) continue
-    if (log.topics.length !== ERC20_EVENT_TOPIC_COUNT) continue // ERC-721: tokenId indexé
+    if (log.topics.length !== ERC20_EVENT_TOPIC_COUNT) continue // ERC-721: indexed tokenId
     const [topic0, ownerTopic, spenderTopic] = log.topics
     if (!topic0 || !ownerTopic || !spenderTopic) continue
     if (topic0.toLowerCase() !== TOPIC_APPROVAL.toLowerCase()) continue
@@ -76,7 +76,7 @@ export async function checkNoNewApprovals(
     if (!addressEquals(owner, check.owner)) continue
 
     const amount = bigintFromData(log.data)
-    if (amount === 0n) continue // révocation : autorisée
+    if (amount === 0n) continue // revocation: allowed
 
     offenders.push(
       `${lower(log.address)} -> spender ${addressFromTopic(spenderTopic)} = ${amount.toString()}`,

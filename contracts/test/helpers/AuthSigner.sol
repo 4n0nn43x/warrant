@@ -5,34 +5,34 @@ import {Test} from "forge-std/Test.sol";
 import {WarrantEscrow} from "../../src/WarrantEscrow.sol";
 import {MockUSDC} from "../mocks/MockUSDC.sol";
 
-/// @title AuthSigner — fabrique d'autorisations EIP-3009 signées
-/// @notice Depuis le correctif, `open` ne reçoit plus d'adresse d'agent : elle est
-///         *déduite* de la signature. Toute la suite doit donc produire de vraies
-///         signatures ECDSA, et les agents cessent d'être de simples `makeAddr`
-///         pour devenir des comptes porteurs d'une clé (`makeAddrAndKey`).
-/// @dev    Facteur commun aux trois fichiers de tests — unité, invariants et PoC
-///         signent exactement le même digest. Le dupliquer trois fois reviendrait
-///         à prendre le risque qu'une des copies dérive du domaine EIP-712 du
-///         token : un test échouerait alors pour une raison sans rapport avec le
-///         contrat audité, ce qui est le pire des faux positifs.
+/// @title AuthSigner — a factory for signed EIP-3009 authorizations
+/// @notice Since the fix, `open` no longer takes an agent address: it is *derived*
+///         from the signature. The whole suite must therefore produce genuine
+///         ECDSA signatures, and agents stop being mere `makeAddr` results to
+///         become accounts that carry a key (`makeAddrAndKey`).
+/// @dev    The common factor of the three test files — unit, invariants and PoC
+///         all sign exactly the same digest. Duplicating it three times would
+///         mean accepting the risk that one of the copies drifts from the token's
+///         EIP-712 domain: a test would then fail for a reason unrelated to the
+///         contract under audit, which is the worst kind of false positive.
 ///
-///         `from` et `key` sont volontairement des paramètres **indépendants** :
-///         c'est ce qui permet aux PoC de fabriquer une autorisation *forgée*
-///         (une adresse `from` qu'on prétend, une clé qui n'est pas la sienne) et
-///         de prouver que le token la rejette.
+///         `from` and `key` are deliberately **independent** parameters: that is
+///         what lets the PoCs build a *forged* authorization (a `from` address
+///         one merely claims, a key that is not its own) and prove that the token
+///         rejects it.
 abstract contract AuthSigner is Test {
-    /// @dev Bornes temporelles délibérément larges par défaut. `validAfter = 0`
-    ///      parce que le token exige `block.timestamp > validAfter` — une borne
-    ///      stricte, qu'un `validAfter` égal à l'instant courant ferait échouer.
-    ///      `validBefore` maximal parce que la suite warpe jusqu'à +365 jours et
-    ///      qu'une autorisation périmée masquerait la propriété testée.
+    /// @dev Time bounds deliberately wide by default. `validAfter = 0` because the
+    ///      token requires `block.timestamp > validAfter` — a strict bound, which a
+    ///      `validAfter` equal to the current instant would fail. `validBefore` at
+    ///      its maximum because the suite warps up to +365 days, and an expired
+    ///      authorization would mask the property under test.
     uint256 internal constant VALID_AFTER = 0;
     uint256 internal constant VALID_BEFORE = type(uint256).max;
 
-    /// @dev Reconstitue le digest EIP-712 de `ReceiveWithAuthorization` tel que
-    ///      le token le recalculera. `to` est un paramètre et non `address(this)`
-    ///      : c'est lui qui lie l'autorisation à l'escrow, et le PoC
-    ///      anti-interception a besoin de le manipuler.
+    /// @dev Rebuilds the EIP-712 digest of `ReceiveWithAuthorization` exactly as
+    ///      the token will recompute it. `to` is a parameter rather than
+    ///      `address(this)`: it is what binds the authorization to the escrow, and
+    ///      the anti-interception PoC needs to tamper with it.
     function _digest(MockUSDC token, address to, WarrantEscrow.Authorization memory a)
         internal
         view
@@ -57,11 +57,11 @@ abstract contract AuthSigner is Test {
         );
     }
 
-    /// @notice Autorisation à fenêtre temporelle explicite.
-    /// @param from  l'adresse *déclarée* comme autorisante.
-    /// @param key   la clé qui signe réellement. Si elle ne correspond pas à
-    ///              `from`, l'autorisation est une contrefaçon et le token doit
-    ///              révèrter sur `InvalidSignature`.
+    /// @notice An authorization with an explicit time window.
+    /// @param from  the address *declared* as the authorizer.
+    /// @param key   the key that actually signs. If it does not match `from`, the
+    ///              authorization is a forgery and the token must revert with
+    ///              `InvalidSignature`.
     function _authWindow(
         MockUSDC token,
         address to,
@@ -85,9 +85,9 @@ abstract contract AuthSigner is Test {
         (auth.v, auth.r, auth.s) = vm.sign(key, _digest(token, to, auth));
     }
 
-    /// @notice Cas courant : fenêtre ouverte, autorisation destinée à `to`, nonce
-    ///         imposé par l'appelant. Réservé aux tests qui doivent produire un
-    ///         nonce **non conforme** aux termes, donc rejeté par `TermsMismatch`.
+    /// @notice The common case: window wide open, authorization addressed to `to`,
+    ///         nonce imposed by the caller. Reserved for tests that must produce a
+    ///         nonce **not matching** the terms, hence rejected by `TermsMismatch`.
     function _auth(MockUSDC token, address to, address from, uint256 key, uint256 value, bytes32 nonce)
         internal
         view
@@ -96,13 +96,13 @@ abstract contract AuthSigner is Test {
         return _authWindow(token, to, from, key, value, nonce, VALID_AFTER, VALID_BEFORE);
     }
 
-    /// @notice Les termes d'un mandat, tels que `termsHash` les engage.
-    /// @dev    Regroupés dans une struct pour une raison pratique et une raison de
-    ///         fond. Pratique : six paramètres de plus dans chaque helper faisaient
-    ///         sortir le handler d'invariants en « stack too deep ». De fond : ces
-    ///         six valeurs ne forment plus une liste d'arguments mais **un seul
-    ///         objet**, celui que l'agent signe. Les dissocier dans les tests
-    ///         reviendrait à nier la propriété qu'on cherche à vérifier.
+    /// @notice The terms of a warrant, as `termsHash` commits to them.
+    /// @dev    Grouped into a struct for one practical reason and one substantive
+    ///         one. Practical: six more parameters in every helper pushed the
+    ///         invariant handler into "stack too deep". Substantive: those six
+    ///         values no longer form an argument list but **a single object**, the
+    ///         one the agent signs. Pulling them apart in the tests would amount
+    ///         to denying the very property we are trying to verify.
     struct Terms {
         bytes32 id;
         address beneficiary;
@@ -112,19 +112,19 @@ abstract contract AuthSigner is Test {
         uint64 duration;
     }
 
-    /// @notice L'autorisation légitime pour ces termes-là, et pour aucun autre.
-    /// @dev    Le nonce n'est plus un aléa : il DOIT valoir
-    ///         `termsHash(termes)`, sans quoi `open` révèrte sur `TermsMismatch`.
-    ///         C'est le cœur du dernier correctif — le digest EIP-3009 couvre le
-    ///         nonce, donc contraindre le nonce à hacher les termes fait que signer
-    ///         l'autorisation vaut signature des termes. Une seule signature, et
-    ///         l'agent est engagé sur le bénéficiaire, la post-condition et la
-    ///         durée, pas seulement sur le montant.
+    /// @notice The legitimate authorization for these terms, and for no other.
+    /// @dev    The nonce is no longer an arbitrary value: it MUST equal
+    ///         `termsHash(terms)`, failing which `open` reverts on `TermsMismatch`.
+    ///         This is the heart of the latest fix — the EIP-3009 digest covers the
+    ///         nonce, so constraining the nonce to hash the terms makes signing the
+    ///         authorization amount to signing the terms. One single signature, and
+    ///         the agent is committed to the beneficiary, the post-condition and the
+    ///         duration, not merely to the amount.
     ///
-    ///         On interroge `escrow.termsHash` au lieu de recalculer le `keccak256`
-    ///         côté test : réimplémenter la formule reviendrait à tester une copie
-    ///         contre elle-même, et une divergence d'encodage passerait inaperçue.
-    ///         C'est aussi ce que fera le client en production.
+    ///         We query `escrow.termsHash` instead of recomputing the `keccak256` on
+    ///         the test side: reimplementing the formula would amount to testing a
+    ///         copy against itself, and an encoding divergence would go unnoticed.
+    ///         It is also what the client will do in production.
     function _authForTerms(WarrantEscrow escrow, MockUSDC token, address from, uint256 key, Terms memory t)
         internal
         view

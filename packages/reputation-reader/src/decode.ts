@@ -1,6 +1,6 @@
 /**
- * Décodage des logs. Pur, sans réseau : tout ce qui suit se teste sur des logs
- * simulés.
+ * Log decoding. Pure, network-free: everything that follows is tested against
+ * simulated logs.
  */
 
 import { decodeEventLog, toEventSelector } from 'viem'
@@ -21,7 +21,7 @@ import type {
   SettlementRecord,
 } from './types.js'
 
-/** `topic0` de chaque event lu. Calculés depuis l'ABI, jamais recopiés. */
+/** `topic0` of every event read. Computed from the ABI, never copied by hand. */
 export const TOPICS = {
   newFeedback: toEventSelector(newFeedbackEvent),
   feedbackRevoked: toEventSelector(feedbackRevokedEvent),
@@ -31,9 +31,9 @@ export const TOPICS = {
 } as const
 
 /**
- * Clé d'un feedback dans le registre : `(agentId, clientAddress, feedbackIndex)`.
- * `feedbackIndex` est **1-indexé** par couple (agentId, clientAddress) — ne
- * jamais partir de 0.
+ * Key of a feedback in the registry: `(agentId, clientAddress, feedbackIndex)`.
+ * `feedbackIndex` is **1-indexed** per (agentId, clientAddress) pair — never
+ * start from 0.
  */
 export function feedbackKey(
   agentId: bigint,
@@ -43,7 +43,7 @@ export function feedbackKey(
   return `${agentId}:${clientAddress.toLowerCase()}:${feedbackIndex}`
 }
 
-/** Décode les `FeedbackRevoked` en un ensemble de clés révoquées. */
+/** Decodes the `FeedbackRevoked` events into a set of revoked keys. */
 export function decodeRevocations(logs: readonly RawLog[]): Set<string> {
   const out = new Set<string>()
   for (const log of logs) {
@@ -74,11 +74,10 @@ function lower(value: string): Hex {
 }
 
 /**
- * Décode les `NewFeedback`.
+ * Decodes the `NewFeedback` events.
  *
- * Les logs d'autres events sont ignorés silencieusement : on filtre par
- * `topic0`, ce qui permet de passer une fenêtre de logs non triée sans la
- * préparer.
+ * Logs of other events are silently ignored: we filter by `topic0`, which lets
+ * the caller pass an unsorted window of logs without preparing it.
  */
 export function decodeNewFeedbackLogs(logs: readonly RawLog[]): FeedbackRecord[] {
   const out: FeedbackRecord[] = []
@@ -96,8 +95,8 @@ export function decodeNewFeedbackLogs(logs: readonly RawLog[]): FeedbackRecord[]
       feedbackIndex: BigInt(args.feedbackIndex),
       value: args.value,
       valueDecimals: Number(args.valueDecimals),
-      // `args.tag1` est la version **non indexée** : la valeur lisible.
-      // `args.indexedTag1` n'est que son keccak256 et ne sert qu'au filtrage.
+      // `args.tag1` is the **non-indexed** version: the readable value.
+      // `args.indexedTag1` is only its keccak256 and serves for filtering alone.
       tag1: args.tag1,
       tag2: args.tag2,
       endpoint: args.endpoint,
@@ -112,15 +111,15 @@ export function decodeNewFeedbackLogs(logs: readonly RawLog[]): FeedbackRecord[]
 }
 
 /**
- * Décode les règlements de `WarrantEscrow`.
+ * Decodes the `WarrantEscrow` settlements.
  *
- * La caution est reconstituée depuis l'event, pas depuis un état lu plus tard :
- *   - `WarrantHonored` → `refunded + fee`, parce que le remboursement est net
- *     des frais du protocole alors que la caution immobilisée ne l'était pas ;
- *   - `WarrantSlashed` → `amount`, la saisie porte sur l'intégralité.
+ * The bond is reconstructed from the event, not from a state read later on:
+ *   - `WarrantHonored` → `refunded + fee`, because the refund is net of the
+ *     protocol fee whereas the bond that was locked up was not;
+ *   - `WarrantSlashed` → `amount`, a slash takes the whole thing.
  *
- * `WarrantReclaimed` n'est pas décodé : une expiration n'est pas un règlement,
- * elle ne pèse ni au numérateur ni au dénominateur.
+ * `WarrantReclaimed` is not decoded: an expiry is not a settlement, it weighs
+ * neither in the numerator nor in the denominator.
  */
 export function decodeSettlementLogs(logs: readonly RawLog[]): SettlementRecord[] {
   const out: SettlementRecord[] = []
@@ -162,11 +161,11 @@ export function decodeSettlementLogs(logs: readonly RawLog[]): SettlementRecord[
 }
 
 /**
- * Décode les `WarrantOpened`.
+ * Decodes the `WarrantOpened` events.
  *
- * Sert au recoupement optionnel : `WarrantOpened.agent` permet de vérifier
- * l'attribution d'un mandat à un agent **sans passer par le feedback du
- * Settler**. Voir `crossReference({ openings, agentAddresses })`.
+ * Used for the optional cross-check: `WarrantOpened.agent` makes it possible to
+ * verify that a warrant belongs to an agent **without going through the
+ * Settler's feedback**. See `crossReference({ openings, agentAddresses })`.
  */
 export function decodeOpeningLogs(logs: readonly RawLog[]): OpeningRecord[] {
   const out: OpeningRecord[] = []

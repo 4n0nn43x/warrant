@@ -1,32 +1,33 @@
 /**
- * `native_balance_delta` — delta de solde natif attribuable à la transaction.
+ * `native_balance_delta` — native balance delta attributable to the transaction.
  *
- * ## La limite, énoncée franchement
+ * ## The limitation, stated plainly
  *
- * Il n'existe pas d'équivalent des logs `Transfer` pour l'ether. Les transferts
- * internes (`CALL` avec `value` depuis un contrat) ne sont visibles que par
- * `debug_traceTransaction` / `trace_transaction`, indisponibles sur la plupart
- * des RPC publics. Prendre `getBalance(evaluateAt) - getBalance(tx.block - 1)`
- * réintroduirait exactement le bug qu'on corrige sur l'ERC-20 : une autre
- * transaction du même bloc serait imputée à l'agent.
+ * There is no equivalent of `Transfer` logs for ether. Internal transfers
+ * (`CALL` with `value` from a contract) are visible only through
+ * `debug_traceTransaction` / `trace_transaction`, unavailable on most public
+ * RPCs. Taking `getBalance(evaluateAt) - getBalance(tx.block - 1)` would
+ * reintroduce exactly the bug we fix on the ERC-20 side: another transaction in
+ * the same block would be charged to the agent.
  *
- * ## Ce qui a été tranché (la doc ne le tranchait pas)
+ * ## What was decided (the docs did not decide it)
  *
- * 1. Si un tracer est injecté (`ctx.traceNativeTransfers`), il fait foi : delta
- *    = somme des transferts, plus les frais de gas si le compte est l'émetteur.
- * 2. Sinon, le delta n'est calculable de façon **prouvablement complète** que
- *    pour une transaction sans appel : `input === '0x'` **et** destinataire
- *    sans code au bloc d'inclusion. Là, aucun appel interne n'est possible, et
- *    `value` + gas est le delta exact.
- * 3. Dans tous les autres cas, le vérificateur est déclaré non décidable et
- *    lève `UnsupportedCheckError`. Il ne rend jamais `false` : un `false` non
- *    fondé saisirait une caution sur une lecture qu'on sait incomplète. Le
- *    mandat expire alors vers `reclaim` et l'agent est remboursé.
+ * 1. If a tracer is injected (`ctx.traceNativeTransfers`), it is authoritative:
+ *    delta = sum of the transfers, plus the gas fees if the account is the
+ *    sender.
+ * 2. Otherwise the delta is computable in a **provably complete** way only for a
+ *    transaction that makes no call: `input === '0x'` **and** a recipient with no
+ *    code at the inclusion block. There, no internal call is possible, and
+ *    `value` + gas is the exact delta.
+ * 3. In every other case the check is declared undecidable and throws
+ *    `UnsupportedCheckError`. It never returns `false`: an unfounded `false`
+ *    would slash a bond on a read we know to be incomplete. The warrant then
+ *    expires towards `reclaim` and the agent is refunded.
  *
- * Les frais de gas sont **inclus** quand le compte est l'émetteur : c'est une
- * baisse réelle et observable de son solde natif, et l'écarter serait une
- * tolérance implicite. Le trésor protégé n'est en général pas l'émetteur, donc
- * la question ne se pose pas pour l'usage courant.
+ * Gas fees are **included** when the account is the sender: that is a real and
+ * observable decrease of its native balance, and setting it aside would be an
+ * implicit tolerance. The protected treasury is generally not the sender, so the
+ * question does not arise in ordinary use.
  */
 
 import { addressEquals, compare, lower, parseDecimal } from './compare.js'
@@ -95,15 +96,15 @@ function gasCostOf(env: CheckEnv): bigint {
 }
 
 /**
- * Vrai si la transaction ne peut pas contenir d'appel interne : pas de
- * calldata, et un destinataire dépourvu de code au bloc d'inclusion (sinon son
- * `receive()` / `fallback()` s'exécute et peut redistribuer de la valeur).
+ * True if the transaction cannot contain an internal call: no calldata, and a
+ * recipient with no code at the inclusion block (otherwise its `receive()` /
+ * `fallback()` runs and can redistribute value).
  */
 async function isTerminalValueTransfer(env: CheckEnv): Promise<boolean> {
   const input = env.transaction.input
   if (input && input !== '0x') return false
   const to = env.transaction.to
-  if (!to) return false // création de contrat : le constructeur peut sortir de la valeur
+  if (!to) return false // contract creation: the constructor can move value out
 
   const code = await read(`getCode(${lower(to)}) @ ${env.txBlock}`, () =>
     env.client.getCode({ address: to, blockNumber: env.txBlock }),

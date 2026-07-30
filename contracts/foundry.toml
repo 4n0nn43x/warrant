@@ -41,9 +41,9 @@ runs = 512
 depth = 128
 
 [lint]
-# `block.timestamp` est le pivot du contrat : `expiry` est une borne dure sur le pouvoir du
-# settler (invariant I9). Les fenêtres sont de 15 min à 7 jours, très au-delà de la marge de
-# manipulation d'un séquenceur — l'avertissement ne s'applique pas ici.
+# `block.timestamp` is the contract's pivot: `expiry` is a hard bound on the settler's power
+# (invariant I9). Windows run from 15 minutes to 7 days, far beyond any sequencer's room for
+# manipulation — the warning does not apply here.
 exclude_lints = ["block-timestamp"]
 
 [fmt]

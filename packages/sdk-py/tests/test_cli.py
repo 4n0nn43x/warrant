@@ -1,9 +1,9 @@
-"""La CLI — c'est elle que la skill OpenClaw pilote.
+"""The CLI — this is what the OpenClaw skill drives.
 
-Ce qui est vérifié ici n'est pas l'ergonomie mais le **contrat** : trois codes de
-sortie distincts, et le résultat toujours sur stdout. Un appelant qui doit lire
-stderr pour savoir pourquoi un appel a échoué finira par ne lire que stdout et
-conclure que l'appel a réussi.
+What is verified here is not ergonomics but the **contract**: three distinct exit
+codes, and the result always on stdout. A caller forced to read stderr to learn
+why a call failed will end up reading only stdout and concluding the call
+succeeded.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def test_tools_prints_the_manifest(capsys: pytest.CaptureFixture[str]) -> None:
         "list_warrants",
     ]
     assert body["manifest"].startswith("sha256:")
-    # Le schéma publié est celui de la source, pas une reformulation.
+    # The published schema is the source's own, not a rephrasing.
     assert body["tools"][0]["inputSchema"]["properties"]["actionSpec"]["type"] == "object"
 
 

@@ -1,22 +1,21 @@
 /**
- * Fragments d'ABI — uniquement les events, parce que ce lecteur ne lit que des
- * events.
+ * ABI fragments — events only, because this reader reads nothing but events.
  *
- * `endpoint`, `feedbackURI` et `feedbackHash` ne sont **pas stockés** par le
- * ReputationRegistry : ils ne sont émis que dans `NewFeedback`. `readFeedback`
- * ne rend que `value`, `valueDecimals`, `tag1`, `tag2` et `isRevoked`. Aucun
- * getter ne redonne l'URI d'un verdict. Lire un verdict Warrant depuis la
- * chaîne exige donc d'indexer les logs, et c'est une contrainte d'architecture,
- * pas un détail d'implémentation.
+ * `endpoint`, `feedbackURI` and `feedbackHash` are **not stored** by the
+ * ReputationRegistry: they are only emitted in `NewFeedback`. `readFeedback`
+ * returns only `value`, `valueDecimals`, `tag1`, `tag2` and `isRevoked`. No
+ * getter gives back a verdict's URI. Reading a Warrant verdict from the chain
+ * therefore requires indexing the logs, and that is an architectural constraint,
+ * not an implementation detail.
  *
- * Les fragments ERC-8004 sont repris verbatim de
+ * The ERC-8004 fragments are taken verbatim from
  * `erc-8004/erc-8004-contracts@master:abis/ReputationRegistry.json`.
- * Les fragments `WarrantEscrow` sont repris de
- * `packages/server/src/escrow-abi.ts` — recopiés plutôt qu'importés pour que ce
- * paquet soit publiable seul, avec `viem` pour unique dépendance.
+ * The `WarrantEscrow` fragments are taken from
+ * `packages/server/src/escrow-abi.ts` — copied rather than imported so that this
+ * package can be published on its own, with `viem` as its only dependency.
  */
 
-/** Adresses ERC-8004, déterministes et identiques sur toutes les chaînes de même type. */
+/** ERC-8004 addresses, deterministic and identical across every chain of the same type. */
 export const ERC8004_ADDRESSES = {
   mainnet: {
     identity: '0x8004a169fb4a3325136eb29fa0ceb6d2e539a432',
@@ -29,13 +28,12 @@ export const ERC8004_ADDRESSES = {
 } as const
 
 /**
- * `NewFeedback` — le seul endroit où `feedbackURI` et `feedbackHash`
- * apparaissent.
+ * `NewFeedback` — the only place where `feedbackURI` and `feedbackHash` appear.
  *
- * Noter `indexedTag1`, une `string` **indexée** : son topic est
- * `keccak256(bytes(tag1))`, pas la chaîne. C'est ce qui permet de filtrer sur
- * `tag1 = 'warrant'` côté nœud. Le `tag1` non indexé qui suit porte la valeur
- * lisible.
+ * Note `indexedTag1`, an **indexed** `string`: its topic is
+ * `keccak256(bytes(tag1))`, not the string itself. That is what makes it possible
+ * to filter on `tag1 = 'warrant'` node-side. The non-indexed `tag1` that follows
+ * carries the readable value.
  */
 export const newFeedbackEvent = {
   type: 'event',
@@ -80,7 +78,7 @@ export const warrantOpenedEvent = {
   ],
 } as const
 
-/** `bond = refunded + fee` : le remboursement est net de frais, la caution ne l'est pas. */
+/** `bond = refunded + fee`: the refund is net of fees, the bond was not. */
 export const warrantHonoredEvent = {
   type: 'event',
   name: 'WarrantHonored',
@@ -92,7 +90,7 @@ export const warrantHonoredEvent = {
   ],
 } as const
 
-/** `bond = amount` : une saisie transfère l'intégralité, sans frais. */
+/** `bond = amount`: a slash transfers the whole thing, with no fee. */
 export const warrantSlashedEvent = {
   type: 'event',
   name: 'WarrantSlashed',

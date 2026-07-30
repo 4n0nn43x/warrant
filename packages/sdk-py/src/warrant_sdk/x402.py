@@ -88,7 +88,7 @@ WARRANT_COMMITMENT_EXTENSION = "warrant/commitment"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Reconnaissance des objets de fil
+# Recognising the wire objects
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -151,7 +151,7 @@ def commitment_terms(payment_required: dict[str, Any]) -> dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Les deux hachages, miroirs exacts du contrat
+# The two hashes, exact mirrors of the contract
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -294,10 +294,10 @@ class Eip3009Signer:
                 details=requirements,
             )
 
-        # Deux champs disent la même chose, et il faut vérifier les deux : un
-        # `assetTransferMethod: "eip3009"` avec un `primaryType` receive est un
-        # 402 qui se contredit. Signer l'un des deux au hasard, c'est choisir à la
-        # place du serveur quel typehash le token verra.
+        # Two fields say the same thing, and both must be checked: an
+        # `assetTransferMethod: "eip3009"` alongside a receive `primaryType` is a
+        # 402 that contradicts itself. Picking one of the two at random means
+        # choosing, on the server's behalf, which typehash the token will see.
         transfer_method = extra.get("assetTransferMethod", RECEIVE_AUTHORIZATION_TRANSFER_METHOD)
         if transfer_method != RECEIVE_AUTHORIZATION_TRANSFER_METHOD:
             raise WarrantError(
@@ -318,9 +318,9 @@ class Eip3009Signer:
 
         terms = commitment_terms(payment_required)
 
-        # Le prix vient du serveur, deux fois : `accepts[0].amount` et
-        # `terms.bond`. Ils doivent coïncider — sinon on ne sait pas lequel on
-        # signe, et le contrat ne pardonne pas ce genre d'ambiguïté.
+        # The price comes from the server twice: `accepts[0].amount` and
+        # `terms.bond`. They must agree — otherwise we do not know which one we
+        # are signing, and the contract does not forgive that kind of ambiguity.
         if int(terms["bond"]) != int(requirements["amount"]):
             raise WarrantError(
                 "payment_invalid",
@@ -361,8 +361,8 @@ class Eip3009Signer:
 
         message = {
             "from": agent,
-            # `to` est l'escrow : le contrat passe `address(this)` au token, et un
-            # `to` différent donnerait `CallerMustBePayee()`.
+            # `to` is the escrow: the contract passes `address(this)` to the
+            # token, and a different `to` would give `CallerMustBePayee()`.
             "to": requirements["payTo"],
             "value": int(requirements["amount"]),
             "validAfter": valid_after,

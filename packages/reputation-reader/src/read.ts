@@ -1,10 +1,10 @@
 /**
- * Couche d'E/S — la seule du paquet.
+ * The I/O layer — the only one in the package.
  *
- * Elle ne fait qu'une chose : aller chercher des logs. Aucune vue n'est
- * appelée, et ce n'est pas une préférence de style : `readFeedback` ne rend ni
- * `feedbackURI` ni `feedbackHash`, qui ne sont émis que dans `NewFeedback`.
- * Sans les logs, il n'y a pas de verdict Warrant lisible onchain.
+ * It does exactly one thing: fetch logs. No view is ever called, and that is not
+ * a stylistic preference: `readFeedback` returns neither `feedbackURI` nor
+ * `feedbackHash`, which are only emitted in `NewFeedback`. Without the logs,
+ * there is no Warrant verdict readable onchain.
  */
 
 import {
@@ -42,8 +42,8 @@ export interface GetLogsQuery {
 }
 
 /**
- * Interface structurelle minimale : un `PublicClient` viem la satisfait, et un
- * objet de test aussi. Le paquet ne dépend d'aucun client concret.
+ * Minimal structural interface: a viem `PublicClient` satisfies it, and so does a
+ * test object. The package depends on no concrete client.
  */
 export interface LogClient {
   getLogs(query: GetLogsQuery): Promise<readonly RawLog[]>
@@ -59,11 +59,11 @@ function range(r: BlockRange): BlockRange {
 }
 
 /**
- * Lit les `NewFeedback` d'un agent.
+ * Reads an agent's `NewFeedback` events.
  *
- * Le filtre `indexedTag1` porte sur la `string` **indexée** de l'event : le nœud
- * compare `keccak256('warrant')`, et viem s'occupe du hachage. Le `tag1` non
- * indexé reste vérifié après décodage, en défense.
+ * The `indexedTag1` filter applies to the event's **indexed** `string`: the node
+ * compares `keccak256('warrant')`, and viem takes care of the hashing. The
+ * non-indexed `tag1` is still checked after decoding, as a defence.
  */
 export async function fetchFeedback(
   client: LogClient,
@@ -87,7 +87,7 @@ export async function fetchFeedback(
   return decodeNewFeedbackLogs(logs)
 }
 
-/** Lit les `FeedbackRevoked` d'un agent. */
+/** Reads an agent's `FeedbackRevoked` events. */
 export async function fetchRevocations(
   client: LogClient,
   opts: { reputationRegistry: Address; agentId: bigint } & BlockRange,
@@ -101,7 +101,7 @@ export async function fetchRevocations(
   return decodeRevocations(logs)
 }
 
-/** Lit les règlements de l'escrow — `WarrantHonored` puis `WarrantSlashed`. */
+/** Reads the escrow's settlements — `WarrantHonored`, then `WarrantSlashed`. */
 export async function fetchSettlements(
   client: LogClient,
   opts: { escrow: Address } & BlockRange,
@@ -113,7 +113,7 @@ export async function fetchSettlements(
   return [...decodeSettlementLogs(honored), ...decodeSettlementLogs(slashed)]
 }
 
-/** Lit les `WarrantOpened`, pour recouper l'attribution des mandats. */
+/** Reads the `WarrantOpened` events, to cross-check warrant attribution. */
 export async function fetchOpenings(
   client: LogClient,
   opts: { escrow: Address; agent?: Address } & BlockRange,
@@ -131,23 +131,23 @@ export interface ReadAgentReputationOptions extends BlockRange {
   reputationRegistry: Address
   escrow: Address
   agentId: bigint
-  /** Adresses clientes retenues — en pratique, celles du Settler. */
+  /** Client addresses accepted — in practice, the Settler's. */
   clients?: readonly Address[]
-  /** Adresses onchain de l'agent, pour recouper via `WarrantOpened`. */
+  /** Onchain addresses of the agent, to cross-check via `WarrantOpened`. */
   agentAddresses?: readonly Address[]
   /**
-   * Résout les identifiants de mandat d'un feedback agrégé, en téléchargeant le
-   * document à son `feedbackURI`. Sans elle, seuls les feedbacks portant un
-   * mandat unique dans leur URI sont pris en compte.
+   * Resolves the warrant identifiers of an aggregated feedback, by downloading the
+   * document at its `feedbackURI`. Without it, only feedbacks carrying a single
+   * warrant in their URI are taken into account.
    */
   resolveWarrantIds?: (feedback: FeedbackRecord) => Promise<readonly `0x${string}`[]>
 }
 
 /**
- * Le point d'entrée complet : lit les logs, croise, calcule.
+ * The complete entry point: reads the logs, cross-references, computes.
  *
- * Aucune vue n'est appelée. Le résultat est reproductible par un tiers à partir
- * du seul couple (RPC, plage de blocs).
+ * No view is called. The result is reproducible by a third party from the (RPC,
+ * block range) pair alone.
  */
 export async function readAgentReputation(
   client: LogClient,
@@ -172,8 +172,9 @@ export async function readAgentReputation(
       : Promise.resolve([] as OpeningRecord[]),
   ])
 
-  // Résolution des lots : un feedback agrégé ne porte pas ses identifiants dans
-  // son URI. On pré-calcule la table pour que le recoupement reste synchrone.
+  // Batch resolution: an aggregated feedback does not carry its identifiers in
+  // its URI. We precompute the table so that the cross-reference stays
+  // synchronous.
   const resolved = new Map<FeedbackRecord, readonly `0x${string}`[]>()
   if (opts.resolveWarrantIds) {
     for (const f of feedbacks) {

@@ -1,22 +1,22 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# FICHIER GÉNÉRÉ — NE PAS ÉDITER À LA MAIN.
+# GENERATED FILE — DO NOT EDIT BY HAND.
 #
-# Source : packages/sdk-ts/src/tools.ts et schemas.ts, sérialisés par
-#          packages/sdk-ts/src/manifest.ts.
-# Régénérer : pnpm tsx packages/sdk-py/codegen/emit.ts
-# Vérifier   : pnpm tsx packages/sdk-py/codegen/emit.ts --check
+# Source:     packages/sdk-ts/src/tools.ts and schemas.ts, serialised by
+#             packages/sdk-ts/src/manifest.ts.
+# Regenerate: pnpm tsx packages/sdk-py/codegen/emit.ts
+# Verify:     pnpm tsx packages/sdk-py/codegen/emit.ts --check
 #
-# Toute modification manuelle sera écrasée, et `tests/test_codegen_drift.py`
-# échouera avant : c'est ce qui garantit que le Python ne peut pas diverger du
-# TypeScript. Les descriptions ci-dessous sont recopiées verbatim depuis la
-# source unique — les corriger ici les ferait mentir, pas les améliorer.
+# Any manual edit will be overwritten, and `tests/test_codegen_drift.py` will
+# fail before that happens: this is what guarantees the Python cannot diverge
+# from the TypeScript. The descriptions below are copied verbatim from the single
+# source of truth — correcting them here would make them lie, not improve them.
 # ═══════════════════════════════════════════════════════════════════════════
-"""Modèles et manifeste générés depuis la source unique TypeScript.
+"""Models and manifest generated from the TypeScript single source of truth.
 
-Rien ici n'est écrit à la main. Les modèles Pydantic portent `extra="ignore"`,
-ce qui reproduit le nettoyage des clés inconnues fait par Zod : un champ
-`category` ou `notional` glissé dans les arguments est **retiré** avant
-l'appel, donc il n'atteint ni le Classifieur, ni l'`actionHash`.
+Nothing here is written by hand. The Pydantic models carry `extra="ignore"`,
+which reproduces the unknown-key stripping that Zod performs: a `category` or
+`notional` field slipped into the arguments is **removed** before the call, so
+it reaches neither the Classifier nor the `actionHash`.
 """
 
 from __future__ import annotations
@@ -28,23 +28,23 @@ from pydantic import BaseModel, ConfigDict, Field
 MANIFEST_VERSION = 1
 JSON_SCHEMA_DIALECT = "draft-7"
 
-#: sha256 de la forme canonique du manifeste. Identifie la révision de la source
-#: unique dont ce fichier est issu ; publié par `warrant tools` et par la skill
-#: OpenClaw pour qu'un artefact périmé se repère sans lire le code.
-MANIFEST_SHA256 = "sha256:9423096deebe38d11100cea8c730030de4b89d517b43d69ce3a759c34c766a1b"
+#: sha256 of the manifest's canonical form. Identifies the revision of the single
+#: source of truth this file came from; published by `warrant tools` and by the
+#: OpenClaw skill so that a stale artifact can be spotted without reading code.
+MANIFEST_SHA256 = "sha256:b4ca574277f0079d493f116a68447823b382abeec793e515ed169846c0e1a2c2"
 
 
 class ActionSpec(BaseModel):
-    """La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés."""
+    """The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared."""
 
     model_config = ConfigDict(extra="ignore")
 
     version: Literal[1]
-    chainId: int = Field(gt=0, le=9007199254740991, description="Chain ID EVM de la transaction exécutée.")
-    target: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Contrat appelé.")
-    value: str = Field(pattern="^(?:0|[1-9][0-9]*)$", description="Valeur native envoyée, en wei, en chaîne décimale.")
-    calldata: str = Field(pattern="^0x(?:[0-9a-fA-F]{2})*$", description="Calldata exact de la transaction. C'est de lui — et de lui seul — que sont dérivés la catégorie, le notionnel et donc la caution.")
-    registryRef: str = Field(pattern="^0x[0-9a-fA-F]{64}$", description="Hash de la version du registre de classification utilisée.")
+    chainId: int = Field(gt=0, le=9007199254740991, description="EVM chain ID of the executed transaction.")
+    target: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Contract being called.")
+    value: str = Field(pattern="^(?:0|[1-9][0-9]*)$", description="Native value sent, in wei, as a decimal string.")
+    calldata: str = Field(pattern="^0x(?:[0-9a-fA-F]{2})*$", description="Exact calldata of the transaction. It is from this — and from this alone — that the category, the notional and therefore the bond are derived.")
+    registryRef: str = Field(pattern="^0x[0-9a-fA-F]{64}$", description="Hash of the classification registry version in use.")
 
 
 class QuoteRiskInput(BaseModel):
@@ -52,8 +52,8 @@ class QuoteRiskInput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    actionSpec: ActionSpec = Field(description="La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés.")
-    beneficiary: str | None = Field(default=None, pattern="^0x[0-9a-fA-F]{40}$", description="Bénéficiaire d'une éventuelle saisie. N'influe pas sur le prix ; sert à construire la post-condition.")
+    actionSpec: ActionSpec = Field(description="The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared.")
+    beneficiary: str | None = Field(default=None, pattern="^0x[0-9a-fA-F]{40}$", description="Beneficiary of a potential slash. Does not affect the price; used to build the post-condition.")
 
 
 class RequestWarrantInput(BaseModel):
@@ -61,8 +61,8 @@ class RequestWarrantInput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    actionSpec: ActionSpec = Field(description="La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés.")
-    beneficiary: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Adresse qui reçoit la caution si la post-condition est violée — le propriétaire du capital, jamais l'agent.")
+    actionSpec: ActionSpec = Field(description="The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared.")
+    beneficiary: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Address that receives the bond if the post-condition is violated — the owner of the capital, never the agent.")
 
 
 class GetWarrantInput(BaseModel):
@@ -70,7 +70,7 @@ class GetWarrantInput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    warrantId: str = Field(pattern="^0x[0-9a-fA-F]{64}$", description="Identifiant du mandat, tel que rendu par request_warrant.")
+    warrantId: str = Field(pattern="^0x[0-9a-fA-F]{64}$", description="Warrant identifier, as returned by request_warrant.")
 
 
 class ListWarrantsInput(BaseModel):
@@ -78,62 +78,62 @@ class ListWarrantsInput(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    agent: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Wallet agentique dont on énumère les mandats.")
-    status: Literal["open", "honored", "slashed", "reclaimed"] | None = Field(default=None, description="Ne garder que les mandats dans cet état.")
-    category: Literal["erc20.transfer", "erc20.approve", "aavev3.repay", "aavev3.supply", "aavev3.withdraw", "aavev3.borrow", "unknown"] | None = Field(default=None, description="Filtre a posteriori sur la catégorie dérivée. Ne peut pas être déclarée à l'ouverture.")
-    since: int | None = Field(default=None, ge=0, le=9007199254740991, description="Borne basse sur openedAt, en secondes Unix.")
-    until: int | None = Field(default=None, ge=0, le=9007199254740991, description="Borne haute sur openedAt, en secondes Unix.")
-    limit: int | None = Field(default=None, ge=1, le=100, description="Nombre maximal de mandats rendus (défaut 20).")
-    cursor: str | None = Field(default=None, description="Curseur de pagination rendu par un appel précédent.")
+    agent: str = Field(pattern="^0x[0-9a-fA-F]{40}$", description="Agentic wallet whose warrants are being listed.")
+    status: Literal["open", "honored", "slashed", "reclaimed"] | None = Field(default=None, description="Keep only the warrants in this status.")
+    category: Literal["erc20.transfer", "erc20.approve", "aavev3.repay", "aavev3.supply", "aavev3.withdraw", "aavev3.borrow", "unknown"] | None = Field(default=None, description="After-the-fact filter on the derived category. Cannot be declared at opening time.")
+    since: int | None = Field(default=None, ge=0, le=9007199254740991, description="Lower bound on openedAt, in Unix seconds.")
+    until: int | None = Field(default=None, ge=0, le=9007199254740991, description="Upper bound on openedAt, in Unix seconds.")
+    limit: int | None = Field(default=None, ge=1, le=100, description="Maximum number of warrants returned (default 20).")
+    cursor: str | None = Field(default=None, description="Pagination cursor returned by a previous call.")
 
 
-#: Le catalogue d'erreurs, tel que `errors.ts` le pose. Un `hint` est lu par un
-#: agent : le réécrire en Python ferait dire deux choses différentes au même code
-#: selon le langage de l'adaptateur.
+#: The error catalogue, exactly as `errors.ts` lays it out. A `hint` is read by
+#: an agent: rewriting it in Python would make the same code say two different
+#: things depending on the adapter's language.
 ERROR_CATALOG: dict[str, dict[str, str]] = {
     "invalid_input": {
-        "hint": "Vérifie les champs de l'outil contre son inputSchema, puis rappelle-le.",
+        "hint": "Check the tool's fields against its inputSchema, then call it again.",
         "docs": "https://warrant.sh/docs/tools",
     },
     "invalid_action_spec": {
-        "hint": "L'actionSpec doit porter version, chainId, target, value, calldata et registryRef. Aucune catégorie ni notionnel : ils sont dérivés du calldata.",
+        "hint": "The actionSpec must carry version, chainId, target, value, calldata and registryRef. No category and no notional: both are derived from the calldata.",
         "docs": "https://warrant.sh/docs/action-spec",
     },
     "invalid_condition_spec": {
-        "hint": "Corrige le champ nommé dans `field` puis rouvre le mandat : une post-condition est immuable une fois engagée.",
+        "hint": "Fix the field named in `field` then open the warrant again: a post-condition is immutable once committed.",
         "docs": "https://warrant.sh/docs/post-conditions",
     },
     "classification_failed": {
-        "hint": "Le couple (target, selector) est absent du registre. Appelle quote_risk d'abord : une action inconnue reste finançable, au tarif le plus strict.",
+        "hint": "The (target, selector) pair is absent from the registry. Call quote_risk first: an unknown action remains fundable, at the strictest rate.",
         "docs": "https://warrant.sh/docs/classification",
     },
     "payment_invalid": {
-        "hint": "Reconstruis le PaymentPayload à partir du PaymentRequired renvoyé, sans modifier `accepted`, et rejoue avec _meta[\"x402/payment\"].",
+        "hint": "Rebuild the PaymentPayload from the PaymentRequired that was returned, without modifying `accepted`, and replay with _meta[\"x402/payment\"].",
         "docs": "https://warrant.sh/docs/payments#x402",
     },
     "warrant_not_found": {
-        "hint": "Vérifie le warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) énumère les mandats connus.",
+        "hint": "Check the warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) lists the known warrants.",
         "docs": "https://warrant.sh/docs/warrants#lookup",
     },
     "gateway_unreachable": {
-        "hint": "Le Gateway Warrant est injoignable. Réessaie ; aucun mandat ni paiement n'a été engagé.",
+        "hint": "The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.",
         "docs": "https://warrant.sh/docs/troubleshooting#gateway",
     },
     "gateway_error": {
-        "hint": "Réessaie ; si cela persiste, le détail est dans `details`.",
+        "hint": "Retry; if it persists, the detail is in `details`.",
         "docs": "https://warrant.sh/docs/troubleshooting#gateway",
     },
 }
 
 
-#: Les quatre outils, dans l'ordre de la source : devis, mandat, lecture,
-#: historique. `input_model` est le modèle Pydantic ci-dessus ; `input_schema`
-#: est le JSON Schema draft-7 publié tel quel par `tools/list` côté MCP.
+#: The four tools, in source order: quote, warrant, read, history. `input_model`
+#: is the Pydantic model above; `input_schema` is the draft-7 JSON Schema
+#: published as-is by `tools/list` on the MCP side.
 TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
     {
         "name": "quote_risk",
         "title": "Quote the bond for an action",
-        "description": "Estime la caution exigée pour une action, sans rien engager et sans paiement. Classe le calldata, en dérive le notionnel, puis rend la caution, le taux de risque et la post-condition qui sera engagée. Appelle-le avant request_warrant : c'est gratuit, et c'est le seul moyen de connaître le coût avant de s'engager. La catégorie et le notionnel sont dérivés du calldata ; ils ne peuvent pas être déclarés.",
+        "description": "Estimates the bond required for an action, committing nothing and paying nothing. Classifies the calldata, derives the notional from it, then returns the bond, the risk rate and the post-condition that will be committed. Call this before request_warrant: it is free, and it is the only way to learn the cost before committing. The category and the notional are derived from the calldata; they cannot be declared.",
         "paid": False,
         "read_only": True,
         "input_schema": {
@@ -151,27 +151,27 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                             "type": "integer",
                             "exclusiveMinimum": 0,
                             "maximum": 9007199254740991,
-                            "description": "Chain ID EVM de la transaction exécutée.",
+                            "description": "EVM chain ID of the executed transaction.",
                         },
                         "target": {
                             "type": "string",
                             "pattern": "^0x[0-9a-fA-F]{40}$",
-                            "description": "Contrat appelé.",
+                            "description": "Contract being called.",
                         },
                         "value": {
                             "type": "string",
                             "pattern": "^(?:0|[1-9][0-9]*)$",
-                            "description": "Valeur native envoyée, en wei, en chaîne décimale.",
+                            "description": "Native value sent, in wei, as a decimal string.",
                         },
                         "calldata": {
                             "type": "string",
                             "pattern": "^0x(?:[0-9a-fA-F]{2})*$",
-                            "description": "Calldata exact de la transaction. C'est de lui — et de lui seul — que sont dérivés la catégorie, le notionnel et donc la caution.",
+                            "description": "Exact calldata of the transaction. It is from this — and from this alone — that the category, the notional and therefore the bond are derived.",
                         },
                         "registryRef": {
                             "type": "string",
                             "pattern": "^0x[0-9a-fA-F]{64}$",
-                            "description": "Hash de la version du registre de classification utilisée.",
+                            "description": "Hash of the classification registry version in use.",
                         },
                     },
                     "required": [
@@ -182,10 +182,10 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                         "calldata",
                         "registryRef",
                     ],
-                    "description": "La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés.",
+                    "description": "The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared.",
                 },
                 "beneficiary": {
-                    "description": "Bénéficiaire d'une éventuelle saisie. N'influe pas sur le prix ; sert à construire la post-condition.",
+                    "description": "Beneficiary of a potential slash. Does not affect the price; used to build the post-condition.",
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{40}$",
                 },
@@ -200,19 +200,19 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
             "properties": {
                 "category": {
                     "type": "string",
-                    "description": "Catégorie dérivée du calldata.",
+                    "description": "Category derived from the calldata.",
                 },
                 "bond": {
                     "type": "string",
-                    "description": "Caution exigée, en unités atomiques (USDC, 6 décimales).",
+                    "description": "Bond required, in atomic units (USDC, 6 decimals).",
                 },
                 "riskBps": {
                     "type": "number",
-                    "description": "Taux de risque appliqué, en points de base.",
+                    "description": "Risk rate applied, in basis points.",
                 },
                 "notionalUSD": {
                     "type": "string",
-                    "description": "Notionnel dérivé des arguments décodés.",
+                    "description": "Notional derived from the decoded arguments.",
                 },
                 "conditionSpec": {
                     "type": "object",
@@ -220,11 +220,11 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                         "type": "string",
                     },
                     "additionalProperties": {},
-                    "description": "Post-condition qui sera engagée sous conditionHash.",
+                    "description": "Post-condition that will be committed under conditionHash.",
                 },
                 "rationale": {
                     "type": "string",
-                    "description": "Justification du prix, en une phrase.",
+                    "description": "One-sentence justification of the price.",
                 },
             },
             "required": [
@@ -242,7 +242,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
     {
         "name": "request_warrant",
         "title": "Open a bonded warrant",
-        "description": "Ouvre un mandat cautionné pour l'action donnée et la fait exécuter par KeeperHub. Payant : la caution doit être financée via x402 avant l'ouverture. Rend le warrantId, l'executionId et les engagements conditionHash / actionHash. Si la post-condition est tenue, la caution revient ; sinon elle va au beneficiary. La caution est dérivée du calldata — elle ne se négocie pas.",
+        "description": "Opens a bonded warrant for the given action and has KeeperHub execute it. Paid: the bond must be funded via x402 before the warrant opens. Returns the warrantId, the executionId and the conditionHash / actionHash commitments. If the post-condition holds, the bond comes back; otherwise it goes to the beneficiary. The bond is derived from the calldata — it is not negotiable.",
         "paid": True,
         "read_only": False,
         "input_schema": {
@@ -260,27 +260,27 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                             "type": "integer",
                             "exclusiveMinimum": 0,
                             "maximum": 9007199254740991,
-                            "description": "Chain ID EVM de la transaction exécutée.",
+                            "description": "EVM chain ID of the executed transaction.",
                         },
                         "target": {
                             "type": "string",
                             "pattern": "^0x[0-9a-fA-F]{40}$",
-                            "description": "Contrat appelé.",
+                            "description": "Contract being called.",
                         },
                         "value": {
                             "type": "string",
                             "pattern": "^(?:0|[1-9][0-9]*)$",
-                            "description": "Valeur native envoyée, en wei, en chaîne décimale.",
+                            "description": "Native value sent, in wei, as a decimal string.",
                         },
                         "calldata": {
                             "type": "string",
                             "pattern": "^0x(?:[0-9a-fA-F]{2})*$",
-                            "description": "Calldata exact de la transaction. C'est de lui — et de lui seul — que sont dérivés la catégorie, le notionnel et donc la caution.",
+                            "description": "Exact calldata of the transaction. It is from this — and from this alone — that the category, the notional and therefore the bond are derived.",
                         },
                         "registryRef": {
                             "type": "string",
                             "pattern": "^0x[0-9a-fA-F]{64}$",
-                            "description": "Hash de la version du registre de classification utilisée.",
+                            "description": "Hash of the classification registry version in use.",
                         },
                     },
                     "required": [
@@ -291,12 +291,12 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                         "calldata",
                         "registryRef",
                     ],
-                    "description": "La transaction à exécuter. N'accepte ni catégorie ni notionnel : les deux sont dérivés du calldata, jamais déclarés.",
+                    "description": "The transaction to execute. Accepts neither category nor notional: both are derived from the calldata, never declared.",
                 },
                 "beneficiary": {
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{40}$",
-                    "description": "Adresse qui reçoit la caution si la post-condition est violée — le propriétaire du capital, jamais l'agent.",
+                    "description": "Address that receives the bond if the post-condition is violated — the owner of the capital, never the agent.",
                 },
             },
             "required": [
@@ -314,21 +314,21 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                 },
                 "executionId": {
                     "type": "string",
-                    "description": "Identifiant KeeperHub de l'exécution.",
+                    "description": "KeeperHub identifier of the execution.",
                 },
                 "conditionHash": {
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{64}$",
-                    "description": "keccak256(JCS(conditionSpec)) — engagement immuable.",
+                    "description": "keccak256(JCS(conditionSpec)) — immutable commitment.",
                 },
                 "actionHash": {
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{64}$",
-                    "description": "keccak256(JCS(actionSpec)) — engagement sur ce qui est demandé.",
+                    "description": "keccak256(JCS(actionSpec)) — commitment to what is being asked.",
                 },
                 "expiry": {
                     "type": "number",
-                    "description": "Au-delà, honor/slash sont fermés et reclaim() est ouvert.",
+                    "description": "Past this point, honor/slash are closed and reclaim() is open.",
                 },
             },
             "required": [
@@ -345,7 +345,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
     {
         "name": "get_warrant",
         "title": "Read a warrant and its verdict",
-        "description": "Rend un mandat, son état et — s'il est réglé — le verdict complet avec le détail checks[] : une ligne par vérification, y compris celles qui passent, plus le bloc exact d'évaluation. C'est ce qui rend un verdict rejouable par un tiers plutôt que cru sur parole.",
+        "description": "Returns a warrant, its status and — once it is settled — the full verdict with the checks[] detail: one row per check, including the ones that pass, plus the exact block of evaluation. That is what makes a verdict replayable by a third party rather than taken on trust.",
         "paid": False,
         "read_only": True,
         "input_schema": {
@@ -355,7 +355,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                 "warrantId": {
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{64}$",
-                    "description": "Identifiant du mandat, tel que rendu par request_warrant.",
+                    "description": "Warrant identifier, as returned by request_warrant.",
                 },
             },
             "required": [
@@ -400,7 +400,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                     "description": "0 None, 1 Open, 2 Honored, 3 Slashed, 4 Reclaimed.",
                 },
                 "verdict": {
-                    "description": "Présent une fois le mandat réglé.",
+                    "description": "Present once the warrant is settled.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string",
@@ -433,7 +433,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                         ],
                         "additionalProperties": False,
                     },
-                    "description": "Une ligne par vérification, y compris celles qui passent — un verdict partiel ne serait pas auditable.",
+                    "description": "One row per check, including the ones that pass — a partial verdict would not be auditable.",
                 },
             },
             "required": [
@@ -455,7 +455,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
     {
         "name": "list_warrants",
         "title": "List an agent warrants and statistics",
-        "description": "Énumère les mandats d'un agent avec leurs statistiques agrégées : nombre honoré, saisi, total cautionné, taux d'honneur. Filtrable par état, catégorie et fenêtre temporelle. Sert à répondre à « quel est le bilan de cet agent ? » sans lire la chaîne.",
+        "description": "Lists an agent's warrants along with their aggregated statistics: number honored, number slashed, total bonded, honor rate. Filterable by status, category and time window. Use it to answer \"what is this agent's track record?\" without reading the chain.",
         "paid": False,
         "read_only": True,
         "input_schema": {
@@ -465,10 +465,10 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                 "agent": {
                     "type": "string",
                     "pattern": "^0x[0-9a-fA-F]{40}$",
-                    "description": "Wallet agentique dont on énumère les mandats.",
+                    "description": "Agentic wallet whose warrants are being listed.",
                 },
                 "status": {
-                    "description": "Ne garder que les mandats dans cet état.",
+                    "description": "Keep only the warrants in this status.",
                     "type": "string",
                     "enum": [
                         "open",
@@ -478,7 +478,7 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                     ],
                 },
                 "category": {
-                    "description": "Filtre a posteriori sur la catégorie dérivée. Ne peut pas être déclarée à l'ouverture.",
+                    "description": "After-the-fact filter on the derived category. Cannot be declared at opening time.",
                     "type": "string",
                     "enum": [
                         "erc20.transfer",
@@ -491,25 +491,25 @@ TOOL_MANIFEST: tuple[dict[str, Any], ...] = (
                     ],
                 },
                 "since": {
-                    "description": "Borne basse sur openedAt, en secondes Unix.",
+                    "description": "Lower bound on openedAt, in Unix seconds.",
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991,
                 },
                 "until": {
-                    "description": "Borne haute sur openedAt, en secondes Unix.",
+                    "description": "Upper bound on openedAt, in Unix seconds.",
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991,
                 },
                 "limit": {
-                    "description": "Nombre maximal de mandats rendus (défaut 20).",
+                    "description": "Maximum number of warrants returned (default 20).",
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 100,
                 },
                 "cursor": {
-                    "description": "Curseur de pagination rendu par un appel précédent.",
+                    "description": "Pagination cursor returned by a previous call.",
                     "type": "string",
                 },
             },

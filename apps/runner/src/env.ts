@@ -1,9 +1,9 @@
 /**
- * Lecture d'environnement — mêmes conventions que `packages/server/src/bin/*`.
+ * Environment reading — same conventions as `packages/server/src/bin/*`.
  *
- * Un nom canonique par variable, **aucun alias** : un binaire qui accepte deux
- * orthographes finit par lire celle qui n'est pas renseignée. Et un runner de
- * volume qui lit la mauvaise variable n'échoue pas, il dépense.
+ * One canonical name per variable, **no aliases**: a binary that accepts two
+ * spellings ends up reading the one that was not set. And a volume runner that
+ * reads the wrong variable does not fail, it spends.
  */
 
 import type { Address, Hex } from '@warrant/core'
@@ -12,8 +12,8 @@ export function required(name: string): string {
   const value = process.env[name]
   if (!value || value.trim() === '') {
     throw new Error(
-      `variable d'environnement manquante: ${name} — voir apps/runner/src/runner.ts ` +
-        'pour la liste complète et son commentaire',
+      `missing environment variable: ${name} — see apps/runner/src/runner.ts ` +
+        'for the full list and its comment',
     )
   }
   return value.trim()
@@ -32,43 +32,43 @@ export function flag(name: string, fallback = false): boolean {
 
 export function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {
-    throw new Error(`${name} : adresse EVM attendue, reçu "${value}"`)
+    throw new Error(`${name}: expected an EVM address, got "${value}"`)
   }
   return value.toLowerCase() as Address
 }
 
 export function hex32(name: string, value: string): Hex {
   if (!/^0x[0-9a-fA-F]{64}$/.test(value)) {
-    throw new Error(`${name} : bytes32 attendu, reçu "${value}"`)
+    throw new Error(`${name}: expected bytes32, got "${value}"`)
   }
   return value.toLowerCase() as Hex
 }
 
 /**
- * Entier **strict**. `Number('12 mandats')` vaut `NaN` et `parseInt` vaut 12 :
- * les deux sont mauvais ici, le premier parce qu'il se propage sans lever, le
- * second parce qu'il invente une valeur à partir d'une faute de frappe.
+ * **Strict** integer. `Number('12 warrants')` is `NaN` and `parseInt` is 12:
+ * both are wrong here, the first because it propagates without throwing, the
+ * second because it invents a value out of a typo.
  */
 export function integer(name: string, fallback: number): number {
   const raw = optional(name, '')
   if (raw === '') return fallback
   if (!/^-?\d+$/.test(raw)) {
-    throw new Error(`${name} : entier décimal attendu, reçu "${raw}"`)
+    throw new Error(`${name}: expected a decimal integer, got "${raw}"`)
   }
   return Number(raw)
 }
 
-/** Entier arbitrairement grand — unités atomiques d'USDC, wei. Jamais `number`. */
+/** Arbitrarily large integer — USDC atomic units, wei. Never `number`. */
 export function bigint(name: string, fallback: bigint): bigint {
   const raw = optional(name, '')
   if (raw === '') return fallback
   if (!/^\d+$/.test(raw)) {
-    throw new Error(`${name} : entier décimal non signé attendu, reçu "${raw}"`)
+    throw new Error(`${name}: expected an unsigned decimal integer, got "${raw}"`)
   }
   return BigInt(raw)
 }
 
-/** 6 décimales, format d'affichage. Jamais réinjecté dans un calcul. */
+/** 6 decimals, display format. Never fed back into a computation. */
 export function usdc(atomic: bigint): string {
   const negative = atomic < 0n
   const abs = negative ? -atomic : atomic
@@ -77,7 +77,7 @@ export function usdc(atomic: bigint): string {
   return `${negative ? '-' : ''}${whole}.${frac}`
 }
 
-/** 18 décimales, tronquées à 9 — au-delà, sur Base, ce n'est plus lisible. */
+/** 18 decimals, truncated to 9 — past that, on Base, it stops being readable. */
 export function eth(wei: bigint): string {
   const whole = wei / 1_000_000_000_000_000_000n
   const frac = (wei % 1_000_000_000_000_000_000n).toString(10).padStart(18, '0')

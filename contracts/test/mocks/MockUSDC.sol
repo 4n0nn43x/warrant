@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title MockUSDC — ERC-20 à 6 décimales avec EIP-3009, pour les tests
-/// @dev Pas de hook, pas de frais de transfert, pas de rebasing.
+/// @title MockUSDC — a 6-decimal ERC-20 with EIP-3009, for the tests
+/// @dev No hooks, no transfer fee, no rebasing.
 ///
-///      Ce mock implémente `receiveWithAuthorization` (EIP-3009) avec le même
-///      domaine EIP-712 et le même typehash que FiatTokenV2_2, parce que c'est
-///      désormais l'unique chemin de financement d'un mandat. Deux propriétés
-///      du vrai token sont reproduites parce que la sécurité en dépend :
-///      `to == msg.sender` (protection anti-interception) et l'unicité du
-///      `nonce` par autorisant (protection anti-rejeu).
+///      This mock implements `receiveWithAuthorization` (EIP-3009) with the same
+///      EIP-712 domain and the same typehash as FiatTokenV2_2, because that is
+///      now the sole funding path of a warrant. Two properties of the real token
+///      are reproduced because security depends on them: `to == msg.sender`
+///      (anti-interception protection) and per-authorizer uniqueness of the
+///      `nonce` (anti-replay protection).
 ///
-///      Il ne reproduit PAS la blacklist Circle ni le refus de `address(0)` :
-///      l'audit a établi que ces comportements ne produisent pas de perte
-///      imputable au contrat, `reclaim` étant rejouable sans borne temporelle.
+///      It does NOT reproduce Circle's blacklist, nor the refusal of `address(0)`:
+///      the audit established that those behaviours produce no loss attributable
+///      to the contract, `reclaim` being replayable with no time bound.
 contract MockUSDC {
     string public constant name = "USD Coin";
     string public constant symbol = "USDC";
@@ -40,8 +40,9 @@ contract MockUSDC {
             "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
         );
 
-    /// @dev `authorizer => nonce => consommé`. C'est le token qui garantit
-    ///      l'unicité, ce qui fait du nonce une `fundingRef` digne de ce nom.
+    /// @dev `authorizer => nonce => consumed`. The token is what guarantees
+    ///      uniqueness, and that is what makes the nonce a `fundingRef` worthy
+    ///      of the name.
     mapping(address => mapping(bytes32 => bool)) public authorizationState;
 
     event AuthorizationUsedEvent(address indexed authorizer, bytes32 indexed nonce);
@@ -69,9 +70,9 @@ contract MockUSDC {
         bytes32 r,
         bytes32 s
     ) external {
-        // La propriété qui distingue `receive` de `transfer` : seul le
-        // destinataire peut soumettre l'autorisation. Personne ne peut donc
-        // l'intercepter pour consommer le nonce à la place du contrat.
+        // The property that sets `receive` apart from `transfer`: only the payee
+        // can submit the authorization. Nobody can therefore intercept it to
+        // consume the nonce in the contract's stead.
         if (to != msg.sender) revert CallerMustBePayee();
         if (block.timestamp <= validAfter) revert AuthorizationNotYetValid();
         if (block.timestamp >= validBefore) revert AuthorizationExpired();

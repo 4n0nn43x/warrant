@@ -1,7 +1,7 @@
 {
-  // Ne couvre que `codegen/` : le reste du paquet est du Python. Le générateur
-  // traverse `../sdk-ts/src` et `../server/src` par import relatif — c'est
-  // volontaire, il lit la source, pas un `dist` qui pourrait être en retard.
+  // Covers only `codegen/`: the rest of the package is Python. The generator
+  // reaches into `../sdk-ts/src` and `../server/src` by relative import — that is
+  // deliberate, it reads the source, not a `dist` that could be lagging behind.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,

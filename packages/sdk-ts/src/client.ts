@@ -1,15 +1,15 @@
 /**
- * `WarrantClient` — le client HTTP du Gateway, plus la boucle de paiement x402.
+ * `WarrantClient` — the Gateway's HTTP client, plus the x402 payment loop.
  *
- * Deux niveaux dans un seul objet, volontairement :
+ * Two levels in a single object, on purpose:
  *
- * - il **implémente `GatewayClient`** — transport nu, un appel HTTP par
- *   méthode, aucune magie ;
- * - il expose `call()`, qui exécute un descripteur d'outil et **rejoue
- *   automatiquement** avec le paiement quand un signataire est configuré.
+ * - it **implements `GatewayClient`** — bare transport, one HTTP call per
+ *   method, no magic;
+ * - it exposes `call()`, which runs a tool descriptor and **automatically
+ *   replays** with the payment when a signer is configured.
  *
- * C'est `call()` que consomment les adaptateurs de framework : un agent
- * LangChain ou Vercel AI ne doit pas avoir à connaître le protocole 402.
+ * It is `call()` that the framework adapters consume: a LangChain or Vercel AI
+ * agent should not have to know about the 402 protocol.
  */
 
 import type { Hex } from '@warrant/core'
@@ -36,24 +36,24 @@ import type {
 } from './x402.js'
 import { X402_VERSION, isPaymentRequired } from './x402.js'
 
-/** En-têtes du transport HTTP v2. Les noms ont changé depuis v1 (docs/05 § 1.2). */
+/** Headers of the HTTP v2 transport. The names changed since v1 (docs/05 § 1.2). */
 const HEADER_PAYMENT_REQUIRED = 'PAYMENT-REQUIRED'
 const HEADER_PAYMENT_SIGNATURE = 'PAYMENT-SIGNATURE'
 const HEADER_PAYMENT_RESPONSE = 'PAYMENT-RESPONSE'
 
 export interface WarrantClientOptions {
-  /** Racine du Gateway, ex. `https://api.warrant.sh`. */
+  /** Root of the Gateway, e.g. `https://api.warrant.sh`. */
   baseUrl: string
-  /** Signataire de la caution. Sans lui, `call()` remonte le PaymentRequired. */
+  /** Signer of the bond. Without it, `call()` surfaces the PaymentRequired. */
   wallet?: PaymentSigner
-  /** Injectable pour les tests et les runtimes sans `fetch` global. */
+  /** Injectable for tests and for runtimes without a global `fetch`. */
   fetch?: typeof globalThis.fetch
   headers?: Record<string, string>
-  /** Nombre de rejeux de paiement autorisés. Un seul suffit au flux nominal. */
+  /** Number of payment replays allowed. One is enough for the nominal flow. */
   maxPaymentAttempts?: number
 }
 
-/** UTF-8 puis base64. Les descriptions de post-conditions contiennent des accents. */
+/** UTF-8 then base64. Post-condition descriptions contain non-ASCII characters. */
 function encodeBase64(value: unknown): string {
   const bytes = new TextEncoder().encode(JSON.stringify(value))
   let binary = ''
@@ -89,7 +89,7 @@ export class WarrantClient implements GatewayClient {
         headers: { ...this.headers, ...(init.headers as Record<string, string> | undefined) },
       })
     } catch (err) {
-      throw new WarrantError('gateway_unreachable', `Gateway injoignable : ${String(err)}`, {
+      throw new WarrantError('gateway_unreachable', `Gateway unreachable: ${String(err)}`, {
         cause: err,
       })
     }
@@ -101,12 +101,12 @@ export class WarrantClient implements GatewayClient {
     try {
       details = JSON.parse(body)
     } catch {
-      /* le corps n'est pas du JSON — on garde le texte brut */
+      /* the body is not JSON — keep the raw text */
     }
     if (res.status === 404) {
-      throw new WarrantError('warrant_not_found', `${path} : introuvable.`, { details })
+      throw new WarrantError('warrant_not_found', `${path}: not found.`, { details })
     }
-    throw new WarrantError('gateway_error', `${path} a répondu ${res.status}.`, { details })
+    throw new WarrantError('gateway_error', `${path} answered ${res.status}.`, { details })
   }
 
   async quote(req: QuoteRequest): Promise<QuoteResult> {
@@ -136,7 +136,7 @@ export class WarrantClient implements GatewayClient {
       if (!isPaymentRequired(paymentRequired)) {
         throw new WarrantError(
           'payment_invalid',
-          `Le Gateway a répondu 402 sans PaymentRequired x402 v${X402_VERSION} exploitable.`,
+          `The Gateway answered 402 without a usable x402 v${X402_VERSION} PaymentRequired.`,
           { details: paymentRequired },
         )
       }
@@ -171,12 +171,11 @@ export class WarrantClient implements GatewayClient {
   }
 
   /**
-   * Exécute un outil par son nom, en réglant la caution si un wallet est
-   * configuré.
+   * Runs a tool by its name, settling the bond if a wallet is configured.
    *
-   * Le rejeu est borné (`maxPaymentAttempts`) : une boucle de paiement non
-   * bornée face à un serveur qui répond 402 en permanence viderait un wallet
-   * agentique sans qu'aucun humain ne le remarque.
+   * The replay is bounded (`maxPaymentAttempts`): an unbounded payment loop
+   * facing a server that answers 402 forever would drain an agentic wallet
+   * without any human noticing.
    */
   async call<T = unknown>(name: string, args: unknown): Promise<ToolOutcome<T>> {
     return runToolByName<T>(this, name, args, {
@@ -185,7 +184,7 @@ export class WarrantClient implements GatewayClient {
     })
   }
 
-  /** Sucre typé — la voie normale pour du code applicatif. */
+  /** Typed sugar — the normal route for application code. */
   async quoteRisk(args: unknown): Promise<QuoteResult> {
     return unwrap(await this.call<QuoteResult>('quote_risk', args))
   }
@@ -204,16 +203,16 @@ export class WarrantClient implements GatewayClient {
 }
 
 /**
- * Aplatit la réponse de `GET /v1/warrants/:id`.
+ * Flattens the response of `GET /v1/warrants/:id`.
  *
- * Le Gateway sert une enveloppe — `{ warrant, verdict, checks, actionSpec… }` —
- * avec un `status` en toutes lettres, tandis que `WarrantView` est plate et
- * porte l'entier de l'enum Solidity. Traduire ici plutôt que dans les outils
- * garde la normalisation à la frontière du transport, là où elle appartient :
- * un adaptateur de framework n'a pas à connaître deux formes du même objet.
+ * The Gateway serves an envelope — `{ warrant, verdict, checks, actionSpec… }` —
+ * with a spelled-out `status`, whereas `WarrantView` is flat and carries the
+ * integer of the Solidity enum. Translating here rather than in the tools keeps
+ * the normalisation at the transport boundary, where it belongs: a framework
+ * adapter has no business knowing two shapes of the same object.
  *
- * Une réponse déjà plate traverse sans être touchée — le jour où le Gateway
- * s'aligne, il n'y a rien à retirer.
+ * An already-flat response passes through untouched — the day the Gateway falls
+ * into line, there is nothing to remove.
  */
 export function normalizeWarrantView(raw: unknown): WarrantView {
   const body = raw as Record<string, unknown>
@@ -243,7 +242,7 @@ export function normalizeWarrantView(raw: unknown): WarrantView {
   return view as unknown as WarrantView
 }
 
-/** `"Open"` ou `1` — les deux mènent au même entier, celui de l'enum Solidity. */
+/** `"Open"` or `1` — both lead to the same integer, that of the Solidity enum. */
 function normalizeStatus(status: unknown): number {
   if (typeof status === 'number') return status
   const names = ['None', 'Open', 'Honored', 'Slashed', 'Reclaimed']
@@ -255,9 +254,9 @@ function unwrap<T>(outcome: ToolOutcome<T>): T {
   if (outcome.kind === 'ok') return outcome.data
   throw new WarrantError(
     'payment_invalid',
-    'Paiement requis et aucun wallet configuré sur le client.',
+    'Payment required and no wallet configured on the client.',
     {
-      hint: "Passe un `wallet` à WarrantClient, ou utilise `call()` et règle toi-même le PaymentRequired retourné.",
+      hint: 'Pass a `wallet` to WarrantClient, or use `call()` and settle the returned PaymentRequired yourself.',
       details: outcome.paymentRequired,
     },
   )

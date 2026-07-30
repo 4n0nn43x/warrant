@@ -1,43 +1,43 @@
 /**
- * Daemon de règlement — l'orchestration autour de `decide()`.
+ * Settlement daemon — the orchestration around `decide()`.
  *
- * `settler.ts` sait décider du sort d'**un** mandat dont on lui présente tout ;
- * ce fichier sait *trouver* les mandats, leur apporter ce qu'il faut, soumettre
- * la décision, publier le verdict et l'inscrire dans ERC-8004. Il ne réécrit
- * aucune de ces briques : il les appelle dans l'ordre.
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * Pourquoi ce fichier n'appelle pas `settle()`
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * `settle()` enchaîne `pollExecution` + `decide` + `submit`, ce qui est le bon
- * découpage pour un règlement **ponctuel**. Pour une boucle, deux détails le
- * disqualifient :
- *
- * 1. `pollExecution` bloque jusqu'à 180 s sur un état terminal. Un mandat dont
- *    l'exécution traîne immobiliserait la boucle et retarderait le règlement de
- *    tous les autres — or la fenêtre de règlement est bornée par `expiry`.
- * 2. `decide()` traduit « exécution non terminée » en `let-expire`, ce qui est
- *    juste pour un appel unique et faux pour un daemon : au tour suivant,
- *    l'exécution sera peut-être terminée. Un daemon doit **différer**, pas
- *    renoncer — et ne renoncer que lorsque la fenêtre se ferme réellement.
- *
- * Le daemon lit donc l'exécution lui-même, et n'appelle `decide()` qu'une fois
- * l'état terminal atteint. `decide()` reste la seule autorité sur le verdict.
+ * `settler.ts` knows how to decide the fate of **one** warrant whose every
+ * element is handed to it; this file knows how to *find* the warrants, bring
+ * them what they need, submit the decision, publish the verdict and record it
+ * in ERC-8004. It rewrites none of those bricks: it calls them in order.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * Les deux règles de conduite, appliquées ici
+ * Why this file does not call `settle()`
  * ─────────────────────────────────────────────────────────────────────────────
  *
- *   « Une transaction qui échoue n'est pas une post-condition violée. »
- *   « Le doute bénéficie à l'agent, jamais au protocole. »
+ * `settle()` chains `pollExecution` + `decide` + `submit`, which is the right
+ * split for a **one-off** settlement. For a loop, two details disqualify it:
  *
- * Concrètement, dans ce fichier : **aucun** chemin d'erreur ne mène à `slash`.
- * Journal illisible, engagement divergent, RPC muet, identité ERC-8004
- * impossible à noter — tout cela produit une abstention, donc une expiration
- * vers `reclaim`, donc un remboursement intégral de l'agent. La seule chose qui
- * peut faire saisir une caution est un `checks[]` complet, lu à bloc figé, dont
- * une vérification échoue.
+ * 1. `pollExecution` blocks for up to 180 s on a terminal state. A warrant
+ *    whose execution drags would tie up the loop and delay the settlement of
+ *    every other one — and the settlement window is bounded by `expiry`.
+ * 2. `decide()` translates "execution not finished" into `let-expire`, which is
+ *    right for a single call and wrong for a daemon: on the next round, the
+ *    execution may well be finished. A daemon must **defer**, not give up — and
+ *    give up only once the window really closes.
+ *
+ * So the daemon reads the execution itself, and calls `decide()` only once the
+ * terminal state is reached. `decide()` remains the sole authority on the
+ * verdict.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The two rules of conduct, as they apply here
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ *   "A transaction that fails is not a violated post-condition."
+ *   "Doubt benefits the agent, never the protocol."
+ *
+ * Concretely, in this file: **no** error path leads to `slash`. An unreadable
+ * journal, a diverging commitment, a silent RPC, an ERC-8004 identity that
+ * cannot be rated — all of that produces an abstention, hence an expiry towards
+ * `reclaim`, hence a full refund to the agent. The only thing that can make a
+ * bond be slashed is a complete `checks[]`, read at a frozen block, one of
+ * whose verifications fails.
  */
 
 import {
@@ -80,7 +80,7 @@ import {
 import type { PublishedVerdict, VerdictPublisher } from './verdicts.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ce que la chaîne dit d'un mandat
+// What the chain says about a warrant
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface OnchainWarrant {
@@ -88,42 +88,41 @@ export interface OnchainWarrant {
   agent: Address
   beneficiary: Address
   bond: bigint
-  /** Engagement immuable : c'est lui qui valide la spec du journal. */
+  /** Immutable commitment: it is what validates the journal's spec. */
   conditionHash: Hex
   actionHash: Hex
   /**
-   * Le **nonce EIP-3009** de l'autorisation qui a financé la caution.
+   * The **EIP-3009 nonce** of the authorization that funded the bond.
    *
-   * Ce n'était qu'un hash de transaction décoratif ; c'est maintenant la valeur
-   * dont le token garantit lui-même l'unicité par autorisant. Conséquence
-   * concrète pour ce fichier : ce n'est **plus** un hash de transaction, donc
-   * plus une valeur qu'un explorateur de blocs sait résoudre — voir
-   * `proofOfPayment` plus bas.
+   * This used to be nothing but a decorative transaction hash; it is now the
+   * value whose uniqueness per authorizer the token itself guarantees. Concrete
+   * consequence for this file: it is **no longer** a transaction hash, hence no
+   * longer a value a block explorer can resolve — see `proofOfPayment` below.
    */
   fundingRef: Hex
   expiry: number
   openedAt: number
-  /** Taux de frais figé à l'ouverture. Le taux courant ne s'applique plus. */
+  /** Fee rate frozen at opening. The current rate no longer applies. */
   feeBpsAtOpen: number
   status: WarrantStatus
 }
 
 export interface DiscoveryResult {
   ids: Hex[]
-  /** Dernier bloc réellement balayé. Sert de curseur au tour suivant. */
+  /** Last block actually scanned. Serves as the cursor for the next round. */
   scannedTo: bigint
   /**
-   * Balayage incomplet. Non fatal : les identifiants connus du journal restent
-   * traités, et le curseur n'avance pas.
+   * Incomplete scan. Not fatal: the identifiers already known from the journal
+   * are still processed, and the cursor does not advance.
    */
   error?: string
 }
 
 /**
- * Accès en lecture à l'escrow.
+ * Read access to the escrow.
  *
- * La chaîne fait autorité sur *ce qui existe* et *dans quel état*. Le journal
- * ne fait autorité sur rien — voir l'en-tête de `journal.ts`.
+ * The chain is authoritative on *what exists* and *in which state*. The journal
+ * is authoritative on nothing — see the header of `journal.ts`.
  */
 export interface EscrowReader {
   discover(): Promise<DiscoveryResult>
@@ -133,28 +132,28 @@ export interface EscrowReader {
 export interface ViemEscrowReaderOptions {
   client: Pick<PublicClient, 'readContract' | 'getLogs' | 'getBlockNumber'>
   address: Address
-  /** Premier bloc balayé. En pratique, le bloc de déploiement de l'escrow. */
+  /** First block scanned. In practice, the escrow's deployment block. */
   fromBlock: bigint
   /**
-   * Taille de fenêtre d'`eth_getLogs`.
+   * `eth_getLogs` window size.
    *
-   * 9 000 par défaut, et ce n'est pas arbitraire : les nœuds publics plafonnent
-   * la plage (drpc refuse au-delà de 10 000 blocs, d'autres bien plus bas). Une
-   * requête refusée pour cause de plage trop large ressemble à une panne alors
-   * que c'est une politique de quota — on découpe donc d'emblée.
+   * 9,000 by default, and that is not arbitrary: public nodes cap the range
+   * (drpc refuses beyond 10,000 blocks, others far lower). A request refused
+   * for too wide a range looks like an outage when it is in fact a quota
+   * policy — so we chunk from the outset.
    */
   chunkBlocks?: bigint
-  /** Journal des erreurs de balayage. */
+  /** Log sink for scan errors. */
   onScanError?: (error: string) => void
 }
 
 /**
- * `EscrowReader` adossé à un client viem.
+ * `EscrowReader` backed by a viem client.
  *
- * Le curseur est en mémoire : un redémarrage rebalaye depuis `fromBlock`, ce
- * qui est sans conséquence — la découverte n'est qu'un moyen d'apprendre des
- * identifiants, et `read()` redonne de toute façon le statut courant. Un mandat
- * déjà réglé est ignoré au tri, pas au balayage.
+ * The cursor lives in memory: a restart rescans from `fromBlock`, which is of
+ * no consequence — discovery is only a means of learning identifiers, and
+ * `read()` gives back the current status anyway. A warrant already settled is
+ * skipped at triage, not at scanning.
  */
 export function viemEscrowReader(opts: ViemEscrowReaderOptions): EscrowReader {
   const chunk = opts.chunkBlocks ?? 9_000n
@@ -189,7 +188,7 @@ export function viemEscrowReader(opts: ViemEscrowReaderOptions): EscrowReader {
             found.push(key as Hex)
           }
         } catch (e) {
-          // Le curseur n'avance pas : la fenêtre sera rejouée au tour suivant.
+          // The cursor does not advance: the window is replayed next round.
           const message = `eth_getLogs ${cursor}..${to}: ${errText(e)}`
           opts.onScanError?.(message)
           return { ids: found, scannedTo: cursor - 1n, error: message }
@@ -201,21 +200,21 @@ export function viemEscrowReader(opts: ViemEscrowReaderOptions): EscrowReader {
 
     async read(id: Hex): Promise<OnchainWarrant | undefined> {
       /**
-       * `getWarrant` et non le getter `warrants` : il rend **une struct**, donc
-       * un objet aux membres nommés, là où le getter généré aplatit en un tuple
-       * positionnel de dix valeurs.
+       * `getWarrant` and not the `warrants` getter: it returns **a struct**,
+       * hence an object with named members, where the generated getter flattens
+       * into a positional tuple of ten values.
        *
-       * Ce choix est le correctif d'un piège avéré. La struct `Warrant` a gagné
-       * `feeBpsAtOpen` en neuvième position, **avant** `status` : tout décodage
-       * positionnel écrit contre l'ancienne forme lit désormais `feeBpsAtOpen`
-       * là où il attend `status`. Et il ne plante pas — il lit 250, le taux du
-       * déploiement courant, que `WarrantStatus[250]` rend `undefined`. Le
-       * daemon conclurait alors qu'aucun mandat n'est `Open` et laisserait tout
-       * expirer vers `reclaim`, sans une seule erreur au journal.
+       * This choice is the fix for a proven trap. The `Warrant` struct gained
+       * `feeBpsAtOpen` in ninth position, **before** `status`: any positional
+       * decoding written against the old shape now reads `feeBpsAtOpen` where
+       * it expects `status`. And it does not crash — it reads 250, the current
+       * deployment's rate, which `WarrantStatus[250]` renders as `undefined`.
+       * The daemon would then conclude that no warrant is `Open` and would let
+       * everything expire towards `reclaim`, without a single error in the log.
        *
-       * Nommer les champs supprime la classe de bug entière : un membre ajouté,
-       * retiré ou déplacé dans la struct devient une erreur de compilation ou une
-       * lecture `undefined` explicite, jamais un décalage silencieux.
+       * Naming the fields removes the whole bug class: a member added, removed
+       * or moved inside the struct becomes a compilation error or an explicit
+       * `undefined` read, never a silent shift.
        */
       const warrant = (await opts.client.readContract({
         address: opts.address,
@@ -244,8 +243,8 @@ export function viemEscrowReader(opts: ViemEscrowReaderOptions): EscrowReader {
         bond: warrant.bond,
         conditionHash: warrant.conditionHash.toLowerCase() as Hex,
         actionHash: warrant.actionHash.toLowerCase() as Hex,
-        // Le nonce EIP-3009 de l'autorisation, et non plus un hash de
-        // transaction : c'est ce que le contrat inscrit désormais.
+        // The authorization's EIP-3009 nonce, and no longer a transaction
+        // hash: that is what the contract writes from now on.
         fundingRef: warrant.fundingRef.toLowerCase() as Hex,
         expiry: Number(warrant.expiry),
         openedAt: Number(warrant.openedAt),
@@ -262,15 +261,15 @@ const WARRANT_OPENED_EVENT = warrantEscrowAbi.find(
 )!
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ce que le journal ajoute à ce que dit la chaîne
+// What the journal adds to what the chain says
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Le strict nécessaire pour évaluer un mandat.
+ * The strict minimum needed to evaluate a warrant.
  *
- * Volontairement plus étroit que `WarrantRecord` : le daemon n'a besoin ni du
- * devis, ni du rail de paiement, ni de la simulation. Réduire la surface, c'est
- * réduire ce qu'une ligne de journal falsifiée pourrait influencer.
+ * Deliberately narrower than `WarrantRecord`: the daemon needs neither the
+ * quote, nor the payment rail, nor the simulation. Reducing the surface reduces
+ * what a forged journal line could influence.
  */
 export interface SettlementMandate {
   warrantId: Hex
@@ -278,30 +277,30 @@ export interface SettlementMandate {
   conditionSpec: ConditionSpec
   actionSpec: ActionSpec
   classification: Classification
-  /** Identité ERC-8004 de l'agent, si elle est connue. Toujours optionnelle. */
+  /** The agent's ERC-8004 identity, if it is known. Always optional. */
   agentId?: bigint
   /**
-   * Hash de la transaction d'ouverture — celle qui a **aussi** encaissé la
-   * caution, `open()` tirant le paiement EIP-3009 lui-même.
+   * Hash of the opening transaction — the one that **also** charged the bond,
+   * `open()` pulling the EIP-3009 payment itself.
    *
-   * Nécessaire depuis que `fundingRef` est un nonce et non plus un hash de
-   * transaction : `proofOfPayment.txHash` doit rester résoluble par un
-   * explorateur de blocs, sans quoi la preuve de paiement normalisée d'ERC-8004
-   * désigne une valeur que personne ne peut vérifier. La chaîne ne le rend pas
-   * par `getWarrant`, il vient donc du journal — et son absence n'empêche que la
-   * preuve de paiement, jamais le règlement.
+   * Needed ever since `fundingRef` became a nonce rather than a transaction
+   * hash: `proofOfPayment.txHash` must stay resolvable by a block explorer,
+   * without which ERC-8004's normalised proof of payment designates a value
+   * nobody can verify. The chain does not return it through `getWarrant`, so it
+   * comes from the journal — and its absence blocks the proof of payment only,
+   * never the settlement.
    */
   fundingTx?: Hex
 }
 
 export interface MandateSource {
-  /** Prend en compte ce qui a été ajouté depuis le dernier appel. */
+  /** Takes into account whatever was added since the last call. */
   refresh(): void
   get(id: Hex): SettlementMandate | undefined
   ids(): Hex[]
 }
 
-/** Résout l'`agentId` ERC-8004 d'une adresse d'agent. Jamais bloquant. */
+/** Resolves the ERC-8004 `agentId` of an agent address. Never blocking. */
 export type AgentIdResolver = (agent: Address) => bigint | undefined
 
 export interface JournalLike {
@@ -318,13 +317,13 @@ export interface JournalLike {
 }
 
 /**
- * `MandateSource` adossée au journal du Gateway.
+ * `MandateSource` backed by the Gateway's journal.
  *
- * L'`agentId` n'est pas dans `WarrantRecord` — le Gateway ne le connaît pas — et
- * l'`IdentityRegistry` n'expose aucune recherche inverse par propriétaire. Il
- * vient donc d'une table `adresse → agentId` fournie à l'exploitation. Son
- * absence n'empêche rien : le mandat est réglé, le verdict publié, seule
- * l'inscription ERC-8004 est sautée avec une raison explicite.
+ * The `agentId` is not in `WarrantRecord` — the Gateway does not know it — and
+ * the `IdentityRegistry` exposes no reverse lookup by owner. So it comes from
+ * an `address → agentId` table supplied by operations. Its absence blocks
+ * nothing: the warrant is settled, the verdict published, and only the ERC-8004
+ * record is skipped, with an explicit reason.
  */
 export function journalMandateSource(
   journal: JournalLike,
@@ -362,13 +361,13 @@ export function journalMandateSource(
   }
 }
 
-/** Ce que le daemon attend de l'audit trail KeeperHub : localiser et dater. */
+/** What the daemon expects of the KeeperHub audit trail: locate and date. */
 export interface ExecutionSource {
   get(executionId: string): Promise<Execution>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Inscription ERC-8004
+// ERC-8004 recording
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ReputationOutcome =
@@ -379,26 +378,26 @@ export type ReputationOutcome =
       txHash: Hex
       feedbackURI: string
       feedbackHash: Hex
-      /** Nombre de mandats couverts par cette écriture. */
+      /** Number of warrants covered by this write. */
       count: number
     }
   | { written: false; reason: string; agentId?: string }
 
 export interface ReputationSink {
-  /** Traite le verdict d'un mandat réglé. **Ne lève jamais.** */
+  /** Handles the verdict of a settled warrant. **Never throws.** */
   record(input: {
     agentId: bigint | undefined
     document: PublishableVerdictDocument
     createdAt: string
-    /** URI où le document publiable a déjà été servi. */
+    /** URI where the publishable document has already been served. */
     feedbackURI: string
-    /** Hash calculé à la publication. Recoupé avec celui écrit onchain. */
+    /** Hash computed at publication. Cross-checked with the onchain write. */
     expectedHash?: Hex
     proofOfPayment?: ProofOfPayment
   }): Promise<ReputationOutcome>
-  /** Écrit les lots arrivés à échéance. **Ne lève jamais.** */
+  /** Writes the batches that have come due. **Never throws.** */
   flush(force?: boolean): Promise<ReputationOutcome[]>
-  /** Nombre de mandats honorés en attente de lot, tous agents confondus. */
+  /** Number of honored warrants awaiting a batch, across all agents. */
   pending(): number
 }
 
@@ -406,12 +405,12 @@ export interface Erc8004SinkOptions {
   chainId: number
   identityRegistry: Address
   reputationRegistry: Address
-  /** Adresse du Settler : l'auteur onchain, et la seule preuve d'origine. */
+  /** The Settler's address: the onchain author, and the only proof of origin. */
   settler: Address
   publicClient: ReputationPublicClient
   walletClient: ReputationWalletClient
   chain?: unknown
-  /** Publie les documents de lot. Les documents unitaires le sont déjà. */
+  /** Publishes the batch documents. Single documents already are. */
   publisher: VerdictPublisher
   batcher?: VerdictBatcher
   feedbackURIBase?: string
@@ -419,25 +418,24 @@ export interface Erc8004SinkOptions {
 }
 
 /**
- * Inscription des verdicts dans le Reputation Registry, selon la politique
- * déjà tranchée : **immédiat sur `slashed`, par lots sur `honored`, jamais sur
+ * Records verdicts in the Reputation Registry, following the policy already
+ * settled: **immediate on `slashed`, batched on `honored`, never on
  * `reclaimed`** (docs/11, `writePolicyFor`).
  *
- * Trois garanties, dans l'ordre où elles comptent :
+ * Three guarantees, in the order in which they matter:
  *
- * 1. **Ne lève jamais.** Un registre indisponible, un agent que le Settler ne
- *    peut pas noter, un revert : rien de tout cela ne doit empêcher le mandat
- *    suivant d'être réglé. La réputation est un produit dérivé du règlement,
- *    pas une condition de celui-ci.
- * 2. **Ne réécrit pas le document.** Le document publié à l'URI et le document
- *    haché onchain sont le même, à l'octet près : on fige `createdAt` et on
- *    passe l'URI explicitement, puis on recoupe le hash rendu par
- *    `publishVerdict` avec celui de la publication. Un écart est signalé
- *    bruyamment — il signifierait que ce qui est servi ne correspond pas à ce
- *    qui est engagé.
- * 3. **Vérifie l'autorisation avant d'écrire.** `publishVerdict` appelle
- *    `assertCanGiveFeedback` ; on se contente d'attraper le refus et de le
- *    rendre lisible plutôt que de planter (docs/10 § 4).
+ * 1. **Never throws.** An unavailable registry, an agent the Settler cannot
+ *    rate, a revert: none of that must prevent the next warrant from being
+ *    settled. Reputation is a by-product of settlement, not a condition of it.
+ * 2. **Does not rewrite the document.** The document published at the URI and
+ *    the document hashed onchain are the same one, to the byte: we freeze
+ *    `createdAt` and pass the URI explicitly, then cross-check the hash
+ *    returned by `publishVerdict` against the publication's. A discrepancy is
+ *    reported loudly — it would mean that what is served does not match what is
+ *    committed.
+ * 3. **Checks authorization before writing.** `publishVerdict` calls
+ *    `assertCanGiveFeedback`; we merely catch the refusal and make it readable
+ *    rather than crashing (docs/10 § 4).
  */
 export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
   const batcher = opts.batcher ?? new VerdictBatcher()
@@ -460,9 +458,9 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
         return {
           written: false,
           reason:
-            "aucun agentId ERC-8004 connu pour cet agent — l'identité est " +
-            "optionnelle et son absence n'empêche ni le règlement ni la " +
-            'publication du verdict (docs/10 § 4)',
+            'no ERC-8004 agentId known for this agent — the identity is ' +
+            'optional and its absence prevents neither the settlement nor the ' +
+            'publication of the verdict (docs/10 § 4)',
         }
       }
       const agentId = input.agentId
@@ -470,10 +468,9 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
       if (policy === 'never') {
         return {
           written: false,
-          agentId: agentId.toString(),
           reason:
-            "verdict 'reclaimed' : aucune écriture, jamais — une expiration " +
-            "n'est la faute de personne",
+            "verdict 'reclaimed': no write, ever — an expiry is nobody's " +
+            'fault',
         }
       }
 
@@ -489,10 +486,10 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
         })
 
         if (!result.written) {
-          // Seul `honored` arrive ici : le document est prêt, l'écriture part
-          // avec le lot. On conserve la preuve de paiement du mandat pour que
-          // le document agrégé la porte au bon niveau — un lot recouvre N
-          // règlements x402 distincts.
+          // Only `honored` gets here: the document is ready, the write leaves
+          // with the batch. We keep the warrant's proof of payment so that the
+          // aggregated document carries it at the right level — one batch
+          // covers N distinct x402 settlements.
           batcher.enqueue(agentId, input.document)
           if (input.proofOfPayment) {
             proofs.set(input.document.warrantId.toLowerCase(), input.proofOfPayment)
@@ -500,13 +497,13 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
           return {
             written: false,
             agentId: agentId.toString(),
-            reason: `mis en lot (${batcher.size(agentId)}/${batcher.policy.maxBatchSize})`,
+            reason: `batched (${batcher.size(agentId)}/${batcher.policy.maxBatchSize})`,
           }
         }
 
         if (input.expectedHash && result.feedbackHash !== input.expectedHash) {
           log({
-            msg: 'erc8004: divergence entre le document servi et le document haché',
+            msg: 'erc8004: served document diverges from hashed document',
             severity: 'error',
             warrantId: input.document.warrantId,
             published: input.expectedHash,
@@ -542,9 +539,9 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
           if (proof) proofsByWarrantId[doc.warrantId.toLowerCase()] = proof
         }
 
-        // Le document de lot est publié **avant** l'écriture onchain, à l'URI
-        // que l'écriture référencera : un `feedbackURI` inscrit avant que le
-        // document n'existe donnerait un 404 à qui voudrait vérifier.
+        // The batch document is published **before** the onchain write, at the
+        // URI that write will reference: a `feedbackURI` recorded before the
+        // document exists would give a 404 to whoever wanted to verify.
         let published: PublishedVerdict
         try {
           published = opts.publisher.publishBatch(
@@ -557,7 +554,7 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
           outcomes.push({
             written: false,
             agentId: agentId.toString(),
-            reason: `publication du lot impossible: ${errText(e)}`,
+            reason: `cannot publish the batch: ${errText(e)}`,
           })
           continue
         }
@@ -574,7 +571,7 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
           })
           if (result.written && result.feedbackHash !== published.hash) {
             log({
-              msg: 'erc8004: divergence entre le lot servi et le lot haché',
+              msg: 'erc8004: served batch diverges from hashed batch',
               severity: 'error',
               published: published.hash,
               written: result.feedbackHash,
@@ -591,14 +588,15 @@ export function erc8004Sink(opts: Erc8004SinkOptions): ReputationSink {
             count: documents.length,
           })
         } catch (e) {
-          // Le lot n'est **pas** remis en file : si le Settler ne peut pas noter
-          // cet agent, le remettre en file le ferait réessayer indéfiniment et
-          // grossir sans fin. Le document agrégé reste publié et vérifiable ;
-          // seule l'inscription onchain manque, et la raison est journalisée.
+          // The batch is **not** requeued: if the Settler cannot rate this
+          // agent, requeuing it would make it retry indefinitely and grow
+          // without end. The aggregated document stays published and
+          // verifiable; only the onchain record is missing, and the reason is
+          // logged.
           outcomes.push({
             written: false,
             agentId: agentId.toString(),
-            reason: `lot de ${documents.length} mandat(s) non inscrit: ${reputationReason(e)}`,
+            reason: `batch of ${documents.length} warrant(s) not recorded: ${reputationReason(e)}`,
           })
         }
       }
@@ -620,11 +618,11 @@ function reputationReason(e: unknown): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Le daemon
+// The daemon
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type MandateOutcome =
-  /** Réglé onchain : `honor` ou `slash` diffusé. */
+  /** Settled onchain: `honor` or `slash` broadcast. */
   | {
       kind: 'settled'
       warrantId: Hex
@@ -635,18 +633,18 @@ export type MandateOutcome =
       feedbackHash: Hex
       reputation: ReputationOutcome
     }
-  /** Rien à faire pour l'instant ; on repasse au tour suivant. */
+  /** Nothing to do for now; we come back on the next round. */
   | { kind: 'deferred'; warrantId: Hex; reason: string }
-  /** Rien à faire jamais : mandat déjà réglé, hors périmètre, ou fenêtre close. */
+  /** Nothing to do ever: already settled, out of scope, or window closed. */
   | { kind: 'skipped'; warrantId: Hex; reason: string }
-  /** Décision d'abstention : la caution repartira à l'agent par `reclaim`. */
+  /** Abstention decision: the bond goes back to the agent via `reclaim`. */
   | { kind: 'let-expire'; warrantId: Hex; reason: string; verdictUri?: string }
-  /** Échec technique du règlement lui-même. Jamais une saisie. */
+  /** Technical failure of the settlement itself. Never a slash. */
   | { kind: 'failed'; warrantId: Hex; error: string }
 
 export interface TickReport {
   at: number
-  /** Mandats onchain en statut `Open` au moment du balayage. */
+  /** Onchain warrants in `Open` status at the time of the scan. */
   open: number
   outcomes: MandateOutcome[]
   reputation: ReputationOutcome[]
@@ -659,67 +657,66 @@ export interface DaemonConfig {
   mandates: MandateSource
   executions: ExecutionSource
   /**
-   * Client sur le RPC **indépendant de KeeperHub** : confirmations et lectures
-   * d'évaluation. C'est ce RPC qui est publié dans chaque verdict.
+   * Client on the RPC **independent of KeeperHub**: confirmations and
+   * evaluation reads. It is this RPC that is published in every verdict.
    */
   actionClient: PublicClient
   evaluatorRpcUrl: string
-  /** Client sur la chaîne de l'escrow, pour attendre le reçu du règlement. */
+  /** Client on the escrow's chain, to await the settlement receipt. */
   escrowClient: Pick<PublicClient, 'waitForTransactionReceipt'>
   /**
-   * Absent → **mode observation** : on décide, on publie, on n'écrit rien
-   * onchain. Utile pour vérifier un déploiement sans risquer une saisie.
+   * Absent → **observation mode**: we decide, we publish, we write nothing
+   * onchain. Useful to check a deployment without risking a slash.
    */
   submitOptions?: SubmitOptions
   publisher: VerdictPublisher
   reputation?: ReputationSink
-  /** Chaîne de l'escrow, pour le `proofOfPayment` du document de feedback. */
+  /** The escrow's chain, for the feedback document's `proofOfPayment`. */
   chainId: number
   /**
-   * Adresse du Settler. Elle figure dans `clientAddress` du document de
-   * feedback : dans ERC-8004, aucune signature n'est attachée à un feedback,
-   * l'auteur *est* `msg.sender`. Elle est donc part du document haché, même en
-   * mode observation où rien n'est écrit.
+   * The Settler's address. It appears in the feedback document's
+   * `clientAddress`: in ERC-8004 no signature is attached to a feedback, the
+   * author *is* `msg.sender`. It is therefore part of the hashed document, even
+   * in observation mode where nothing is written.
    */
   settler: Address
   /**
-   * `IdentityRegistry` inscrit dans `agentRegistry` du document de feedback.
-   * Doit être celui contre lequel l'écriture sera faite : deux valeurs
-   * différentes ici et dans le puits de réputation produiraient un document qui
-   * désigne un registre qui n'est pas le sien.
+   * `IdentityRegistry` recorded in the feedback document's `agentRegistry`.
+   * Must be the one the write will be made against: two different values here
+   * and in the reputation sink would produce a document that designates a
+   * registry which is not its own.
    */
   identityRegistry?: Address
   now?: () => number
   logger?: (event: Record<string, unknown>) => void
   marginSeconds?: number
   /**
-   * Plafond d'attente des confirmations de la transaction d'action.
+   * Cap on how long we wait for the action transaction's confirmations.
    *
-   * Sans plafond, `waitForTransactionReceipt` peut immobiliser la boucle pendant
-   * que la fenêtre de règlement des **autres** mandats se referme. Un
-   * dépassement n'est pas une violation : `decide()` le traduit en abstention.
+   * Without a cap, `waitForTransactionReceipt` can tie up the loop while the
+   * settlement window of the **other** warrants closes. Exceeding it is not a
+   * violation: `decide()` translates it into an abstention.
    */
   confirmationTimeoutMs?: number
 }
 
 export interface SettlementDaemon {
   tick(): Promise<TickReport>
-  /** Écrit les lots en attente, à l'arrêt du daemon par exemple. */
+  /** Writes the pending batches, on daemon shutdown for instance. */
   flushReputation(force?: boolean): Promise<ReputationOutcome[]>
 }
 
 export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
   /**
-   * Mandats vus onchain et pas encore sortis du statut `Open`.
+   * Warrants seen onchain and not yet out of `Open` status.
    *
-   * `discover()` ne rend qu'une **découverte incrémentale** : au tour suivant,
-   * les mêmes logs ne sont plus rebalayés. Sans cette mémoire, un mandat vu une
-   * fois et absent du journal disparaîtrait du champ de vision du daemon, et la
-   * ligne de journal qui arriverait ensuite — le Gateway écrit après avoir
-   * ouvert — ne le ferait pas revenir tant qu'aucun autre chemin ne le
-   * mentionne. On garde donc l'identifiant tant que la chaîne le dit `Open`, et
-   * on l'oublie dès qu'il ne l'est plus : l'ensemble ne grossit pas
-   * indéfiniment.
+   * `discover()` only returns an **incremental discovery**: on the next round,
+   * the same logs are no longer rescanned. Without this memory, a warrant seen
+   * once and absent from the journal would drop out of the daemon's field of
+   * vision, and the journal line arriving afterwards — the Gateway writes after
+   * opening — would not bring it back as long as no other path mentions it. So
+   * we keep the identifier for as long as the chain says it is `Open`, and
+   * forget it as soon as it is not: the set does not grow indefinitely.
    */
   const tracked = new Set<string>()
   const now = cfg.now ?? (() => Math.floor(Date.now() / 1000))
@@ -728,11 +725,11 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
   const confirmationTimeoutMs = cfg.confirmationTimeoutMs ?? 120_000
 
   /**
-   * Client de confirmation borné dans le temps.
+   * Confirmation client bounded in time.
    *
-   * Ce n'est pas un double de test : c'est le vrai client, avec une échéance.
-   * `decide()` reçoit `Pick<PublicClient, 'waitForTransactionReceipt'>`
-   * précisément pour que l'appelant puisse choisir sa politique d'attente.
+   * This is not a test double: it is the real client, with a deadline.
+   * `decide()` takes `Pick<PublicClient, 'waitForTransactionReceipt'>`
+   * precisely so that the caller can choose its own waiting policy.
    */
   const boundedClient = {
     waitForTransactionReceipt: (args: Parameters<PublicClient['waitForTransactionReceipt']>[0]) =>
@@ -745,41 +742,41 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
   async function settleOne(warrant: OnchainWarrant): Promise<MandateOutcome> {
     const id = warrant.id
 
-    // 1. Le mandat est-il encore à régler ? La chaîne fait autorité — pas notre
-    //    mémoire, pas le journal.
+    // 1. Is the warrant still to be settled? The chain is authoritative — not
+    //    our memory, not the journal.
     if (warrant.status !== WarrantStatus.Open) {
-      return { kind: 'skipped', warrantId: id, reason: `statut ${WarrantStatus[warrant.status]}` }
+      return { kind: 'skipped', warrantId: id, reason: `status ${WarrantStatus[warrant.status]}` }
     }
 
-    // 2. Invariant I9 : `honor` et `slash` révertent passé `expiry`. Émettre
-    //    trop tard, c'est brûler du gas pour rien et prendre la place du
-    //    `reclaim` de l'agent.
+    // 2. Invariant I9: `honor` and `slash` revert past `expiry`. Emitting too
+    //    late burns gas for nothing and takes the place of the agent's
+    //    `reclaim`.
     if (now() + margin >= warrant.expiry) {
       return {
         kind: 'skipped',
         warrantId: id,
         reason:
-          `fenêtre de règlement close (expiry ${warrant.expiry}, marge ${margin} s) — ` +
-          'la caution repart à l\'agent par reclaim',
+          `settlement window closed (expiry ${warrant.expiry}, margin ${margin} s) — ` +
+          'the bond goes back to the agent through reclaim',
       }
     }
 
-    // 3. La spec. Sans elle, il n'y a rien à évaluer : un hash n'est pas
-    //    inversible. On s'abstient, l'agent est remboursé.
+    // 3. The spec. Without it there is nothing to evaluate: a hash is not
+    //    invertible. We abstain, and the agent is refunded.
     const mandate = cfg.mandates.get(id)
     if (!mandate) {
       return {
         kind: 'deferred',
         warrantId: id,
         reason:
-          'aucune spec au journal pour ce mandat — évaluation impossible ' +
-          "(l'engagement onchain ne porte que des hashs)",
+          'no spec in the journal for this warrant — evaluation impossible ' +
+          '(the onchain commitment carries hashes only)',
       }
     }
 
-    // 4. Le journal n'est jamais cru : on recalcule les deux engagements et on
-    //    les compare à ce qui est inscrit onchain. Une ligne falsifiée produit
-    //    une abstention, jamais une saisie.
+    // 4. The journal is never believed: we recompute both commitments and
+    //    compare them with what is recorded onchain. A forged line produces an
+    //    abstention, never a slash.
     const recomputedCondition = hashCondition(mandate.conditionSpec).toLowerCase()
     const recomputedAction = hashAction(mandate.actionSpec).toLowerCase()
     if (recomputedCondition !== warrant.conditionHash) {
@@ -787,8 +784,8 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
         kind: 'skipped',
         warrantId: id,
         reason:
-          `conditionHash divergent : journal ${recomputedCondition}, ` +
-          `onchain ${warrant.conditionHash} — la spec du journal n'est pas celle engagée`,
+          `conditionHash diverges: journal ${recomputedCondition}, ` +
+          `onchain ${warrant.conditionHash} — the journal's spec is not the committed one`,
       }
     }
     if (recomputedAction !== warrant.actionHash) {
@@ -796,12 +793,12 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
         kind: 'skipped',
         warrantId: id,
         reason:
-          `actionHash divergent : journal ${recomputedAction}, ` +
-          `onchain ${warrant.actionHash} — l'action du journal n'est pas celle engagée`,
+          `actionHash diverges: journal ${recomputedAction}, ` +
+          `onchain ${warrant.actionHash} — the journal's action is not the committed one`,
       }
     }
 
-    // 5. L'audit trail KeeperHub : il localise et date, il ne décide de rien.
+    // 5. The KeeperHub audit trail: it locates and dates, it decides nothing.
     let execution: Execution
     try {
       execution = await cfg.executions.get(mandate.executionId)
@@ -809,28 +806,28 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
       return {
         kind: 'deferred',
         warrantId: id,
-        reason: `audit trail illisible: ${errText(e)}`,
+        reason: `unreadable audit trail: ${errText(e)}`,
       }
     }
 
-    // 6. Exécution non terminée → on **diffère**. C'est la différence entre un
-    //    règlement ponctuel et un daemon : renoncer maintenant priverait
-    //    l'exécution du temps qui lui reste avant `expiry`.
+    // 6. Execution not finished → we **defer**. That is the difference between
+    //    a one-off settlement and a daemon: giving up now would deprive the
+    //    execution of the time it has left before `expiry`.
     if (execution.status === 'pending' || execution.status === 'running' || execution.status === 'unknown') {
       return {
         kind: 'deferred',
         warrantId: id,
-        reason: `exécution ${mandate.executionId} en statut ${execution.status}`,
+        reason: `execution ${mandate.executionId} in status ${execution.status}`,
       }
     }
 
-    // 7. La décision. Seule autorité sur le verdict, et fonction pure.
+    // 7. The decision. Sole authority on the verdict, and a pure function.
     //
-    //    Deux valeurs sont capturées au passage plutôt que relues après coup :
-    //    le bloc d'inclusion, que `decide()` ne rend pas, et le résultat
-    //    d'évaluation dans son type d'origine — `SettlementDecision` le décrit
-    //    structurellement avec `kind: string`, ce qui perdrait le fait que
-    //    chaque `kind` appartient au catalogue fermé de `CheckKind`.
+    //    Two values are captured along the way rather than re-read afterwards:
+    //    the inclusion block, which `decide()` does not return, and the
+    //    evaluation result in its original type — `SettlementDecision`
+    //    describes it structurally with `kind: string`, which would lose the
+    //    fact that each `kind` belongs to `CheckKind`'s closed catalogue.
     let actionBlock: bigint | undefined
     let evaluation: EvaluationResult | undefined
     let decision: SettlementDecision
@@ -848,8 +845,8 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
             txHash,
             blockNumber,
             client: cfg.actionClient,
-            // Le RPC réellement utilisé, jamais une constante : c'est lui qui
-            // sera publié dans le verdict pour le rendre rejouable.
+            // The RPC actually used, never a constant: it is the one that
+            // will be published in the verdict, to make it replayable.
             rpcUrl: cfg.evaluatorRpcUrl,
             registryRef: mandate.actionSpec.registryRef,
           })
@@ -857,42 +854,42 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
         },
       })
     } catch (e) {
-      // `decide()` ne laisse remonter que les erreurs de programmation : une
-      // spec invalide, un `kind` inconnu. Jamais une lecture RPC.
+      // `decide()` only lets programming errors through: an invalid spec, an
+      // unknown `kind`. Never an RPC read.
       return { kind: 'failed', warrantId: id, error: errText(e) }
     }
 
-    // 8. Soumission. `let-expire` ne diffuse rien, par construction.
+    // 8. Submission. `let-expire` broadcasts nothing, by construction.
     let settlementTx: Hex | undefined
     if (decision.action.kind !== 'let-expire') {
       if (!cfg.submitOptions) {
         return {
           kind: 'let-expire',
           warrantId: id,
-          reason: `mode observation : ${decision.action.kind} non soumis`,
+          reason: `observation mode: ${decision.action.kind} not submitted`,
         }
       }
       try {
         settlementTx = await submit(decision, cfg.submitOptions)
         if (settlementTx) {
-          // Attendre le reçu sert deux choses : constater l'inclusion, et
-          // sérialiser les écritures. Deux `writeContract` concurrents depuis
-          // la même clé se disputeraient le même nonce.
+          // Awaiting the receipt serves two purposes: observing the inclusion,
+          // and serialising the writes. Two concurrent `writeContract` calls
+          // from the same key would fight over the same nonce.
           await cfg.escrowClient.waitForTransactionReceipt({ hash: settlementTx })
         }
       } catch (e) {
-        return { kind: 'failed', warrantId: id, error: `soumission: ${errText(e)}` }
+        return { kind: 'failed', warrantId: id, error: `submission: ${errText(e)}` }
       }
     }
 
-    // 9. Le document de verdict. Publié dès qu'une évaluation existe — y compris
-    //    quand on s'abstient : « nous avons évalué et choisi de ne pas régler »
-    //    est une information vérifiable, et la taire serait une lacune d'audit.
+    // 9. The verdict document. Published as soon as an evaluation exists —
+    //    including when we abstain: "we evaluated and chose not to settle" is
+    //    verifiable information, and keeping it quiet would be an audit gap.
     if (!decision.evaluation || !evaluation) {
       return {
         kind: 'let-expire',
         warrantId: id,
-        reason: decision.action.kind === 'let-expire' ? decision.action.reason : 'sans évaluation',
+        reason: decision.action.kind === 'let-expire' ? decision.action.reason : 'no evaluation',
       }
     }
 
@@ -916,18 +913,18 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
     const createdAt = isoNow(now)
 
     /**
-     * Le pont normalisé x402 → réputation, tel que défini par la spec.
+     * The normalised x402 → reputation bridge, as defined by the spec.
      *
-     * `txHash` était le `fundingRef` du mandat, du temps où celui-ci était un
-     * hash de transaction. Ce n'est plus le cas : `fundingRef` est le nonce
-     * EIP-3009, dont l'unicité est garantie par le token mais qui ne désigne
-     * aucune transaction. Le hash qui a réellement déplacé l'USDC est celui de
-     * l'ouverture — `open()` encaisse la caution dans sa propre transaction.
+     * `txHash` used to be the warrant's `fundingRef`, back when that was a
+     * transaction hash. That is no longer the case: `fundingRef` is the
+     * EIP-3009 nonce, whose uniqueness the token guarantees but which
+     * designates no transaction. The hash that actually moved the USDC is the
+     * opening's — `open()` charges the bond in its own transaction.
      *
-     * Omis quand le journal ne porte pas ce hash, plutôt que rempli avec le
-     * nonce : une preuve de paiement qui pointe vers une transaction
-     * inexistante est pire qu'une preuve absente, parce qu'elle se présente
-     * comme vérifiable.
+     * Omitted when the journal does not carry that hash, rather than filled in
+     * with the nonce: a proof of payment pointing at a transaction that does
+     * not exist is worse than an absent proof, because it presents itself as
+     * verifiable.
      */
     const proofOfPayment: ProofOfPayment | undefined = mandate.fundingTx
       ? {
@@ -938,12 +935,12 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
         }
       : undefined
 
-    // Le document servi est le **document de feedback normalisé** quand une
-    // identité ERC-8004 existe — c'est celui dont le hash est engagé onchain,
-    // et il contient le verdict complet. Sans identité, il n'y a rien à
-    // engager : on sert alors le `VerdictDocument` brut, qui reste le format
-    // documenté du projet. Dans les deux cas, ce qui est servi est exactement
-    // ce qui est haché.
+    // The document served is the **normalised feedback document** whenever an
+    // ERC-8004 identity exists — it is the one whose hash is committed onchain,
+    // and it contains the complete verdict. Without an identity there is
+    // nothing to commit: we then serve the raw `VerdictDocument`, which remains
+    // the project's documented format. In both cases, what is served is exactly
+    // what is hashed.
     let published: PublishedVerdict
     try {
       const artifact =
@@ -959,18 +956,18 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
           : document
       published = cfg.publisher.publish(id, artifact)
     } catch (e) {
-      log({ msg: 'publication du verdict impossible', warrantId: id, error: errText(e) })
+      log({ msg: 'verdict publication failed', warrantId: id, error: errText(e) })
       return settlementTx
         ? {
             kind: 'failed',
             warrantId: id,
-            error: `règlement diffusé (${settlementTx}) mais verdict non publié: ${errText(e)}`,
+            error: `settlement broadcast (${settlementTx}) but verdict not published: ${errText(e)}`,
           }
-        : { kind: 'failed', warrantId: id, error: `verdict non publié: ${errText(e)}` }
+        : { kind: 'failed', warrantId: id, error: `verdict not published: ${errText(e)}` }
     }
 
-    // 10. ERC-8004. Un échec ici n'annule rien : le mandat est réglé, le verdict
-    //     est publié, seule la trace de réputation manque.
+    // 10. ERC-8004. A failure here cancels nothing: the warrant is settled, the
+    //     verdict is published, only the reputation trace is missing.
     const reputation: ReputationOutcome = cfg.reputation
       ? await cfg.reputation.record({
           agentId: mandate.agentId,
@@ -980,7 +977,7 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
           expectedHash: published.hash,
           proofOfPayment,
         })
-      : { written: false, reason: 'inscription ERC-8004 désactivée' }
+      : { written: false, reason: 'ERC-8004 recording disabled' }
 
     if (decision.action.kind === 'let-expire') {
       return {
@@ -1010,9 +1007,9 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
 
       for (const id of discovery.ids) tracked.add(id.toLowerCase())
 
-      // Union des deux sources : la chaîne pour ce qui existe, le journal pour
-      // ce dont on sait quoi faire. Un mandat connu du journal mais jamais vu
-      // en log — balayage incomplet, plage refusée — reste traité.
+      // Union of the two sources: the chain for what exists, the journal for
+      // what we know what to do with. A warrant known to the journal but never
+      // seen in a log — incomplete scan, refused range — is still processed.
       const ids = new Set<string>([
         ...tracked,
         ...cfg.mandates.ids().map((id) => id.toLowerCase()),
@@ -1021,26 +1018,26 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
       const outcomes: MandateOutcome[] = []
       let open = 0
 
-      // Traitement **séquentiel**, et c'est un choix : toutes les transactions
-      // de règlement partent de la même clé. Deux soumissions concurrentes se
-      // disputeraient le nonce, et la seconde échouerait en « nonce too low »
-      // au moment précis où la fenêtre de règlement se referme.
+      // **Sequential** processing, and that is a choice: every settlement
+      // transaction leaves from the same key. Two concurrent submissions would
+      // fight over the nonce, and the second would fail with "nonce too low" at
+      // the precise moment the settlement window is closing.
       for (const key of ids) {
         const id = key as Hex
         let warrant: OnchainWarrant | undefined
         try {
           warrant = await cfg.reader.read(id)
         } catch (e) {
-          outcomes.push({ kind: 'deferred', warrantId: id, reason: `lecture escrow: ${errText(e)}` })
+          outcomes.push({ kind: 'deferred', warrantId: id, reason: `escrow read: ${errText(e)}` })
           continue
         }
         if (!warrant) {
           tracked.delete(key)
-          outcomes.push({ kind: 'skipped', warrantId: id, reason: 'inconnu de l\'escrow' })
+          outcomes.push({ kind: 'skipped', warrantId: id, reason: 'unknown to the escrow' })
           continue
         }
-        // Réglé, saisi ou remboursé : il n'y a plus rien à en faire, et le
-        // relire à chaque tour coûterait un appel RPC pour toujours.
+        // Settled, slashed or refunded: there is nothing left to do with it,
+        // and re-reading it every round would cost an RPC call forever.
         if (warrant.status === WarrantStatus.Open) open += 1
         else tracked.delete(key)
 
@@ -1049,10 +1046,10 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
           outcomes.push(outcome)
           if (outcome.kind !== 'skipped') log({ msg: 'settler', ...outcome })
         } catch (e) {
-          // Filet de sécurité : une exception inattendue sur un mandat ne doit
-          // pas empêcher les suivants d'être réglés.
+          // Safety net: an unexpected exception on one warrant must not
+          // prevent the following ones from being settled.
           outcomes.push({ kind: 'failed', warrantId: id, error: errText(e) })
-          log({ msg: 'settler: exception non rattrapée', warrantId: id, error: errText(e) })
+          log({ msg: 'settler: uncaught exception', warrantId: id, error: errText(e) })
         }
       }
 
@@ -1075,7 +1072,7 @@ export function createSettlementDaemon(cfg: DaemonConfig): SettlementDaemon {
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address
 
-/** ISO 8601 UTC à la seconde — même forme que `reputation.ts`. */
+/** ISO 8601 UTC to the second — same shape as `reputation.ts`. */
 export function isoNow(now?: () => number): string {
   const ms = now ? now() * 1000 : Date.now()
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')

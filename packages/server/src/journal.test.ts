@@ -71,18 +71,18 @@ function record(over: Partial<WarrantRecord> = {}): WarrantRecord {
   }
 }
 
-describe('journal — durabilité', () => {
-  it('un mandat écrit survit à la fermeture du processus', () => {
+describe('journal — durability', () => {
+  it('a written warrant survives the process shutting down', () => {
     const path = tempPath()
     fileWarrantStore(path).put(record())
 
-    // Nouveau store : c'est exactement ce que fait un redémarrage du Settler.
+    // A fresh store: exactly what a Settler restart does.
     const reopened = fileWarrantStore(path)
     expect(reopened.list()).toHaveLength(1)
     expect(reopened.get(`0x${'11'.repeat(32)}` as Hex)?.executionId).toBe('exec_1')
   })
 
-  it('retrouve un mandat quelle que soit la casse de son identifiant', () => {
+  it('finds a warrant whatever the case of its identifier', () => {
     const path = tempPath()
     const store = fileWarrantStore(path)
     store.put(record())
@@ -90,78 +90,78 @@ describe('journal — durabilité', () => {
     expect(store.get(upper)?.executionId).toBe('exec_1')
   })
 
-  it('la dernière écriture d’un même mandat gagne', () => {
+  it('the last write of a given warrant wins', () => {
     const path = tempPath()
     const store = fileWarrantStore(path)
     store.put(record({ executionId: 'exec_1' }))
     store.put(record({ executionId: 'exec_2' }))
     expect(fileWarrantStore(path).get(`0x${'11'.repeat(32)}` as Hex)?.executionId).toBe('exec_2')
-    // Append-only : les deux lignes sont bien dans le fichier.
+    // Append-only: both lines really are in the file.
     expect(readFileSync(path, 'utf8').trim().split('\n')).toHaveLength(2)
   })
 })
 
-describe('journal — suivi d’un fichier alimenté par un autre processus', () => {
-  it('refresh() ne lit que ce qui a été ajouté', () => {
+describe('journal — following a file fed by another process', () => {
+  it('refresh() reads only what was appended', () => {
     const path = tempPath()
     const settler = fileWarrantStore(path)
     expect(settler.list()).toHaveLength(0)
 
-    // Le Gateway, ailleurs, ajoute une ligne.
+    // The Gateway, elsewhere, appends a line.
     appendFileSync(path, `${serializeRecord(record({ id: `0x${'aa'.repeat(32)}` as Hex }))}\n`)
 
     expect(settler.refresh()).toBe(1)
     expect(settler.get(`0x${'aa'.repeat(32)}` as Hex)).toBeDefined()
-    // Rien de neuf : rien à relire.
+    // Nothing new: nothing to read back.
     expect(settler.refresh()).toBe(0)
   })
 
-  it('ne voit jamais une ligne en cours d’écriture', () => {
+  it('never sees a line that is still being written', () => {
     const path = tempPath()
     const settler = fileWarrantStore(path)
 
-    // Écriture partielle : pas de `\n` final.
+    // Partial write: no trailing `\n`.
     const line = serializeRecord(record({ id: `0x${'bb'.repeat(32)}` as Hex }))
     appendFileSync(path, line.slice(0, 40))
     expect(settler.refresh()).toBe(0)
     expect(settler.list()).toHaveLength(0)
 
-    // L'écrivain termine sa ligne.
+    // The writer finishes its line.
     appendFileSync(path, `${line.slice(40)}\n`)
     expect(settler.refresh()).toBe(1)
     expect(settler.get(`0x${'bb'.repeat(32)}` as Hex)).toBeDefined()
   })
 
-  it('repart de zéro si le fichier a été tronqué', () => {
+  it('starts over if the file was truncated', () => {
     const path = tempPath()
     const store = fileWarrantStore(path)
     store.put(record())
-    store.refresh() // le curseur suit désormais la fin du fichier
+    store.refresh() // the cursor now tracks the end of the file
     writeFileSync(path, '')
     expect(store.refresh()).toBe(0)
-    // Un fichier qui rétrécit est une troncature ou une rotation : le décalage
-    // en octets ne veut plus rien dire, on repart de zéro plutôt que de lire au
-    // mauvais endroit.
+    // A file that shrinks means a truncation or a rotation: the byte offset no
+    // longer means anything, so we start over rather than read at the wrong
+    // place.
     expect(store.list()).toHaveLength(0)
   })
 })
 
-describe('journal — lignes illisibles', () => {
-  it('une ligne corrompue est signalée, pas fatale', () => {
+describe('journal — unreadable lines', () => {
+  it('a corrupted line is reported, not fatal', () => {
     const path = tempPath()
     writeFileSync(
       path,
-      ['{ pas du json', serializeRecord(record()), '{"id":"pas-un-hash"}'].join('\n') + '\n',
+      ['{ not json', serializeRecord(record()), '{"id":"not-a-hash"}'].join('\n') + '\n',
     )
     const defects: string[] = []
     const store = fileWarrantStore({ path, onDefect: (d) => defects.push(d.error) })
 
     expect(store.list()).toHaveLength(1)
     expect(defects).toHaveLength(2)
-    expect(defects[1]).toMatch(/id absent ou malformé/)
+    expect(defects[1]).toMatch(/id missing or malformed/)
   })
 
-  it('rejette une ligne sans specs : un mandat inévaluable n’a rien à faire en mémoire', () => {
+  it('rejects a line with no specs: an unevaluable warrant has no business in memory', () => {
     const path = tempPath()
     writeFileSync(path, `${JSON.stringify({ id: `0x${'11'.repeat(32)}` })}\n`)
     const store = fileWarrantStore({ path, onDefect: () => {} })

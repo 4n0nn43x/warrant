@@ -1,23 +1,23 @@
 /**
- * Types de fil x402 v2 et constantes du transport MCP.
+ * x402 v2 wire types and MCP transport constants.
  *
- * Source : docs/05-specs-protocoles.md § 1.3 à § 1.7. Rien n'est inventé ici :
- * chaque champ correspond littéralement à un champ de la spécification. Le
- * point délicat — et le seul qui nous appartienne — est le § 1.7 : sur MCP, le
- * `PaymentRequired` doit voyager **dans les deux formats**, `structuredContent`
- * et `content[0].text`, strictement équivalents.
+ * Source: docs/05-specs-protocoles.md § 1.3 through § 1.7. Nothing is invented
+ * here: every field corresponds literally to a field of the specification. The
+ * delicate point — and the only one that is ours — is § 1.7: on MCP, the
+ * `PaymentRequired` must travel **in both formats**, `structuredContent` and
+ * `content[0].text`, strictly equivalent.
  */
 
-/** Version du protocole. La v1 (`X-PAYMENT`) n'est pas supportée. */
+/** Protocol version. v1 (`X-PAYMENT`) is not supported. */
 export const X402_VERSION = 2 as const
 
-/** Clé `_meta` par laquelle le client transmet son paiement (docs/05 § 1.7 étape 4). */
+/** `_meta` key through which the client passes its payment (docs/05 § 1.7 step 4). */
 export const X402_PAYMENT_META_KEY = 'x402/payment'
 
-/** Clé `_meta` par laquelle le serveur retourne le règlement (docs/05 § 1.7 étape 6). */
+/** `_meta` key through which the server returns the settlement (docs/05 § 1.7 step 6). */
 export const X402_PAYMENT_RESPONSE_META_KEY = 'x402/payment-response'
 
-/** Ressource pour laquelle le paiement est exigé. */
+/** Resource for which payment is required. */
 export interface ResourceInfo {
   url: string
   description?: string
@@ -25,15 +25,15 @@ export interface ResourceInfo {
 }
 
 /**
- * Une offre de paiement acceptable.
+ * One acceptable payment offer.
  *
- * `amount` est en unités atomiques et en chaîne : la caution d'un mandat peut
- * dépasser `Number.MAX_SAFE_INTEGER` en unités atomiques, et un arrondi
- * flottant sur un montant est une classe de bug qu'on ne veut pas ouvrir.
+ * `amount` is in atomic units and is a string: the bond of a warrant can exceed
+ * `Number.MAX_SAFE_INTEGER` in atomic units, and a floating-point rounding error
+ * on an amount is a class of bug we would rather not open.
  */
 export interface PaymentRequirements {
   scheme: string
-  /** Identifiant CAIP-2, ex. `eip155:8453`. */
+  /** CAIP-2 identifier, e.g. `eip155:8453`. */
   network: string
   amount: string
   asset: string
@@ -42,7 +42,7 @@ export interface PaymentRequirements {
   extra?: Record<string, unknown>
 }
 
-/** Le corps du 402 — sur MCP, le contenu du résultat d'outil en erreur. */
+/** The body of the 402 — on MCP, the content of the erroring tool result. */
 export interface PaymentRequired {
   x402Version: typeof X402_VERSION
   error?: string
@@ -51,7 +51,7 @@ export interface PaymentRequired {
   extensions?: Record<string, unknown>
 }
 
-/** La réponse du client : l'offre retenue plus la preuve de paiement. */
+/** The client's answer: the offer taken plus the proof of payment. */
 export interface PaymentPayload {
   x402Version: typeof X402_VERSION
   resource: Pick<ResourceInfo, 'url'>
@@ -60,10 +60,10 @@ export interface PaymentPayload {
   extensions?: Record<string, unknown>
 }
 
-/** Ce que rend le facilitateur après `POST /settle` (docs/05 § 1.6). */
+/** What the facilitator returns after `POST /settle` (docs/05 § 1.6). */
 export interface SettlementResponse {
   success: boolean
-  /** Le hash que Warrant enregistre dans `fundingRef`. */
+  /** The hash Warrant records in `fundingRef`. */
   transaction?: string
   network?: string
   payer?: string
@@ -72,11 +72,11 @@ export interface SettlementResponse {
 }
 
 /**
- * Reconnaît un `PaymentRequired` sur le fil.
+ * Recognises a `PaymentRequired` on the wire.
  *
- * Volontairement structurel plutôt que par schéma : le serveur en face peut
- * annoncer des `extensions` que nous ne connaissons pas, et les rejeter
- * casserait la compatibilité ascendante voulue par la spec.
+ * Deliberately structural rather than schema-based: the server on the other side
+ * may announce `extensions` we know nothing about, and rejecting those would
+ * break the forward compatibility the spec intends.
  */
 export function isPaymentRequired(value: unknown): value is PaymentRequired {
   if (typeof value !== 'object' || value === null) return false
@@ -101,11 +101,11 @@ export function isPaymentPayload(value: unknown): value is PaymentPayload {
 }
 
 /**
- * Signataire de paiement. C'est tout ce que le SDK demande à un wallet.
+ * Payment signer. This is all the SDK asks of a wallet.
  *
- * Le SDK ne signe pas lui-même : il ne détient aucune clé, et n'en veut aucune.
- * L'implémentation concrète (viem, mppx, plugin OpenClaw…) est fournie par
- * l'appelant.
+ * The SDK does not sign anything itself: it holds no key, and wants none. The
+ * concrete implementation (viem, mppx, an OpenClaw plugin…) is supplied by the
+ * caller.
  */
 export interface PaymentSigner {
   createPayment(required: PaymentRequired): Promise<PaymentPayload> | PaymentPayload
