@@ -144,6 +144,37 @@ Reporté dans le teardown d'onboarding.
 
 ---
 
+## 4. Le Gateway ouvre un mandat par lui-même
+
+Les mandats de § 2 et § 3 ont été ouverts à la main, pour éprouver le contrat.
+Celui-ci l'a été par le **port d'ouverture du Gateway** (`keeperHubEscrow`),
+c'est-à-dire par le code qui tournera en production, sur la chaîne réelle.
+
+| Étape | Transaction |
+|---|---|
+| Financement de la caution (5 USDC au contrat) | [`0x85498ebe…b4f9`](https://sepolia.etherscan.io/tx/0x85498ebe47af72053374797e3b48cf687d0b10bfabc7dad99520a69b0637b4f9) |
+| **`open` par `keeperHubEscrow`** | [`0x269d4f4f…7fca`](https://sepolia.etherscan.io/tx/0x269d4f4f9d1803b301c523b573edb0c1188aebf46d04ff04268526c4b817fca7) |
+
+`warrantId` `0x16e86a94…1160`. Relu sur un RPC indépendant, `warrants(id)` rend
+`status = 1` (`Open`), `bond = 5 000 000`, et `totalLocked` progresse d'autant.
+Le financement va **au contrat lui-même** et non à un coffre intermédiaire :
+`open()` exige `token.balanceOf(this) >= totalLocked` (WarrantEscrow.sol:131), ce
+qui est aussi la raison pour laquelle `WARRANT_PAY_TO` est l'adresse de l'escrow.
+
+**Ce que cette transaction a appris au projet.** La réponse de
+`POST /api/execute/contract-call` ne contient **pas** le hash de la transaction :
+un `202` avec `{ executionId, status: "completed" }`, et rien d'autre. Le hash
+n'existe que sur la route de statut. Un mandat ouvert sans hash est un mandat que
+le Settler ne peut pas juger — il n'a aucun point d'entrée pour lire la chaîne —
+alors même que la caution a été prélevée et que le mandat existe onchain. Le
+premier essai a d'ailleurs ouvert un mandat bien réel
+([`0x1c46340c…6a3f`](https://sepolia.etherscan.io/tx/0x1c46340cb91696d59bff8266d0d58cd8a1ec0c8f680ddc3330003185b72f6a3f),
+`sponsored: true`, 236 304 gas) que le client a cru perdu. Le correctif est dans
+`KeeperHubClient.executeContractCall`, et il est décrit dans le teardown
+d'onboarding.
+
+---
+
 ## Rejouer un verdict soi-même
 
 Chaque verdict publie `evaluatedAtBlock`, `rpcUrl` et le détail `checks[]`, avec

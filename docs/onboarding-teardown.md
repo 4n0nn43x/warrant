@@ -338,3 +338,159 @@ today », un relèvement demande une action opérateur). Ces plafonds ne concern
 que le **wallet agentique** qui paie les workflows x402, pas le wallet
 d'exécution de l'organisation, qui lui couvre les 22 chaînes dont Ethereum
 mainnet.
+
+---
+
+## 2026-07-29
+
+### Contexte
+
+Journée de mise en œuvre : câblage réel du Gateway et du Settler, migration MCP,
+et vérification systématique de ce que la documentation affirmait. Les entrées
+ci-dessous sont les frictions rencontrées ce jour-là. Trois d'entre elles sont
+des frictions **d'écosystème** plus que de KeeperHub, mais elles frappent
+n'importe quelle équipe du hackathon dans le même ordre, et méritent d'être
+signalées à ce titre.
+
+### Le serveur MCP de KeeperHub est resté sur l'ère `initialize`
+
+Le 28 juillet 2026 — le jour même de la clôture du hackathon côté inscriptions —
+la révision **`2026-07-28`** de MCP a été publiée en finale. Elle supprime le
+handshake `initialize` et l'en-tête `Mcp-Session-Id` : le protocole devient
+*stateless*. Six SEP y concourent, et les mainteneurs la décrivent comme la
+modification la plus substantielle depuis l'ajout de l'autorisation.
+
+**Conséquence directe sur une entrée précédente de ce journal.** Le point du
+28/07 à 13:55 signalait que `POST /mcp` `initialize` répond toujours `200`, même
+sans jeton, et que le vrai contrôle d'authentification n'apparaît qu'à
+`tools/list`. Le correctif proposé était de le documenter. **Ce correctif est
+périmé** : `initialize` n'existe plus dans la révision courante. Le conseil utile
+devient celui-ci — planifier la migration du serveur MCP vers `2026-07-28`, où
+la question ne se pose plus, puisque chaque requête porte son propre contexte
+d'authentification et où la validation est faite en-tête par en-tête
+(`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`, avec rejet `-32020
+HeaderMismatch` en cas de divergence avec le corps).
+
+Le SDK TypeScript a suivi le même jour : le paquet monolithique
+`@modelcontextprotocol/sdk` est retiré au profit de `@modelcontextprotocol/server`
+et `@modelcontextprotocol/client` en `2.0.0`.
+
+**Correctif proposé** : annoncer sur `docs.keeperhub.com/ai-tools/mcp-server` la
+révision de protocole effectivement servie, et la date cible de passage à
+`2026-07-28`. Un builder qui migre son propre serveur a besoin de savoir si le
+serveur d'en face suivra, parce que les deux ères ne s'interopèrent que par
+repli explicite.
+
+### Le facilitateur x402 public ne couvre aucun réseau utilisable en production
+
+`GET https://x402.org/facilitator/supported` renvoie, pour les réseaux EVM :
+
+```
+eip155:84532  (Base Sepolia)   ← le seul
+base-sepolia                    ← le même, sous son nom hérité
+```
+
+Ni `eip155:8453` (Base mainnet), ni `eip155:11155111` (Ethereum Sepolia). Le
+reste de la liste est non-EVM : Solana, Aptos, Algorand, Hedera, Stellar, XRPL.
+
+**Pourquoi ça coince ici.** Le hackathon valorise le mainnet, et KeeperHub
+exécute sur 22 chaînes. Mais un projet qui encaisse en x402 ne peut le faire, avec
+le facilitateur public, que sur **Base Sepolia**. Passer en production impose le
+facilitateur CDP (`api.cdp.coinbase.com/platform/v2/x402`), donc un compte
+Coinbase Developer Platform et des clés — une étape d'inscription qui n'est
+mentionnée dans aucun des quickstarts croisés jusqu'ici.
+
+**Correctif proposé** : dire explicitement, dans la page x402 de la
+documentation KeeperHub, que le facilitateur public est un facilitateur de
+**testnet Base uniquement**, et que toute cible mainnet suppose un compte CDP.
+Deux phrases évitent de découvrir la contrainte après avoir déployé son escrow
+sur la mauvaise chaîne.
+
+### Un RPC public répandu ne sait pas servir de lecture à bloc figé
+
+Friction d'écosystème, mais elle mérite d'être ici parce qu'elle est invisible
+et que son mode de défaillance est trompeur.
+
+`ethereum-sepolia-rpc.publicnode.com` — un des premiers RPC que l'on colle dans
+un `.env` — répond correctement à `eth_blockNumber` et à tout appel au bloc
+`latest`, mais refuse **toute** requête d'archive :
+
+```
+eth_call    à un bloc passé      -> -32602 "Archive requests require a personal token"
+eth_getLogs sur une plage passée -> HTTP 403, même message
+```
+
+Or n'importe quel projet du hackathon qui vérifie *après coup* ce qu'une
+exécution a produit fait, par définition, une lecture à bloc figé. Le RPC marche
+donc pendant tout le développement et se met à échouer exactement au moment où
+l'on branche l'évaluation. Pour Warrant, c'était plus grave qu'une panne : chaque
+verdict publie le `rpcUrl` utilisé en promettant que n'importe qui peut rejouer
+l'évaluation, et sur ce RPC la promesse était invérifiable.
+
+`sepolia.drpc.org` fait le travail sans clé (plafond `eth_getLogs` : 10 000 blocs
+par requête).
+
+**Correctif proposé** : une ligne dans le quickstart KeeperHub — « le RPC que
+vous utilisez pour vérifier une exécution doit être un nœud d'archive ; les RPC
+publics ne le sont pas tous » — avec deux exemples qui fonctionnent.
+
+---
+
+### 17:05 — La réponse d'exécution ne contient pas le hash de la transaction
+
+C'est la friction la plus coûteuse de la journée, parce qu'elle a l'apparence
+d'un succès.
+
+`POST /api/execute/contract-call` **bloque** jusqu'à la fin de l'exécution — 23 s
+mesurées sur Sepolia — puis répond :
+
+```jsonc
+// HTTP 202
+{ "executionId": "9z08b35kdd8fwiz14gtr0", "status": "completed" }
+```
+
+Une exécution terminée, un statut `completed`, et rien pour aller la vérifier.
+Le `transactionHash`, le `sponsored`, le gas consommé et l'`executedCall`
+n'existent que sur `GET /api/execute/{id}/status` — où ils sont disponibles
+**immédiatement**, sans attente supplémentaire.
+
+Trois choses en font un piège plutôt qu'une simple omission :
+
+1. **Le code de statut ment sur la sémantique.** Un `202 Accepted` annonce un
+   traitement asynchrone à venir ; ici le traitement est *déjà fini*. On en
+   déduit naturellement que le hash arrivera plus tard, et on écrit une boucle
+   d'attente qui ne sert à rien — alors qu'un simple `GET` immédiat suffit.
+2. **Rien ne signale l'absence.** Le champ n'est pas à `null`, il est absent.
+   Un client qui lit `response.transactionHash` obtient `undefined` et, s'il ne
+   vérifie pas, enregistre une exécution réussie sans preuve.
+3. **La conséquence est silencieuse et tardive.** Pour Warrant, un mandat ouvert
+   sans hash est un mandat que le Settler ne peut plus juger : il n'a aucun point
+   d'entrée pour lire la chaîne. La caution est prélevée, le mandat existe
+   onchain, et le règlement devient impossible. Le bug ne se voit pas au moment
+   où il est commis.
+
+**Correctif proposé** : inclure `transactionHash` et `transactionLink` dans la
+réponse de POST — elle est déjà bloquante, l'information est déjà connue au
+moment où elle est écrite. À défaut, répondre `200` plutôt que `202`, et
+documenter en une phrase que le hash s'obtient sur la route de statut.
+
+### 17:20 — Une organisation n'a qu'un wallet : le corollaire côté configuration
+
+Constat déjà noté à 15:25, mais son effet de bord mérite d'être dit séparément,
+parce qu'il ne se manifeste qu'après coup.
+
+Transférer le rôle `opener` au wallet KeeperHub change **l'état onchain sans
+rien changer à la configuration locale**. La clé qui était `opener` est toujours
+dans le `.env`, toujours valide, toujours capable de signer — elle n'a
+simplement plus le droit. Le Gateway continuait donc de démarrer normalement, et
+l'erreur ne serait apparue qu'au premier mandat **payant** : caution réglée,
+puis `open()` révèrte en `NotOpener()`.
+
+La parade adoptée est un contrôle de cohérence au démarrage : le Gateway lit
+`opener()` sur la chaîne et refuse de démarrer si l'adresse qui s'apprête à
+signer n'est pas celle-là. Coût nul, et l'erreur devient impossible à ignorer.
+
+**Correctif proposé** : dans `wallet-management`, mentionner que confier un rôle
+onchain au wallet de l'organisation crée une dépendance implicite entre l'état
+du contrat et la configuration du client, et suggérer le contrôle au démarrage
+comme motif.

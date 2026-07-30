@@ -1,0 +1,13 @@
+# Les octets de ces fichiers SONT l'engagement onchain : `feedbackHash =
+# keccak256(utf8(document))`. Git ne doit donc jamais les transformer.
+#
+# `-text` desactive la normalisation des fins de ligne, `-diff` evite qu'un outil
+# les traite comme du texte a reformater. La forme canonique JCS n'a de toute
+# facon aucun saut de ligne — mais compter sur cette propriete plutot que sur une
+# regle explicite serait accepter qu'un checkout Windows puisse invalider un
+# verdict.
+#
+# Le motif vise les documents (`0x` + 64 hex, sans extension) et laisse
+# `index.json` en texte ordinaire : lui n'est pas hache.
+0x* -text -diff
+batch/0x* -text -diff

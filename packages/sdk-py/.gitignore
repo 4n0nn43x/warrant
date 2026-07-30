@@ -1,0 +1,12 @@
+# Artefacts Python locaux. `src/warrant_sdk/_generated.py` n'est PAS ici : il est
+# versionné volontairement, pour qu'une roue installée depuis PyPI porte les
+# schémas sans avoir besoin de Node. C'est `codegen/emit.ts --check` qui garantit
+# qu'il ne dérive pas — voir tests/test_codegen_drift.py.
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/

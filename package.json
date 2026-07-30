@@ -13,10 +13,13 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "test:contracts": "cd contracts && forge test -vv",
-    "fixtures": "vite-node packages/core/scripts/gen-fixtures.ts"
+    "fixtures": "tsx packages/core/scripts/gen-fixtures.ts",
+    "faucet": "node --env-file-if-exists=.env --import tsx scripts/faucet-base-sepolia.ts"
   },
   "devDependencies": {
+    "@coinbase/cdp-sdk": "^1.54.0",
     "@types/node": "^22.10.2",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },

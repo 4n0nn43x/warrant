@@ -1,0 +1,46 @@
+{
+  "network": "base-sepolia",
+  "chainId": 84532,
+  "deployedAt": "2026-07-30",
+  "note": "Deploiement POST-AUDIT sur Base Sepolia — la chaine cible. C'est la seule ou TOUT converge : l'USDC Circle reel supporte receiveWithAuthorization, le facilitateur x402 public sert eip155:84532, et KeeperHub y execute en sponsorise. Le token n'est PAS un mock.",
+  "contracts": {
+    "WarrantEscrow": "0x3ae9ad53686383c80889F550065e810f72c2ff4e",
+    "USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  },
+  "roles": {
+    "opener": "0x1F854780EAEA8ec169c6cF96597934Da2573bfA1",
+    "settler": "0x3e7f79962eD7C93BDf4A88Ce35Fb1061048136Ec",
+    "treasury": "0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b",
+    "beneficiary": "0x000000000000000000000000000000000000bEEF",
+    "owner": "0xE9D3d40A1e80F1C20A318EDFC70869D61F971567",
+    "note": "KeeperHub est `opener` DES LE CONSTRUCTEUR : aucune rotation post-deploiement, donc le garde-fou du script de deploiement n'a pas ete contourne cette fois. I10 est impose par le contrat aux trois endroits — verifie onchain, setSettler(opener) revert 0x39a17874 = RolesMustDiffer()."
+  },
+  "params": {
+    "feeBps": 250,
+    "minDurationSeconds": 900,
+    "maxDurationSeconds": 604800
+  },
+  "registry": {
+    "file": "deployments/registry-base-sepolia.json",
+    "registryRef": "0x62bc8078d52fd768cfb96011df5011fdbd5832539586b997631e472ec979b90e"
+  },
+  "preuveOnchain": {
+    "open": {
+      "tx": "0xf95b25e41758a3debe25e42218124dd4c12d457541c4691691968ce66a653d87",
+      "sponsorise": true,
+      "relayer": "0x6331eb4571DE9284f7E9eAD98ac7b0661a091E99",
+      "forwarder": "0x5aF5194B4b0909eB978e3Cf1e25333852277f07D",
+      "note": "financement par EIP-3009 et ouverture dans la MEME transaction : plus de fenetre de solde libre, plus de reglement orphelin."
+    },
+    "honor": {
+      "tx": "0x3220b47e5f528010a1df1e1ee9b5fa3e5305989815ab3ae1f704b06b0062c7b9",
+      "refunded": 195000,
+      "fee": 5000,
+      "note": "195000 + 5000 = 200000 exactement, au taux fige a l'ouverture (feeBpsAtOpen)."
+    }
+  },
+  "deploiementsAbandonnes": {
+    "ethereum-sepolia-post-audit": "0xE5bD3Ff2B0a1f2B0c780611C948f9E3221ff3800",
+    "ethereum-sepolia-VULNERABLE": "0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12"
+  }
+}

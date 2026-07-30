@@ -176,16 +176,17 @@ describe('la catégorie est dérivée du calldata, jamais déclarée', () => {
 
     // 4. La post-condition est celle de la politique de transfert, et la
     //    destination engagée est celle de l'ALLOWLIST — pas celle du calldata.
+    //    Le solde absolu `erc20_balance(dest)` a été retiré au profit du seul
+    //    delta : voir policy.ts, règle 2 (« attribuable à la transaction »).
     const engagedDest = quote.conditionSpec.checks
-      .filter((c) => c.kind === 'erc20_balance')
+      .filter((c) => c.kind === 'erc20_balance_delta')
       .map((c) => (c as { account: string }).account)
-    expect(engagedDest).toEqual([PAYROLL])
+    expect(engagedDest).toEqual([TREASURY, PAYROLL])
     expect(JSON.stringify(quote.conditionSpec)).not.toContain(
       ATTACKER.slice(2),
     )
     expect(quote.conditionSpec.checks.map((c) => c.kind)).toEqual([
       'erc20_balance_delta',
-      'erc20_balance',
       'erc20_balance_delta',
       'no_new_approvals',
     ])

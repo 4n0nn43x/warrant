@@ -6,8 +6,9 @@
  * diverge : accents, guillemets, sauts de ligne, valeurs `undefined`.
  */
 
+import type { InputRequiredResult } from '@modelcontextprotocol/server'
 import type { PaymentRequired, SettlementResponse } from '@warrant/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, expectTypeOf } from 'vitest'
 
 import {
   X402_PAYMENT_META_KEY,
@@ -140,5 +141,40 @@ describe('extractPayment', () => {
 
   it('ne confond pas la clé de paiement avec celle de réponse', () => {
     expect(extractPayment({ [X402_PAYMENT_RESPONSE_META_KEY]: payload })).toBeUndefined()
+  })
+})
+
+describe('MRTR — la raison de ne pas y passer, épinglée', () => {
+  /**
+   * L'argument de tête de `x402-mcp.ts` tient à un fait vérifiable :
+   * `InputRequiredResult` n'offre aucun emplacement pour un `PaymentRequired`
+   * lisible par le client. Ce test le transforme en assertion.
+   *
+   * Le jour où une révision ajoutera `content`/`structuredContent` à ce type —
+   * ou une requête de paiement à `inputRequests` — ce test cassera à la
+   * compilation, et la décision devra être réexaminée plutôt qu'héritée. C'est
+   * précisément ce qu'on veut d'un commentaire de conception : qu'il se
+   * périme bruyamment.
+   */
+  it('InputRequiredResult ne peut porter ni content ni structuredContent', () => {
+    expectTypeOf<InputRequiredResult>().not.toHaveProperty('content')
+    expectTypeOf<InputRequiredResult>().not.toHaveProperty('structuredContent')
+    // Les seuls porteurs de charge utile sont opaques (`requestState`) ou d'un
+    // type fermé aux trois requêtes d'entrée (`inputRequests`).
+    expectTypeOf<InputRequiredResult>().toHaveProperty('requestState')
+    expectTypeOf<InputRequiredResult>().toHaveProperty('inputRequests')
+  })
+
+  it('le challenge reste un CallToolResult à double format', () => {
+    const result = paymentRequiredResult(PAYMENT_REQUIRED)
+    // Ce qu'un `input_required` ne saurait pas faire : montrer l'objet payable
+    // au modèle, dans les deux formats, sans qu'il ait à comprendre MRTR.
+    expect(result.isError).toBe(true)
+    expect(result.content[0]).toEqual({
+      type: 'text',
+      text: JSON.stringify(PAYMENT_REQUIRED),
+    })
+    expect(result).not.toHaveProperty('resultType')
+    expect(result).not.toHaveProperty('requestState')
   })
 })

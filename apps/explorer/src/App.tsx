@@ -13,6 +13,7 @@ import {
   txUrl,
   type Check,
   type LoadResult,
+  type Source,
   type Warrant,
 } from './data'
 
@@ -44,7 +45,7 @@ export default function App() {
         {!data ? (
           <p className="page-sub">Loading…</p>
         ) : detailId ? (
-          <WarrantDetail warrant={warrant} id={detailId} live={data.live} />
+          <WarrantDetail warrant={warrant} id={detailId} source={data.source} />
         ) : (
           <Overview data={data} />
         )}
@@ -81,19 +82,32 @@ function TopBar() {
   )
 }
 
-function SourceBanner({ live }: { live: boolean }) {
-  if (live) return null
+function SourceBanner({ source, error }: { source: Source; error?: string }) {
+  if (source === 'gateway') return null
+
+  if (source === 'chain') {
+    return (
+      <div className="banner">
+        <strong>Gateway offline.</strong> These warrants were rebuilt from the
+        escrow's own events, read directly from an RPC. Nothing here is cached
+        or canned — the contract is the record. Action categories and full
+        check details are the one thing only the Gateway can add.
+      </div>
+    )
+  }
+
   return (
     <div className="banner">
-      <strong>Gateway offline.</strong> Showing warrants that were actually
-      settled on 2026-07-28. Every hash below links to a confirmed transaction —
-      none of this is mock data.
+      <strong>No source reachable.</strong> Neither the Gateway nor the RPC
+      answered, so this page has nothing to show. It will not invent warrants to
+      fill the gap.
+      {error ? <div className="banner-detail">{error}</div> : null}
     </div>
   )
 }
 
 function Overview({ data }: { data: LoadResult }) {
-  const { warrants, stats, live } = data
+  const { warrants, stats, source, error } = data
   const score = stakeWeightedScore(stats)
 
   return (
@@ -104,7 +118,7 @@ function Overview({ data }: { data: LoadResult }) {
         that closed each one.
       </p>
 
-      <SourceBanner live={live} />
+      <SourceBanner source={source} error={error} />
 
       <div className="card">
         <div className="stats">
@@ -201,11 +215,11 @@ function StatusBadge({ status }: { status: Warrant['status'] }) {
 function WarrantDetail({
   warrant: w,
   id,
-  live,
+  source,
 }: {
   warrant: Warrant | undefined
   id: string
-  live: boolean
+  source: Source
 }) {
   if (!w) {
     return (
@@ -229,7 +243,7 @@ function WarrantDetail({
       <h1 className="page-title">Warrant</h1>
       <p className="page-sub mono">{w.id}</p>
 
-      <SourceBanner live={live} />
+      <SourceBanner source={source} />
 
       <div className="card">
         <div className="card-head">Overview</div>

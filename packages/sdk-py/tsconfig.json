@@ -1,0 +1,13 @@
+{
+  // Ne couvre que `codegen/` : le reste du paquet est du Python. Le générateur
+  // traverse `../sdk-ts/src` et `../server/src` par import relatif — c'est
+  // volontaire, il lit la source, pas un `dist` qui pourrait être en retard.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["codegen/**/*.ts"]
+}

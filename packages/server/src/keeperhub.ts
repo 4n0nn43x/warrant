@@ -180,6 +180,18 @@ export interface ContractCallRequest {
    * tableau avec « functionArgs must be a JSON string when provided ».
    */
   functionArgs: readonly unknown[]
+  /**
+   * ABI du contrat, obligatoire dès qu'il n'est **pas vérifié** sur
+   * l'explorateur — ce qui est le cas de `WarrantEscrow` sur Sepolia.
+   *
+   * Sérialisée en **chaîne JSON** à l'envoi, exactement comme `functionArgs`.
+   * Le piège est que passer un tableau produit le message d'une ABI *absente*
+   * (« ABI is required. Could not auto-fetch ABI… ») et non celui d'un mauvais
+   * type : on croit le champ non supporté et on cherche ailleurs
+   * (docs/onboarding-teardown.md, 15:20). D'où le typage fort ici : l'appelant
+   * passe un tableau, la sérialisation est faite en un seul endroit.
+   */
+  abi?: readonly unknown[]
   value?: string
   gasLimitMultiplier?: string
 }
@@ -296,7 +308,17 @@ export class KeeperHubClient {
   }
 
   /**
-   * Exécute un appel de contrat. Synchrone côté API.
+   * Exécute un appel de contrat. Bloquant côté API — la réponse n'arrive
+   * qu'une fois l'exécution terminée (≈ 23 s mesurées sur Sepolia).
+   *
+   * ⚠ **La réponse de POST ne porte pas le hash de transaction.** Elle rend un
+   * `202` avec exactement `{ executionId, status: "completed" }` — donc un
+   * succès annoncé, une exécution terminée, et rien pour aller la vérifier. Le
+   * hash, le `sponsored`, le gas et l'`executedCall` n'existent que sur
+   * `GET /api/execute/{id}/status`, où ils sont disponibles immédiatement.
+   * C'est `resolveTransaction` qui referme l'écart, une fois pour tous les
+   * appelants : un port qui rendrait un mandat « ouvert » sans hash laisserait
+   * le Settler sans aucun point d'entrée pour lire la chaîne.
    *
    * `idempotencyKey` est indispensable dès qu'un retry est possible : la
    * fenêtre de replay est de 24 h, à l'échelle de l'organisation. Sans elle,
@@ -312,7 +334,37 @@ export class KeeperHubClient {
       { ...contractCallBody(req), simulate: false },
       idempotencyKey ? { 'idempotency-key': idempotencyKey } : {},
     )
-    return normalizeExecution(raw)
+    return this.resolveTransaction(normalizeExecution(raw))
+  }
+
+  /**
+   * Complète un record d'exécution auquel il manque son hash.
+   *
+   * Ne fait rien quand le hash est déjà là — le jour où l'API le renverra dans
+   * la réponse de POST, ce code cessera de coûter un aller-retour sans qu'on
+   * ait à y toucher. Ne fait rien non plus sur un échec : une exécution
+   * `failed` n'a pas forcément de transaction, et insister ne la ferait pas
+   * apparaître.
+   */
+  private async resolveTransaction(execution: Execution, attempts = 4): Promise<Execution> {
+    if (execution.txHash || !execution.executionId) return execution
+    if (execution.status === 'failed' || execution.status === 'cancelled') return execution
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      let fresh: Execution
+      try {
+        fresh = await this.getDirectExecution(execution.executionId)
+      } catch {
+        // Le record de POST reste ce qu'on a de mieux : le perdre reviendrait à
+        // oublier l'`executionId`, seul fil vers une exécution déjà diffusée.
+        return execution
+      }
+      if (fresh.txHash || fresh.status === 'failed' || fresh.status === 'cancelled') {
+        return fresh
+      }
+      await sleep(backoffMs(attempt))
+    }
+    return execution
   }
 
   async executeTransfer(
@@ -436,6 +488,9 @@ function contractCallBody(req: ContractCallRequest): Record<string, unknown> {
     functionArgs: JSON.stringify(
       req.functionArgs.map((a) => (typeof a === 'bigint' ? a.toString() : a)),
     ),
+    // Même convention, même piège : chaîne JSON. Omise quand l'appelant ne la
+    // fournit pas, pour laisser l'auto-résolution agir sur un contrat vérifié.
+    ...(req.abi ? { abi: JSON.stringify(req.abi) } : {}),
     value: req.value ?? '0',
     ...(req.gasLimitMultiplier ? { gasLimitMultiplier: req.gasLimitMultiplier } : {}),
   }

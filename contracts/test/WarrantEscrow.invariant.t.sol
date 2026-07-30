@@ -5,26 +5,41 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {WarrantEscrow} from "../src/WarrantEscrow.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {AuthSigner} from "./helpers/AuthSigner.sol";
 
 /// @title Handler de fuzzing stateful pour `WarrantEscrow`
 /// @notice Toutes les transitions passent par ici. Le handler n'assère rien : il enregistre
 ///         des variables fantômes, et les assertions vivent dans les fonctions `invariant_`.
 ///         (Une assertion qui échoue dans un handler serait avalée par `fail_on_revert = false`.)
-contract WarrantHandler is Test {
+/// @dev    Migration post-audit : le financement d'un mandat est devenu une
+///         autorisation EIP-3009 signée. Les acteurs cessent donc d'être des
+///         adresses inertes pour devenir des comptes porteurs de clés — sans clé,
+///         le handler ne peut plus ouvrir un seul mandat et la campagne entière
+///         tournerait à vide.
+contract WarrantHandler is AuthSigner {
     WarrantEscrow public immutable escrow;
     MockUSDC public immutable usdc;
 
     address public immutable owner;
     address public immutable treasury;
 
-    /// @dev Deux viviers **disjoints** : rotationner les rôles ne peut jamais les confondre (I10).
+    /// @dev Vivier COMMUN aux deux rôles — voir le constructeur.
     address[3] public openerPool;
     address[3] public settlerPool;
     /// @dev Acteurs (agents / bénéficiaires). Exclut treasury, owner, opener, settler :
     ///      la comptabilité fantôme par adresse doit rester non ambiguë.
     address[4] public actors;
+    /// @dev Clés privées des acteurs, indexées comme `actors`. C'est ce qui permet
+    ///      de produire l'autorisation EIP-3009 sans laquelle `open` ne passe plus.
+    uint256[4] public actorKeys;
 
     bytes32[] public ids;
+
+    /// @dev Compteur monotone. Sert à la fois d'unicité d'identifiant et d'unicité
+    ///      de nonce EIP-3009 : le token refuse deux fois le même nonce pour un même
+    ///      autorisant, et un nonce recyclé ferait révèrter tous les `open` suivants
+    ///      de cet agent — la campagne testerait le vide sans que rien ne le signale.
+    uint256 public authSeq;
 
     // ── Variables fantômes ────────────────────────────────────────────────
     mapping(address => uint256) public ghostExpectedBalance; // I8 — conservation
@@ -43,15 +58,32 @@ contract WarrantHandler is Test {
     uint256 public callsSlash;
     uint256 public callsReclaim;
 
+    /// @dev Tentatives de détournement des termes, et celles qui ont ABOUTI. La
+    ///      seconde doit rester à zéro. Sans ces deux compteurs,
+    ///      `invariant_I4_FundingRefBindsTheTerms` serait le quatrième avatar du
+    ///      piège de l'audit : le handler ne signant que des termes conformes, la
+    ///      liaison serait vraie par construction du harnais et l'invariant
+    ///      passerait même si l'on retirait la garde du contrat.
+    uint256 public callsSubstitutionAttempted;
+    uint256 public callsSubstitutionAccepted;
+
     constructor(WarrantEscrow escrow_, MockUSDC usdc_, address owner_, address treasury_) {
         escrow = escrow_;
         usdc = usdc_;
         owner = owner_;
         treasury = treasury_;
 
-        openerPool = [makeAddr("opener.0"), makeAddr("opener.1"), makeAddr("opener.2")];
-        settlerPool = [makeAddr("settler.0"), makeAddr("settler.1"), makeAddr("settler.2")];
-        actors = [makeAddr("agent.0"), makeAddr("agent.1"), makeAddr("agent.2"), makeAddr("agent.3")];
+        // Vivier COMMUN, et c'est tout l'enjeu. Avec deux viviers disjoints —
+        // ce qu'il y avait ici — le fuzzer ne pouvait PAS produire
+        // `opener == settler`, et `assertTrue(opener != settler)` passait 16 384
+        // fois sans jamais rien tester. L'invariant certifiait une propriété que
+        // le harnais imposait lui-même, jamais le contrat.
+        openerPool = [makeAddr("role.0"), makeAddr("role.1"), makeAddr("role.2")];
+        settlerPool = [makeAddr("role.0"), makeAddr("role.1"), makeAddr("role.2")];
+
+        for (uint256 i; i < actors.length; ++i) {
+            (actors[i], actorKeys[i]) = makeAddrAndKey(string.concat("agent.", vm.toString(i)));
+        }
     }
 
     function idsLength() external view returns (uint256) {
@@ -68,8 +100,18 @@ contract WarrantHandler is Test {
 
     // ── Transitions ───────────────────────────────────────────────────────
 
-    /// @dev Le règlement x402 finance le contrat *avant* l'ouverture. On sous-finance
-    ///      délibérément une fois sur quatre pour exercer le chemin `Underfunded`.
+    /// @dev L'ouverture porte désormais son propre financement : le handler crédite
+    ///      l'AGENT, puis fait signer l'autorisation. On sous-finance délibérément
+    ///      une fois sur quatre — le chemin d'échec n'est plus `Underfunded` (le
+    ///      contrat ne constate plus un solde, il tire le paiement) mais le refus du
+    ///      token faute de solde chez l'agent. Il faut continuer à l'exercer : c'est
+    ///      la seule voie par laquelle une ouverture peut échouer *après* que tous
+    ///      les contrôles du contrat ont été franchis.
+    ///
+    ///      Le découpage `_plan` / `_tryOpen` autour d'une struct `Terms` en mémoire
+    ///      n'est pas cosmétique : avec les six composantes des termes, l'agent, sa
+    ///      clé, le financement et l'autorisation signée, le compilateur sortait en
+    ///      « stack too deep » sans `via_ir`.
     function open(
         uint256 agentSeed,
         uint256 beneficiarySeed,
@@ -77,38 +119,85 @@ contract WarrantHandler is Test {
         uint256 durationSeed,
         uint256 fundSeed
     ) external {
-        bytes32 id = keccak256(abi.encode("warrant", ids.length, bondSeed));
-        address agent = actors[agentSeed % actors.length];
-        address beneficiary = actors[beneficiarySeed % actors.length];
-        uint256 bond = _bound(bondSeed, 1, 1_000_000e6);
+        uint256 ai = agentSeed % actors.length;
+        _tryOpen(ai, _plan(ai, beneficiarySeed, bondSeed, durationSeed), fundSeed);
+    }
+
+    function _plan(uint256 ai, uint256 beneficiarySeed, uint256 bondSeed, uint256 durationSeed)
+        internal
+        returns (Terms memory t)
+    {
+        // `id` dérivé d'un compteur monotone : le nonce EIP-3009 valant désormais
+        // `termsHash(termes)`, et `id` faisant partie des termes, c'est `id` seul
+        // qui garantit l'unicité du nonce. Un `id` recyclé produirait un nonce déjà
+        // consommé et ferait révèrter chaque ouverture — campagne vide.
+        t.id = keccak256(abi.encode("warrant", ++authSeq));
+        // Bénéficiaire OBLIGATOIREMENT distinct de l'agent : `open` révèrte
+        // désormais sur `BadBeneficiary` si les deux coïncident. Tirer librement
+        // dans le vivier ferait échouer une ouverture sur quatre pour une raison
+        // sans intérêt et amputerait d'autant la profondeur utile de la campagne —
+        // exactement le piège dans lequel `invariant_I10` était tombé, à l'envers.
+        // `+ 1 + (seed % (n-1))` couvre les n−1 autres indices, jamais `ai`.
+        t.beneficiary = actors[(ai + 1 + (beneficiarySeed % (actors.length - 1))) % actors.length];
+        t.bond = _bound(bondSeed, 1, 1_000_000e6);
+        t.conditionHash = keccak256(abi.encode("condition", t.id));
+        t.actionHash = keccak256(abi.encode("action", t.id));
         // Bornes volontairement débordantes : `BadDuration` doit être exercé aussi.
-        uint64 duration = uint64(_bound(durationSeed, 0, uint256(escrow.MAX_DURATION()) + 1 days));
+        t.duration = uint64(_bound(durationSeed, 0, uint256(escrow.MAX_DURATION()) + 1 days));
+    }
 
-        uint256 funding = fundSeed % 4 == 0 ? bond / 2 : bond;
-        if (funding > 0) usdc.mint(address(escrow), funding);
+    function _tryOpen(uint256 ai, Terms memory t, uint256 fundSeed) internal {
+        address agent = actors[ai];
 
-        bytes32 conditionHash = keccak256(abi.encode("condition", id));
-        bytes32 actionHash = keccak256(abi.encode("action", id));
+        uint256 funding = fundSeed % 4 == 0 ? t.bond / 2 : t.bond;
+        if (funding > 0) {
+            usdc.mint(agent, funding);
+            // Comptabilisé hors du `try` : si l'ouverture échoue, l'agent conserve
+            // ces fonds, et I8 doit continuer à tomber juste.
+            ghostExpectedBalance[agent] += funding;
+        }
+
+        // Nonce = `termsHash(termes)`, obtenu du contrat lui-même. Le recalculer ici
+        // reviendrait à comparer une copie de la formule à elle-même.
+        WarrantEscrow.Authorization memory auth = _authForTerms(escrow, usdc, agent, actorKeys[ai], t);
+
+        // Une fois sur sept, l'`opener` joue le rôle de l'attaquant : il garde
+        // l'autorisation signée pour `t.beneficiary` et ouvre le mandat au profit
+        // d'un TIERS. C'est exactement le détournement que le dernier correctif
+        // ferme, et c'est ce qui donne du mordant à
+        // `invariant_I4_FundingRefBindsTheTerms` : si la garde disparaissait, ces
+        // ouvertures aboutiraient et stockeraient une `fundingRef` qui ne hache pas
+        // les termes réels du mandat. Le taux est modéré pour ne pas amputer la
+        // profondeur utile de la campagne — ces appels sont voués à révèrter.
+        address declared = t.beneficiary;
+        if (fundSeed % 7 == 0) {
+            declared = _otherActor(agent, t.beneficiary);
+            ++callsSubstitutionAttempted;
+        }
 
         vm.prank(escrow.opener());
-        try escrow.open(
-            id,
-            agent,
-            beneficiary,
-            bond,
-            conditionHash,
-            actionHash,
-            keccak256(abi.encode("funding", id)),
-            duration
-        ) {
-            ids.push(id);
-            ghostConditionHash[id] = conditionHash;
-            ghostActionHash[id] = actionHash;
-            ghostBond[id] = bond;
-            ghostAgent[id] = agent;
-            ghostSumOpenBonds += bond;
+        try escrow.open(t.id, declared, t.bond, t.conditionHash, t.actionHash, t.duration, auth) {
+            ghostExpectedBalance[agent] -= t.bond; // la caution a réellement quitté l'agent
+            ids.push(t.id);
+            ghostConditionHash[t.id] = t.conditionHash;
+            ghostActionHash[t.id] = t.actionHash;
+            ghostBond[t.id] = t.bond;
+            ghostAgent[t.id] = agent;
+            ghostSumOpenBonds += t.bond;
             ++callsOpen;
+            if (declared != t.beneficiary) ++callsSubstitutionAccepted;
         } catch {}
+    }
+
+    /// @dev Un acteur distinct de `agent` et de `signed` : le bénéficiaire substitué
+    ///      doit franchir toutes les gardes situées AVANT le contrôle des termes
+    ///      (non nul, ni la trésorerie, ni l'agent, ni le contrat), sinon le refus
+    ///      viendrait d'ailleurs et ne prouverait rien sur la liaison.
+    function _otherActor(address agent, address signed) internal view returns (address) {
+        for (uint256 i; i < actors.length; ++i) {
+            if (actors[i] != agent && actors[i] != signed) return actors[i];
+        }
+        return signed; // inatteignable avec quatre acteurs distincts
     }
 
     function honor(uint256 idSeed) external {
@@ -116,7 +205,9 @@ contract WarrantHandler is Test {
         bytes32 id = ids[idSeed % ids.length];
         WarrantEscrow.Warrant memory w = escrow.getWarrant(id);
 
-        uint256 fee = (w.bond * escrow.feeBps()) / 10_000;
+        // Le taux figé à l'ouverture, pas le taux courant : `setFeeBps` a pu bouger
+        // entre-temps, et c'est précisément ce que le correctif neutralise.
+        uint256 fee = (w.bond * w.feeBpsAtOpen) / 10_000;
         uint256 treasuryBefore = usdc.balanceOf(treasury);
 
         vm.prank(escrow.settler());
@@ -179,16 +270,23 @@ contract WarrantHandler is Test {
         try escrow.setFeeBps(uint16(_bound(seed, 0, 1_000))) {} catch {} // > MAX_FEE_BPS révèrte
     }
 
-    /// @dev Rotation des rôles dans deux viviers disjoints : `opener != settler` par
-    ///      construction, ce que l'invariant I10 revérifie à chaque pas.
+    /// @dev Le fuzzer tire dans un vivier COMMUN, donc il tente régulièrement de
+    ///      fusionner les deux rôles. Le contrat doit refuser : c'est la garde
+    ///      `RolesMustDiffer`. On avale le revert pour que la campagne continue, et
+    ///      `invariant_I10` vérifie ensuite que la fusion n'a pas eu lieu. Retirer
+    ///      la garde du contrat doit faire ÉCHOUER `invariant_I10` — c'est le test
+    ///      du test, et la raison d'être du vivier commun.
     function rotateRoles(uint256 openerSeed, uint256 settlerSeed) external {
         vm.startPrank(owner);
-        escrow.setOpener(openerPool[openerSeed % openerPool.length]);
-        escrow.setSettler(settlerPool[settlerSeed % settlerPool.length]);
+        try escrow.setOpener(openerPool[openerSeed % openerPool.length]) {} catch {}
+        try escrow.setSettler(settlerPool[settlerSeed % settlerPool.length]) {} catch {}
         vm.stopPrank();
     }
 
     /// @dev Dons non sollicités d'USDC : ne doivent jamais casser la comptabilité.
+    ///      Depuis que le financement est atomique et exact, c'est la SEULE source
+    ///      d'excédent possible sur le contrat — donc le seul moyen de conserver à
+    ///      I1 son sens d'inégalité (`>=`) plutôt qu'une égalité triviale.
     function donate(uint256 seed) external {
         usdc.mint(address(escrow), _bound(seed, 1, 1_000e6));
     }
@@ -235,6 +333,84 @@ contract WarrantEscrowInvariantTest is StdInvariant, Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         bytes32 got = bytes32(err);
         assertEq(got, bytes32(expected), context);
+    }
+
+    /// @dev Autorisation bidon, jamais valide. Elle suffit aux sondes qui doivent
+    ///      révèrter AVANT l'appel au token : `NotOpener` est le tout premier
+    ///      contrôle d'`open`, donc la signature n'est jamais atteinte. Fournir une
+    ///      vraie signature ici masquerait un éventuel réordonnancement des gardes.
+    function _dummyAuth() internal pure returns (WarrantEscrow.Authorization memory) {
+        return WarrantEscrow.Authorization({
+            from: address(1),
+            value: 1,
+            validAfter: 0,
+            validBefore: type(uint256).max,
+            nonce: bytes32(0),
+            v: 0,
+            r: bytes32(0),
+            s: bytes32(0)
+        });
+    }
+
+    // ── Garde-fous du harnais ─────────────────────────────────────────────
+    // La leçon de l'audit est qu'un invariant vert ne prouve rien si le harnais
+    // ne peut pas atteindre l'état qu'il prétend interdire. Les deux tests qui
+    // suivent sont déterministes — pas de fuzzing, pas de chance — et vérifient
+    // que la campagne peut effectivement produire les situations qui comptent.
+
+    /// @notice Le handler ouvre, honore, saisit et rembourse réellement. Si `open`
+    ///         révèrtait systématiquement — par exemple parce qu'aucun agent ne
+    ///         peut signer, ou parce que le bénéficiaire tiré est toujours l'agent —
+    ///         les 16 384 appels d'une campagne s'exécuteraient sur un ensemble de
+    ///         mandats vide et TOUS les invariants passeraient sans rien tester.
+    function test_Handler_CampaignIsNotVacuous() public {
+        for (uint256 i; i < 12; ++i) {
+            handler.open(i, i, 1_000e6 * (i + 1), 1 hours, i + 1);
+        }
+        assertGt(handler.callsOpen(), 0, "le handler n'ouvre aucun mandat");
+        assertEq(handler.idsLength(), handler.callsOpen(), "ids et compteur coherents");
+
+        handler.honor(0);
+        handler.slash(1);
+        handler.warp(2 hours); // au-delà de la duree d'1 h : les mandats expirent
+        handler.reclaim(2, 0xC0FFEE);
+
+        emit log_named_uint("mandats ouverts", handler.callsOpen());
+        emit log_named_uint("honores", handler.callsHonor());
+        emit log_named_uint("saisis", handler.callsSlash());
+        emit log_named_uint("rembourses apres expiry", handler.callsReclaim());
+
+        assertGt(handler.callsHonor(), 0, "aucun honor atteint");
+        assertGt(handler.callsSlash(), 0, "aucun slash atteint");
+        assertGt(handler.callsReclaim(), 0, "aucun reclaim atteint");
+
+        // Et le harnais tente réellement le détournement des termes, sans jamais y
+        // parvenir. Les deux assertions vont ensemble : la première prouve que le
+        // chemin d'attaque est emprunté, la seconde qu'il est fermé. Sans la
+        // première, `invariant_I4_FundingRefBindsTheTerms` certifierait le harnais.
+        emit log_named_uint("detournements tentes", handler.callsSubstitutionAttempted());
+        emit log_named_uint("detournements acceptes", handler.callsSubstitutionAccepted());
+        assertGt(handler.callsSubstitutionAttempted(), 0, "aucun detournement tente");
+        assertEq(handler.callsSubstitutionAccepted(), 0, "un detournement a abouti");
+    }
+
+    /// @notice `rotateRoles` TENTE bien la fusion des deux rôles, et c'est le
+    ///         contrat qui la refuse. C'est la condition sine qua non pour que
+    ///         `invariant_I10` soit une assertion et non une tautologie : avec les
+    ///         deux viviers disjoints d'avant l'audit, cette tentative était
+    ///         impossible à formuler, et `assertTrue(opener != settler)` passait
+    ///         16 384 fois en certifiant une propriété du harnais.
+    function test_Handler_RotateRolesAttemptsTheMergeAndIsRefused() public {
+        address candidate = handler.openerPool(0);
+        assertEq(candidate, handler.settlerPool(0), "vivier commun : meme adresse des deux cotes");
+
+        address settlerBefore = escrow.settler();
+        // Seeds identiques : `setOpener(role.0)` puis `setSettler(role.0)`.
+        handler.rotateRoles(0, 0);
+
+        assertEq(escrow.opener(), candidate, "la premiere rotation a bien eu lieu");
+        assertEq(escrow.settler(), settlerBefore, "la seconde a ete refusee par RolesMustDiffer");
+        assertTrue(escrow.opener() != escrow.settler(), "I10 tient malgre la tentative de fusion");
     }
 
     // ── I1 ────────────────────────────────────────────────────────────────
@@ -310,6 +486,53 @@ contract WarrantEscrowInvariantTest is StdInvariant, Test {
         }
     }
 
+    /// @notice I4 (volet ajouté par l'audit) — `agent` est celui qui a SIGNÉ, et
+    ///         `fundingRef` est le nonce de son autorisation. Le lien entre le payeur
+    ///         et le destinataire du remboursement n'est plus déclaratif : le token
+    ///         a marqué ce nonce comme consommé par cette adresse-là, et par aucune
+    ///         autre. C'est la propriété qui referme la faille 02.
+    function invariant_I4_AgentIsTheProvenPayer() public view {
+        uint256 n = handler.idsLength();
+        for (uint256 i; i < n; ++i) {
+            WarrantEscrow.Warrant memory w = escrow.getWarrant(handler.ids(i));
+            assertTrue(
+                usdc.authorizationState(w.agent, w.fundingRef),
+                "I4 viole : mandat sans autorisation consommee par son agent"
+            );
+        }
+    }
+
+    /// @notice I4 (dernier volet) — **la liaison des termes, en version
+    ///         permanente**. Tout mandat, à tout instant de la campagne, vérifie
+    ///         `fundingRef == termsHash(ses propres termes)`. La signature de l'agent
+    ///         couvre le nonce ; le nonce est ce hash ; donc l'agent a signé ces
+    ///         termes-là — bénéficiaire, post-condition, action et durée comprises —
+    ///         et pas un simple ordre de paiement que l'`opener` aurait ensuite
+    ///         adossé à ce qu'il voulait.
+    /// @dev    Entièrement reconstitué depuis l'état onchain, sans variable fantôme :
+    ///         `duration` se relit comme `expiry - openedAt`. C'est délibéré — une
+    ///         vérification qui n'a besoin de rien d'autre que du contrat est aussi
+    ///         celle qu'un tiers peut refaire lui-même sur la chaîne.
+    function invariant_I4_FundingRefBindsTheTerms() public view {
+        // Le harnais TENTE le détournement une ouverture sur sept ; aucune ne doit
+        // avoir abouti. Cette ligne est ce qui empêche l'invariant d'être une
+        // tautologie du harnais plutôt qu'une propriété du contrat.
+        assertEq(handler.callsSubstitutionAccepted(), 0, "detournement des termes accepte");
+
+        uint256 n = handler.idsLength();
+        for (uint256 i; i < n; ++i) {
+            bytes32 id = handler.ids(i);
+            WarrantEscrow.Warrant memory w = escrow.getWarrant(id);
+            assertEq(
+                w.fundingRef,
+                escrow.termsHash(
+                    id, w.beneficiary, w.bond, w.conditionHash, w.actionHash, uint64(w.expiry - w.openedAt)
+                ),
+                "I4 viole : fundingRef ne hache pas les termes du mandat"
+            );
+        }
+    }
+
     // ── I5 ────────────────────────────────────────────────────────────────
 
     /// @notice I5 — après `expiry`, `reclaim` réussit **toujours** pour un mandat `Open`,
@@ -341,17 +564,41 @@ contract WarrantEscrowInvariantTest is StdInvariant, Test {
         );
     }
 
+    /// @notice I6 (volet ajouté par l'audit) — aucun mandat ne peut désigner la
+    ///         trésorerie comme bénéficiaire, ni l'agent lui-même, ni le contrat.
+    ///         I6 cesse d'être une propriété des seuls chemins de règlement pour
+    ///         devenir une propriété de l'état : le cas est devenu inatteignable.
+    function invariant_I6_NoDegenerateBeneficiary() public view {
+        uint256 n = handler.idsLength();
+        for (uint256 i; i < n; ++i) {
+            WarrantEscrow.Warrant memory w = escrow.getWarrant(handler.ids(i));
+            assertTrue(w.beneficiary != treasury, "I6 viole : beneficiaire = tresorerie");
+            assertTrue(w.beneficiary != w.agent, "beneficiaire = agent");
+            assertTrue(w.beneficiary != address(escrow), "beneficiaire = escrow");
+        }
+    }
+
     // ── I7 ────────────────────────────────────────────────────────────────
 
-    /// @notice I7 — `feeBps <= MAX_FEE_BPS` en permanence.
+    /// @notice I7 — `feeBps <= MAX_FEE_BPS` en permanence, et le taux figé dans chaque
+    ///         mandat respecte lui aussi le plafond (il en est une photographie).
     function invariant_I7_FeeCapHolds() public view {
         assertLe(escrow.feeBps(), escrow.MAX_FEE_BPS(), "I7 viole : plafond de frais depasse");
+        uint256 n = handler.idsLength();
+        for (uint256 i; i < n; ++i) {
+            assertLe(
+                escrow.getWarrant(handler.ids(i)).feeBpsAtOpen,
+                escrow.MAX_FEE_BPS(),
+                "I7 viole : taux fige au-dela du plafond"
+            );
+        }
     }
 
     // ── I8 ────────────────────────────────────────────────────────────────
 
     /// @notice I8 — conservation exacte : chaque adresse détient précisément ce que la
-    ///         séquence de règlements lui a versé (`bond - bond·feeBps/10000` sur `honor`).
+    ///         séquence de règlements lui a versé (`bond - bond·feeBpsAtOpen/10000` sur
+    ///         `honor`), moins les cautions qu'elle a elle-même versées.
     function invariant_I8_Conservation() public view {
         uint256 distributed;
         for (uint256 i; i < handler.actorCount(); ++i) {
@@ -406,6 +653,11 @@ contract WarrantEscrowInvariantTest is StdInvariant, Test {
 
     /// @notice I10 — rôles distincts et strictement cloisonnés : le settler ne peut pas
     ///         ouvrir, l'opener ne peut pas régler, et l'owner ne peut faire ni l'un ni l'autre.
+    /// @dev    `assertTrue(opener != settler)` n'est une assertion *réelle* que
+    ///         parce que `rotateRoles` tire dans un vivier commun et tente donc la
+    ///         fusion à chaque pas. Retirer `RolesMustDiffer` de
+    ///         `setOpener`/`setSettler` doit faire échouer cet invariant : c'est
+    ///         ainsi qu'on vérifie qu'il teste le contrat, et non le harnais.
     function invariant_I10_RolesAreDistinctAndEnforced() public {
         address opener = escrow.opener();
         address settler = escrow.settler();
@@ -419,16 +671,7 @@ contract WarrantEscrowInvariantTest is StdInvariant, Test {
             .call(
                 abi.encodeCall(
                     WarrantEscrow.open,
-                    (
-                        keccak256("probe"),
-                        address(1),
-                        address(2),
-                        1,
-                        bytes32(0),
-                        bytes32(0),
-                        bytes32(0),
-                        1 hours
-                    )
+                    (keccak256("probe"), address(2), 1, bytes32(0), bytes32(0), 1 hours, _dummyAuth())
                 )
             );
         assertFalse(ok, "I10 viole : le settler a pu ouvrir");

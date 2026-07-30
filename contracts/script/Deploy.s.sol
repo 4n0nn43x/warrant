@@ -13,6 +13,13 @@ import {WarrantEscrow} from "../src/WarrantEscrow.sol";
 /// @dev `opener` et `settler` DOIVENT être deux clés distinctes, sur deux machines
 ///      distinctes : les réunir annule l'invariant I10 et rend faux tout le tableau de
 ///      sécurité de `06-contrat-escrow.md` § 4. Le script refuse donc de déployer.
+///
+///      Depuis l'audit, `WarrantEscrow` impose lui-même cette contrainte dans son
+///      constructeur (`RolesMustDiffer`). Le contrôle ci-dessous est donc redondant,
+///      et on le conserve à ce titre : défense en profondeur, et surtout message
+///      d'erreur explicite au moment où l'opérateur peut encore corriger sa
+///      configuration. C'est le contrat qui est la garantie ; le script n'est qu'une
+///      commodité — un déployeur qui ne l'utilise pas se heurte au constructeur.
 contract Deploy is Script {
     /// @notice L'opener et le settler ne peuvent pas être la même adresse (I10).
     error RolesMustBeDistinct();
@@ -23,7 +30,9 @@ contract Deploy is Script {
         external
         returns (WarrantEscrow escrow)
     {
-        // I10 — garde-fou de déploiement, non contournable.
+        // I10 — garde-fou de déploiement. Contournable en tant que tel : rien
+        // n'oblige personne à passer par ce script. Il double désormais la garde du
+        // constructeur, qui est, elle, la garantie réelle.
         if (opener == settler) revert RolesMustBeDistinct();
         if (token == address(0) || treasury == address(0)) revert ZeroAddress();
         if (opener == address(0) || settler == address(0)) revert ZeroAddress();

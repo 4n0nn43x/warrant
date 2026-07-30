@@ -175,9 +175,18 @@ export const listWarrantsOutputSchema = z.object({
     honored: z.number(),
     slashed: z.number(),
     reclaimed: z.number(),
-    totalBonded: z.string(),
-    totalSlashed: z.string(),
-    honorRateBps: z.number(),
+    // Ces trois noms sont ceux que le Gateway sert reellement
+    // (`GET /v1/warrants`), et ceux que l'explorer consomme. Le schema declarait
+    // auparavant `totalBonded` / `totalSlashed` / `honorRateBps`, qui
+    // n'existaient nulle part ailleurs : un adaptateur genere depuis cette
+    // source unique promettait donc des champs absents de la reponse.
+    //
+    // Le principe du paquet est « rien n'est declare, tout est derive ». Une
+    // source unique qui ne decrit pas le serveur n'est pas une source unique,
+    // c'est une seconde verite — exactement ce que ce paquet existe pour eviter.
+    bondHonoredTotal: z.string(),
+    bondSlashedTotal: z.string(),
+    totalAtRisk: z.string(),
   }),
   nextCursor: z.string().optional(),
 })

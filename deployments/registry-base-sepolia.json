@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "warrant-classification-registry-base-sepolia",
+  "note": "Registre de classification du deploiement Base Sepolia (chainId 84532). Le token est l'USDC Circle REEL (FiatTokenV2_2), pas un mock : il supporte receiveWithAuthorization nativement, avec le typehash exact qu'attend WarrantEscrow. Meme regle qu'ailleurs : la cle est le couple (chainId, target, selector), jamais le seul selecteur. Son keccak256 canonique est un registryRef distinct des autres reseaux.",
+  "priceUnit": "USD en virgule fixe 1e6 — meme unite atomique que l'USDC.",
+  "assets": {
+    "84532:0x036cbd53842c5426634e7929541ec2318f3dcf7e": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "priceUSD": "1000000"
+    }
+  },
+  "routers": [
+    {
+      "chainId": 84532,
+      "target": "0xca11bde05977b3631167028862be2a173976ca11",
+      "reason": "Multicall3 (meme adresse deterministe sur Sepolia) — enveloppe opaque, l'effet reel n'est pas classifiable"
+    }
+  ],
+  "routerSelectors": [
+    {
+      "selector": "0xac9650d8",
+      "signature": "multicall(bytes[])"
+    },
+    {
+      "selector": "0x5ae401dc",
+      "signature": "multicall(uint256,bytes[])"
+    },
+    {
+      "selector": "0xb61d27f6",
+      "signature": "execute(address,uint256,bytes)"
+    },
+    {
+      "selector": "0x9aefaff8",
+      "signature": "execute(address,address,uint256,bytes)"
+    }
+  ],
+  "entries": [
+    {
+      "chainId": 84532,
+      "target": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+      "selector": "0xa9059cbb",
+      "category": "erc20.transfer",
+      "signature": "transfer(address,uint256)",
+      "argNames": [
+        "to",
+        "amount"
+      ],
+      "targetAs": "token",
+      "amountArg": "amount",
+      "assetDecimals": 6,
+      "assetPriceUSD": "1000000",
+      "label": "USDC Circle (Base Sepolia) — transfert sortant"
+    },
+    {
+      "chainId": 84532,
+      "target": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
+      "selector": "0x095ea7b3",
+      "category": "erc20.approve",
+      "signature": "approve(address,uint256)",
+      "argNames": [
+        "spender",
+        "amount"
+      ],
+      "targetAs": "token",
+      "amountArg": "amount",
+      "assetDecimals": 6,
+      "assetPriceUSD": "1000000",
+      "label": "USDC Circle (Base Sepolia) — approbation / revocation"
+    }
+  ]
+}

@@ -321,6 +321,15 @@ td.num {
   font-weight: 600;
 }
 
+/* Le détail de l'erreur : lisible pour qui le cherche, discret pour les autres. */
+.banner-detail {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  opacity: 0.75;
+  word-break: break-word;
+}
+
 .back {
   font-size: 13px;
   display: inline-block;

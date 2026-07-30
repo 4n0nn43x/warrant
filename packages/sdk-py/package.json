@@ -1,0 +1,14 @@
+{
+  "name": "@warrant/sdk-py",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Warrant Python SDK — LangChain and CrewAI adapters, generated from the TypeScript single source of truth",
+  "scripts": {
+    "codegen": "tsx codegen/emit.ts",
+    "codegen:check": "tsx codegen/emit.ts --check",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx codegen/emit.ts --check"
+  }
+}

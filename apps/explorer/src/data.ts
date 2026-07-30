@@ -1,14 +1,24 @@
 /**
  * Explorer data source.
  *
- * Reads the Gateway (`GET /v1/warrants`) when reachable, and otherwise falls
- * back to the warrants that were actually executed on 2026-07-28.
+ * Two sources, in order of richness — never a canned one:
  *
- * The fallback entries are not mockups: every hash below is a confirmed
- * transaction you can open in a block explorer. That matters here — an
- * explorer filled with invented data would contradict the very thing it
- * claims to prove.
+ *   1. the Gateway (`GET /v1/warrants`), which knows the action category, the
+ *      KeeperHub `executionId` and the full `checks[]` of each verdict;
+ *   2. failing that, the escrow's own events, read straight from an RPC.
+ *
+ * The second path needs no Gateway, no indexer and no key, so the page keeps
+ * working when our infrastructure does not — and it is the claim of the product
+ * made literal: the contract is the record, and anyone can rebuild this view.
+ *
+ * There is deliberately no third path. An earlier version shipped a hardcoded
+ * list of warrants; every entry was a real confirmed transaction, but a page
+ * whose whole argument is "don't trust us, verify" has no business serving an
+ * answer from memory. If both sources fail, this module says so and shows
+ * nothing.
  */
+
+import { loadFromChain } from './chain'
 
 export type Verdict = 'honored' | 'slashed'
 export type Status = 'Open' | 'Honored' | 'Slashed' | 'Reclaimed'
@@ -30,6 +40,10 @@ export interface Warrant {
   status: Status
   chainId: number
   openedAt: number
+  /** Present on the detail route and on the chain path; absent from the list. */
+  expiry?: number
+  /** Block of the `WarrantOpened` event, when the source is the chain. */
+  openedAtBlock?: string
   /** Whether the opening call went through KeeperHub with sponsored gas. */
   sponsored?: boolean
   executionId?: string
@@ -106,116 +120,12 @@ export function timeAgo(ts: number, now = Date.now() / 1000): string {
 export const ESCROW = '0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12'
 export const SEPOLIA = 11155111
 
-export const FALLBACK_WARRANTS: Warrant[] = [
-  {
-    id: '0x07b03947c00f918c260b3526b33d96ad1814f0c90c575439d1195f722c067dc3',
-    agent: '0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b',
-    beneficiary: '0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b',
-    bond: '25000000',
-    category: 'erc20.approve',
-    status: 'Honored',
-    chainId: SEPOLIA,
-    openedAt: 1785247000,
-    executionId: 'w077usw3ru11uwafb2yd1',
-    openTx: '0x03a4cd54f97fa66f7f6464f0f4168d8623ad1cda47c1f695d6b9417a1b3d4519',
-    settlementTx: '0x77066307716e5626c57871cc78890713cd4035d6fc34663c6022466cbc682721',
-    refunded: '24375000',
-    fee: '625000',
-    verdict: 'honored',
-    evaluatedAtBlock: '11368824',
-    rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
-    conditionHash: '0xbd9826b43ae022ab016506e879ca5fad9aef067048eccdbead521834e7f95566',
-    actionHash: '0x750137af825985f24139c2c9da006ee68ccbede31fa47a9c7634eab42b12cb53',
-    fundingRef: '0xa62c736c2bdffe77575ff8807053d792f1ae39c31ba41fb28afeb2c65f31896d',
-    checks: [
-      {
-        kind: 'erc20_allowance',
-        expected: 'allowance(treasury, spender) eq 0',
-        observed: '0',
-        pass: true,
-      },
-      {
-        kind: 'no_new_approvals',
-        expected: 'no Approval(owner, *, > 0) in tx logs',
-        observed: 'none',
-        pass: true,
-      },
-      {
-        kind: 'calldata_matches_commitment',
-        expected: '0x750137af825985f24139c2c9da006ee68ccbede31fa47a9c7634eab42b12cb53',
-        observed: '0x750137af825985f24139c2c9da006ee68ccbede31fa47a9c7634eab42b12cb53',
-        pass: true,
-      },
-    ],
-  },
-  {
-    id: '0x9d2f41b7a8c3e05f16d47b92c0ae5318f7d4b6a9e2c8130fb5a7e94c26d80f13',
-    agent: '0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b',
-    beneficiary: '0x000000000000000000000000000000000000bEEF',
-    bond: '25000000',
-    category: 'erc20.transfer',
-    status: 'Slashed',
-    chainId: SEPOLIA,
-    openedAt: 1785247600,
-    settlementTx: '0x3cecf857ae09d6bcf85927057cc99bcc4d5b446bb1d4212d2f541686750abb21',
-    verdict: 'slashed',
-    evaluatedAtBlock: '11368831',
-    rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
-    checks: [
-      {
-        kind: 'erc20_balance_delta',
-        expected: '>= -1000000000',
-        observed: '-9000000000',
-        pass: false,
-      },
-      {
-        kind: 'erc20_balance',
-        expected: 'balance(allowed_dest) >= 1000000000',
-        observed: '0',
-        pass: false,
-      },
-      {
-        kind: 'no_new_approvals',
-        expected: 'no Approval(owner, *, > 0) in tx logs',
-        observed: 'none',
-        pass: true,
-      },
-    ],
-  },
-  {
-    id: '0x4a8e7c15d0b93f26a145e8c73b2049fd816c5a3e7920db4f8615c2a09e7d3b48',
-    agent: '0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b',
-    beneficiary: '0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b',
-    bond: '25000000',
-    category: 'erc20.approve',
-    status: 'Honored',
-    chainId: SEPOLIA,
-    openedAt: 1785249100,
-    sponsored: true,
-    executionId: 'px324nb5hteckeoaa8tg1',
-    openTx: '0x12ad7c029e386fb20e01336d93967ecca431f9917a9204301de3b0b74d2d6374',
-    settlementTx: '0x42966aee484a7655c0d9e673609ebbf9cb0e6e3ca5cdc0855d66747ae8abd897',
-    refunded: '24375000',
-    fee: '625000',
-    verdict: 'honored',
-    evaluatedAtBlock: '11368902',
-    rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
-    checks: [
-      {
-        kind: 'calldata_matches_commitment',
-        expected: 'actionHash committed at open',
-        observed: 'match, via sponsorship forwarder',
-        pass: true,
-      },
-      {
-        kind: 'erc20_allowance',
-        expected: 'allowance(treasury, spender) eq 0',
-        observed: '0',
-        pass: true,
-      },
-    ],
-  },
-]
+/**
+ * Block the escrow was deployed at, found by bisecting `eth_getCode`. Scanning
+ * from here rather than from a fixed depth below the head keeps the event scan
+ * complete: no warrant ages out of the explorer as the chain grows.
+ */
+export const ESCROW_FROM_BLOCK = 11368813n
 
 export function computeStats(warrants: Warrant[]): Stats {
   const sum = (pred: (w: Warrant) => boolean) =>
@@ -250,30 +160,73 @@ export function stakeWeightedScore(stats: Stats): number | null {
   return Number((honored * 10000n) / total) / 10000
 }
 
-const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:8787'
+// Port 8402 — celui du Gateway (`PORT` dans packages/server/src/bin/gateway.ts).
+// L'ancienne valeur 8787 est le port du serveur MCP : l'explorer interrogeait
+// donc un service qui ne sert pas cette route, et retombait systématiquement.
+const GATEWAY = import.meta.env.VITE_GATEWAY_URL ?? 'http://127.0.0.1:8402'
+// Doit être un nœud d'ARCHIVE : reconstruire l'historique des mandats se fait
+// par `eth_getLogs` sur des plages passées, ce qui est une requête d'archive.
+// `ethereum-sepolia-rpc.publicnode.com` — l'ancienne valeur — les refuse toutes
+// (`-32602 Archive requests require a personal token`) et rendait donc cette
+// source inutilisable, exactement quand elle sert : Gateway indisponible.
+const RPC = import.meta.env.VITE_RPC_URL ?? 'https://sepolia.drpc.org'
+const ESCROW_ADDRESS = import.meta.env.VITE_ESCROW_ADDRESS ?? ESCROW
+const CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID ?? SEPOLIA)
+
+/** Where the rendered warrants came from. Surfaced to the visitor, always. */
+export type Source = 'gateway' | 'chain' | 'unavailable'
 
 export interface LoadResult {
   warrants: Warrant[]
   stats: Stats
-  live: boolean
+  source: Source
+  /** Set when both sources failed, so the page can say what went wrong. */
+  error?: string
+}
+
+async function fromGateway(): Promise<{ warrants: Warrant[]; stats?: Stats }> {
+  const res = await fetch(`${GATEWAY}/v1/warrants?limit=200`, {
+    signal: AbortSignal.timeout(2500),
+  })
+  if (!res.ok) throw new Error(`gateway HTTP ${res.status}`)
+  const body = (await res.json()) as { warrants: Warrant[]; stats?: Stats }
+  if (!Array.isArray(body.warrants)) throw new Error('gateway: malformed payload')
+  return {
+    // `GET /v1/warrants` omits `chainId` — the Gateway serves a single chain and
+    // has no reason to repeat it on every row. The explorer does need it, to
+    // build block-explorer links, so it is filled in from the configured chain.
+    warrants: body.warrants.map((w) => ({ ...w, chainId: w.chainId ?? CHAIN_ID })),
+    ...(body.stats ? { stats: body.stats } : {}),
+  }
 }
 
 export async function loadWarrants(): Promise<LoadResult> {
   try {
-    const res = await fetch(`${GATEWAY}/v1/warrants?limit=200`, {
-      signal: AbortSignal.timeout(2500),
-    })
-    if (!res.ok) throw new Error(String(res.status))
-    const body = (await res.json()) as { warrants: Warrant[]; stats: Stats }
-    if (!Array.isArray(body.warrants) || body.warrants.length === 0) {
-      throw new Error('empty')
-    }
-    return { warrants: body.warrants, stats: body.stats, live: true }
-  } catch {
-    return {
-      warrants: FALLBACK_WARRANTS,
-      stats: computeStats(FALLBACK_WARRANTS),
-      live: false,
+    const { warrants, stats } = await fromGateway()
+    // An empty Gateway is an answer, not a failure: on a fresh deployment there
+    // genuinely are no warrants yet, and falling through to the chain would
+    // only produce the same empty list more slowly.
+    //
+    // The Gateway's own `stats` are preferred over recomputing from the page:
+    // they cover the whole filtered set, so they do not shrink when the list is
+    // paginated. A counter that changes with the page is not a counter.
+    return { warrants, stats: stats ?? computeStats(warrants), source: 'gateway' }
+  } catch (gatewayError) {
+    try {
+      const warrants = await loadFromChain({
+        rpcUrl: RPC,
+        escrow: ESCROW_ADDRESS,
+        chainId: CHAIN_ID,
+        fromBlock: BigInt(import.meta.env.VITE_ESCROW_FROM_BLOCK ?? ESCROW_FROM_BLOCK),
+      })
+      return { warrants, stats: computeStats(warrants), source: 'chain' }
+    } catch (chainError) {
+      return {
+        warrants: [],
+        stats: computeStats([]),
+        source: 'unavailable',
+        error: `gateway: ${String(gatewayError)} · rpc: ${String(chainError)}`,
+      }
     }
   }
 }

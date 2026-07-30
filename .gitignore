@@ -14,3 +14,14 @@ broadcast/*/*/run-[0-9]*.json
 .next/
 *.log
 apps/*/dist/
+
+# Journal des mandats du Settler : etat local, jamais commite.
+.warrant/
+
+# verdicts/ est VERSIONNE, volontairement : c'est l'hebergement des documents de
+# verdict, servis par raw.githubusercontent.com a l'URI inscrite onchain. Ne pas
+# l'ignorer, ne pas le reformater. Seuls les fichiers temporaires de l'ecriture
+# atomique (writeAtomic : <fichier>.<pid>.tmp) sont exclus, parce qu'un plantage
+# au mauvais moment en laisse un derriere lui.
+verdicts/*.tmp
+verdicts/batch/*.tmp

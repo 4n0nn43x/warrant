@@ -21,9 +21,58 @@
  * sérialise **l'objet même** qu'elle place dans `structuredContent`, si bien
  * qu'une divergence entre les deux formats n'est pas seulement improbable :
  * elle est inexprimable.
+ *
+ * ## Pourquoi le challenge ne passe pas par MRTR
+ *
+ * La révision 2026-07-28 introduit les requêtes multi-aller-retour (MRTR) :
+ * un serveur qui a besoin de quelque chose de plus répond
+ * `resultType: "input_required"` et le client rejoue la requête. C'est
+ * exactement la forme d'un 402, et la tentation est forte — d'autant que les
+ * exigences de sécurité que la spec impose au `requestState` (intégrité
+ * HMAC/AEAD, TTL court, liaison au principal, empreinte de la requête
+ * d'origine) sont mot pour mot ce qu'il faut pour lier un devis à son paiement.
+ *
+ * On ne le fait pas, et la raison est structurelle plutôt que prudentielle :
+ * **`InputRequiredResult` n'a pas de `content` ni de `structuredContent`.** Ses
+ * seuls champs sont `resultType`, `inputRequests` et `requestState`
+ * (basic/patterns/mrtr § InputRequiredResult, et le type du SDK v2 le confirme).
+ * Or il n'existe aucun de ces trois emplacements où loger un `PaymentRequired` :
+ *
+ * - `inputRequests` est un type fermé — ses valeurs **doivent** être un
+ *   `ElicitRequest`, un `CreateMessageRequest` ou un `ListRootsRequest`. Il n'y
+ *   a pas de requête « paiement », et détourner une élicitation reviendrait à
+ *   demander à un humain de saisir à la main ce que le wallet de l'agent est
+ *   censé signer tout seul — c'est la négation du principe de x402.
+ * - `requestState` est opaque par contrat : « Clients **MUST NOT** inspect,
+ *   parse, modify, or make any assumptions about its contents ». Un client
+ *   conforme ne peut donc pas y lire le montant à payer.
+ * - resterait `_meta`, seul champ libre hérité de `Result`. Mais y mettre le
+ *   `PaymentRequired` détruit précisément l'invariant que ce fichier existe pour
+ *   tenir : plus de `content[0].text`, donc plus de double format, donc un
+ *   client qui ne lit que le texte n'apprend plus rien du tout.
+ *
+ * S'ajoute un défaut de comportement observable. La spec dit qu'un client qui
+ * reçoit un `input_required` **sans** `inputRequests` « **MAY** retry the
+ * original request immediately ». Un agent rejouerait donc immédiatement, sans
+ * paiement, recevrait le même `input_required`, et boucherait — sans jamais
+ * qu'aucun texte ne lui explique qu'il doit payer. Le chemin `isError`, lui,
+ * met l'objet payable sous les yeux du modèle dans les deux formats.
+ *
+ * Enfin, la compatibilité : un `input_required` servi à un client 2025 est
+ * rattrapé par la « legacy shim » du SDK, qui tente de satisfaire les
+ * `inputRequests` par de vraies requêtes serveur→client. Sans `inputRequests`,
+ * il n'y a rien à satisfaire. Le jour où cette page est écrite, la révision a un
+ * jour d'âge et la quasi-totalité des clients x402 sont encore 2025.
+ *
+ * On garde donc `isError: true`. Ce n'est pas un renoncement à MRTR : c'est le
+ * constat que MRTR transporte des *demandes d'entrée typées*, pas des données
+ * applicatives, et qu'un challenge de paiement est une donnée applicative. Le
+ * jour où la spec définira un `PaymentRequest` dans `inputRequests` — ou
+ * autorisera `content` sur un `InputRequiredResult` — la bascule sera de
+ * quelques lignes, et `dualFormat()` restera le point de passage obligé.
  */
 
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import type { CallToolResult } from '@modelcontextprotocol/server'
 import {
   X402_PAYMENT_META_KEY,
   X402_PAYMENT_RESPONSE_META_KEY,
@@ -60,7 +109,8 @@ export function dualFormat(payload: JsonObject, isError = false): CallToolResult
  * `isError: true` est contre-intuitif — rien n'a échoué — mais c'est ce que la
  * spec impose : MCP n'a pas de canal « 402 », et le résultat en erreur est le
  * seul par lequel un client peut recevoir des données exploitables plutôt
- * qu'une erreur de protocole.
+ * qu'une erreur de protocole. La révision 2026-07-28 ne change pas ce constat ;
+ * l'analyse du cas MRTR est en tête de fichier.
  */
 export function paymentRequiredResult(paymentRequired: PaymentRequired): CallToolResult {
   return dualFormat(paymentRequired as unknown as JsonObject, true)

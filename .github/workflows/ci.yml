@@ -1,0 +1,92 @@
+# CI
+#
+# Ce que la CI garde, et pourquoi chaque étape est là :
+#
+#   - `typecheck` et `test` : le filet de base des six paquets TypeScript.
+#   - `forge test` : le contrat et ses onze invariants en fuzzing stateful.
+#     C'est le seul composant du projet qui détient des fonds — il n'a pas le
+#     droit de régresser silencieusement.
+#   - `fixtures` : les vecteurs de `conditionHash` sont un ENGAGEMENT. Si la
+#     canonicalisation change, des mandats déjà ouverts deviennent
+#     inévaluables. La CI regénère les fixtures et échoue si elles bougent,
+#     ce qui transforme une rupture invisible en échec de build.
+#
+# Pas de déploiement, pas de secret : aucune étape n'a besoin d'une clé, et
+# une CI qui ne peut pas dépenser d'argent ne peut pas en perdre.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm -r typecheck
+
+      - run: pnpm -r test
+
+      - name: build
+        run: pnpm -r build
+
+      # Les fixtures sont regénérées puis comparées. Un diff ici signifie que la
+      # canonicalisation JCS ou le calcul de hash a changé — donc que des
+      # engagements déjà pris ne se recalculent plus à l'identique.
+      - name: fixtures de hash inchangées
+        run: |
+          pnpm fixtures
+          if ! git diff --quiet -- packages/core/fixtures; then
+            echo "::error::les vecteurs de conditionHash ont changé — un mandat déjà ouvert deviendrait inévaluable"
+            git --no-pager diff -- packages/core/fixtures
+            exit 1
+          fi
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - run: forge fmt --check
+        working-directory: contracts
+
+      - run: forge test -vv
+        working-directory: contracts
+
+  # Un secret commité est irrécupérable : il faut le considérer comme divulgué
+  # dès le push. Ce garde-fou est volontairement bête et rapide.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: aucun .env ni clé privée commitée
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env est suivi par git"
+            exit 1
+          fi
+          if git grep -nIE '^[^#]*(PRIVATE_KEY|SECRET)[[:space:]]*=[[:space:]]*(0x[0-9a-fA-F]{64}|[A-Za-z0-9_-]{24,})' -- . ':!*.example' ':!.github/**'; then
+            echo "::error::une valeur ressemblant à une clé est commitée"
+            exit 1
+          fi

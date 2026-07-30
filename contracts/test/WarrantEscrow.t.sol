@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {WarrantEscrow} from "../src/WarrantEscrow.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {AuthSigner} from "./helpers/AuthSigner.sol";
 
 /// @title Tests unitaires de `WarrantEscrow`
 /// @dev Couvre le plan de tests de `06-contrat-escrow.md` § 5, y compris les cas dédiés à I9.
-contract WarrantEscrowTest is Test {
+///
+///      Migration post-audit : `open` encaisse désormais la caution lui-même via
+///      EIP-3009, et l'`agent` n'est plus un paramètre mais le résultat d'une
+///      vérification de signature. Deux conséquences pour toute cette suite :
+///        1. `agent` est un compte porteur d'une clé (`makeAddrAndKey`), pas un
+///           `makeAddr` décoratif — sans clé, on ne peut plus rien ouvrir ;
+///        2. le financement ne précède plus l'ouverture, il *est* l'ouverture.
+///           Les fonds partent du solde de l'agent, pas d'un virement anonyme
+///           préalable au contrat. `_fund` crédite donc l'agent, plus l'escrow.
+contract WarrantEscrowTest is AuthSigner {
     WarrantEscrow internal escrow;
     MockUSDC internal usdc;
 
@@ -15,19 +25,33 @@ contract WarrantEscrowTest is Test {
     address internal treasury = makeAddr("treasury");
     address internal opener = makeAddr("opener"); // le Gateway
     address internal settler = makeAddr("settler"); // le Settler — clé distincte (I10)
-    address internal agent = makeAddr("agent");
     address internal beneficiary = makeAddr("beneficiary");
     address internal stranger = makeAddr("stranger");
+
+    /// @dev L'agent doit pouvoir SIGNER : c'est la signature, et non plus une
+    ///      déclaration de l'opener, qui l'identifie comme payeur de la caution.
+    address internal agent;
+    uint256 internal agentKey;
 
     uint16 internal constant FEE_BPS = 250; // 2,5 %
     uint256 internal constant BOND = 100e6; // 100 USDC
     uint64 internal constant DURATION = 1 hours;
 
     bytes32 internal constant ID = keccak256("warrant-1");
+    bytes32 internal constant ID2 = keccak256("warrant-2");
     bytes32 internal constant CONDITION_HASH = keccak256("conditionSpec");
     bytes32 internal constant ACTION_HASH = keccak256("actionSpec");
-    bytes32 internal constant FUNDING_REF = keccak256("x402-tx");
     bytes32 internal constant EXEC_REF = keccak256("keeperhub-exec");
+
+    /// @dev Compteur de nonces, réservé aux autorisations **volontairement
+    ///      non conformes**. Depuis le dernier correctif, le nonce d'une
+    ///      autorisation légitime n'est plus libre : il vaut `termsHash(termes)`.
+    ///      Un nonce tiré d'un compteur ne sert donc plus qu'à exercer les gardes
+    ///      situées AVANT le contrôle des termes (`ZeroBond`, `BadDuration`,
+    ///      `ZeroAddress`, les bénéficiaires dégénérés, `ValueMismatch`) — pour
+    ///      celles-là, la conformité du nonce est hors sujet et un aléa évite de
+    ///      laisser croire que le test dépend de la liaison.
+    uint256 internal nonceSeq;
 
     event WarrantOpened(
         bytes32 indexed id,
@@ -47,6 +71,7 @@ contract WarrantEscrowTest is Test {
 
     function setUp() public {
         vm.warp(1_700_000_000); // un timestamp réaliste : évite les bornes à 0
+        (agent, agentKey) = makeAddrAndKey("agent");
         usdc = new MockUSDC();
         vm.prank(owner);
         escrow = new WarrantEscrow(address(usdc), treasury, opener, settler, FEE_BPS);
@@ -54,19 +79,60 @@ contract WarrantEscrowTest is Test {
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    /// @dev Simule le règlement x402 : les fonds arrivent sur le contrat *avant* `open`.
+    function _nextNonce() internal returns (bytes32) {
+        return keccak256(abi.encode("x402-nonce", ++nonceSeq));
+    }
+
+    /// @dev Crédite l'AGENT, et non plus le contrat : le règlement x402 n'arrive
+    ///      plus par un virement anonyme préalable. C'est un changement de nature
+    ///      du financement, pas un simple renommage de destinataire.
     function _fund(uint256 amount) internal {
-        usdc.mint(address(escrow), amount);
+        usdc.mint(agent, amount);
     }
 
-    function _open(bytes32 id, uint256 bond, uint64 duration) internal {
+    /// @dev Les termes standard de la suite, paramétrés par ce qui varie.
+    function _terms(bytes32 id, uint256 bond, uint64 duration) internal view returns (Terms memory) {
+        return Terms({
+            id: id,
+            beneficiary: beneficiary,
+            bond: bond,
+            conditionHash: CONDITION_HASH,
+            actionHash: ACTION_HASH,
+            duration: duration
+        });
+    }
+
+    /// @dev Autorisation au nonce arbitraire : ne franchit PAS le contrôle des
+    ///      termes. Réservée aux gardes qui s'appliquent en amont de celui-ci.
+    function _looseAuth(uint256 value) internal returns (WarrantEscrow.Authorization memory) {
+        return _auth(usdc, address(escrow), agent, agentKey, value, _nextNonce());
+    }
+
+    /// @dev Autorisation légitime : nonce dérivé des termes exacts du mandat.
+    function _agentAuth(bytes32 id, uint256 bond, uint64 duration)
+        internal
+        view
+        returns (WarrantEscrow.Authorization memory)
+    {
+        return _authForTerms(escrow, usdc, agent, agentKey, _terms(id, bond, duration));
+    }
+
+    /// @dev L'autorisation est construite AVANT le `vm.prank`, et jamais dans la
+    ///      liste d'arguments d'`open` : `_authForTerms` interroge
+    ///      `escrow.termsHash`, et cet appel consommerait le prank — `open`
+    ///      partirait alors du mauvais appelant et révèrterait sur `NotOpener`.
+    ///      C'est la deuxième fois que ce piège se déclenche dans cette suite.
+    function _open(bytes32 id, uint256 bond, uint64 duration) internal returns (bytes32 nonce) {
+        Terms memory t = _terms(id, bond, duration);
+        nonce = _termsNonce(escrow, t);
+        WarrantEscrow.Authorization memory auth = _authForTerms(escrow, usdc, agent, agentKey, t);
         vm.prank(opener);
-        escrow.open(id, agent, beneficiary, bond, CONDITION_HASH, ACTION_HASH, FUNDING_REF, duration);
+        escrow.open(id, beneficiary, bond, CONDITION_HASH, ACTION_HASH, duration, auth);
     }
 
-    function _openFunded(bytes32 id, uint256 bond, uint64 duration) internal {
+    function _openFunded(bytes32 id, uint256 bond, uint64 duration) internal returns (bytes32) {
         _fund(bond);
-        _open(id, bond, duration);
+        return _open(id, bond, duration);
     }
 
     // ── Constructeur & état initial ───────────────────────────────────────
@@ -87,6 +153,27 @@ contract WarrantEscrowTest is Test {
     function test_Constructor_RevertsOnFeeAboveCap() public {
         vm.expectRevert(WarrantEscrow.BadFee.selector);
         new WarrantEscrow(address(usdc), treasury, opener, settler, 501);
+    }
+
+    /// @dev I10 — désormais imposé par le contrat lui-même, et plus seulement par
+    ///      le script de déploiement, lequel restait contournable : rien n'oblige
+    ///      un déployeur à passer par le script.
+    function test_Constructor_RevertsWhenRolesAreMerged() public {
+        vm.expectRevert(WarrantEscrow.RolesMustDiffer.selector);
+        new WarrantEscrow(address(usdc), treasury, opener, opener, FEE_BPS);
+    }
+
+    /// @dev `token` et `treasury` étaient contrôlés par le seul script de
+    ///      déploiement — la même asymétrie que celle reprochée à I10. Ils sont
+    ///      maintenant contrôlés là où ça compte. `treasury == 0` avec des frais non
+    ///      nuls aurait rendu tout `honor` impossible sur l'USDC réel, immobilisant
+    ///      chaque caution jusqu'à son expiration.
+    function test_Constructor_RevertsOnZeroTokenOrTreasury() public {
+        vm.expectRevert(WarrantEscrow.ZeroAddress.selector);
+        new WarrantEscrow(address(0), treasury, opener, settler, FEE_BPS);
+
+        vm.expectRevert(WarrantEscrow.ZeroAddress.selector);
+        new WarrantEscrow(address(usdc), address(0), opener, settler, FEE_BPS);
     }
 
     /// @dev Pas de fonction de retrait d'urgence — c'est délibéré. Même l'owner ne peut pas
@@ -117,6 +204,9 @@ contract WarrantEscrowTest is Test {
 
     function test_Open_Succeeds() public {
         _fund(BOND);
+        Terms memory t = _terms(ID, BOND, DURATION);
+        bytes32 nonce = _termsNonce(escrow, t);
+        WarrantEscrow.Authorization memory auth = _authForTerms(escrow, usdc, agent, agentKey, t);
 
         vm.expectEmit(true, true, true, true, address(escrow));
         emit WarrantOpened(
@@ -126,54 +216,111 @@ contract WarrantEscrowTest is Test {
             BOND,
             CONDITION_HASH,
             ACTION_HASH,
-            FUNDING_REF,
+            nonce,
             uint64(block.timestamp) + DURATION
         );
-        _open(ID, BOND, DURATION);
+        vm.prank(opener);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
 
         WarrantEscrow.Warrant memory w = escrow.getWarrant(ID);
-        assertEq(w.agent, agent);
+        // `agent` n'a jamais été déclaré par personne : il sort de la signature.
+        assertEq(w.agent, agent, "agent derive de la signature");
         assertEq(w.beneficiary, beneficiary);
         assertEq(w.bond, BOND);
         assertEq(w.conditionHash, CONDITION_HASH);
         assertEq(w.actionHash, ACTION_HASH);
-        assertEq(w.fundingRef, FUNDING_REF);
+        assertEq(w.fundingRef, nonce, "fundingRef == nonce EIP-3009");
+        // Et ce nonce n'est pas un opaque : il hache les termes du mandat. La
+        // `fundingRef` est donc vérifiable par n'importe qui à partir du seul état
+        // onchain — c'est ce qui fait de la signature de l'agent un consentement
+        // aux termes, et plus seulement un ordre de paiement.
+        assertEq(
+            w.fundingRef,
+            escrow.termsHash(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION),
+            "fundingRef == termsHash des termes du mandat"
+        );
         assertEq(w.openedAt, uint64(block.timestamp));
         assertEq(w.expiry, uint64(block.timestamp) + DURATION);
+        assertEq(w.feeBpsAtOpen, FEE_BPS, "taux fige a l'ouverture");
         assertEq(uint8(w.status), uint8(WarrantEscrow.Status.Open));
         assertEq(escrow.totalLocked(), BOND);
+
+        // Financement atomique : les fonds ont quitté l'agent dans cette même
+        // transaction, et le nonce est consommé côté token.
+        assertEq(usdc.balanceOf(agent), 0, "la caution a quitte l'agent");
+        assertEq(usdc.balanceOf(address(escrow)), BOND);
+        assertTrue(usdc.authorizationState(agent, nonce), "nonce consomme");
+    }
+
+    /// @dev Le getter public généré rend maintenant DIX champs — `feeBpsAtOpen`
+    ///      s'insère avant `status`. On décode le tuple entier : c'est ce que fait
+    ///      l'indexeur, et une insertion silencieuse au milieu d'un tuple est
+    ///      exactement le genre de changement qui casse un consommateur offchain
+    ///      sans qu'aucun test de haut niveau ne s'en aperçoive.
+    function test_Open_PublicGetterReturnsTenFields() public {
+        bytes32 nonce = _openFunded(ID, BOND, DURATION);
+        (
+            address a,
+            address b,
+            uint256 bond,
+            bytes32 conditionHash,
+            bytes32 actionHash,
+            bytes32 fundingRef,
+            uint64 expiry,
+            uint64 openedAt,
+            uint16 feeBpsAtOpen,
+            WarrantEscrow.Status status
+        ) = escrow.warrants(ID);
+
+        assertEq(a, agent);
+        assertEq(b, beneficiary);
+        assertEq(bond, BOND);
+        assertEq(conditionHash, CONDITION_HASH);
+        assertEq(actionHash, ACTION_HASH);
+        assertEq(fundingRef, nonce);
+        assertEq(expiry, uint64(block.timestamp) + DURATION);
+        assertEq(openedAt, uint64(block.timestamp));
+        assertEq(feeBpsAtOpen, FEE_BPS);
+        assertEq(uint8(status), uint8(WarrantEscrow.Status.Open));
     }
 
     /// @dev I10 — un tiers ne peut pas ouvrir.
     function test_Open_RevertsWhenNotOpener() public {
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(stranger);
         vm.expectRevert(WarrantEscrow.NotOpener.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
     /// @dev I10 — les rôles sont disjoints : le settler ne peut pas ouvrir.
     function test_Open_RevertsWhenCallerIsSettler() public {
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(settler);
         vm.expectRevert(WarrantEscrow.NotOpener.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
     /// @dev I10 — l'owner non plus (il rotationne les rôles, il ne les exerce pas).
     function test_Open_RevertsWhenCallerIsOwner() public {
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(owner);
         vm.expectRevert(WarrantEscrow.NotOpener.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
+    /// @dev Nonce neuf et solde suffisant : le seul motif de refus possible est
+    ///      l'identifiant déjà pris. Sans cette précaution le test passerait au
+    ///      vert sur `AuthorizationUsed` sans rien prouver sur `AlreadyExists`.
     function test_Open_RevertsOnDuplicateId() public {
         _openFunded(ID, BOND, DURATION);
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.AlreadyExists.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
     /// @dev Un id déjà réglé reste consommé : pas de recyclage d'identifiant.
@@ -183,69 +330,269 @@ contract WarrantEscrowTest is Test {
         escrow.honor(ID, EXEC_REF);
 
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.AlreadyExists.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
     function test_Open_RevertsOnZeroBond() public {
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(0);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.ZeroBond.selector);
-        escrow.open(ID, agent, beneficiary, 0, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, 0, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
-    function test_Open_RevertsWhenUnderfunded() public {
+    /// @dev Ex-`test_Open_RevertsWhenUnderfunded`, réécrit. Le sous-financement ne
+    ///      se manifeste plus par `Underfunded()` : le contrat ne constate plus un
+    ///      solde préexistant, il tire le paiement. C'est donc le TOKEN qui
+    ///      arbitre, en refusant de débiter un agent insolvable ; `open` révèrte
+    ///      avec lui et aucun mandat n'existe. L'intention d'origine (« un mandat
+    ///      ne s'ouvre pas sans les fonds ») est conservée, la couche qui la fait
+    ///      respecter change.
+    function test_Open_RevertsWhenAgentCannotPay() public {
         _fund(BOND - 1);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(opener);
-        vm.expectRevert(WarrantEscrow.Underfunded.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        vm.expectRevert(MockUSDC.InsufficientBalance.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        assertEq(escrow.totalLocked(), 0, "aucun engagement pris");
+        assertEq(uint8(escrow.getWarrant(ID).status), uint8(WarrantEscrow.Status.None));
+        assertEq(usdc.balanceOf(agent), BOND - 1, "les fonds de l'agent n'ont pas bouge");
     }
 
-    /// @dev Le solde du contrat couvre le premier mandat mais pas la somme des deux :
-    ///      `totalLocked` est cumulatif, l'opener ne peut pas réutiliser les mêmes fonds.
-    function test_Open_RevertsWhenSecondWarrantReusesSameFunds() public {
+    /// @dev Second volet : `Underfunded()` est devenu INATTEIGNABLE avec un token
+    ///      honnête. Le solde du contrat est en permanence égal — et pas seulement
+    ///      supérieur — à `totalLocked`, chaque ouverture encaissant exactement son
+    ///      bond. La garde subsiste comme défense contre un token qui mentirait sur
+    ///      son propre transfert ; on documente ici qu'aucune séquence d'appels
+    ///      légitimes ne peut plus la déclencher.
+    function test_Open_UnderfundedIsNowUnreachable() public {
+        assertEq(usdc.balanceOf(address(escrow)), escrow.totalLocked());
         _openFunded(ID, BOND, DURATION);
+        assertEq(usdc.balanceOf(address(escrow)), escrow.totalLocked(), "egalite, pas inegalite");
+        _openFunded(ID2, 3 * BOND, DURATION);
+        assertEq(usdc.balanceOf(address(escrow)), escrow.totalLocked());
+        assertEq(escrow.totalLocked(), 4 * BOND);
+    }
+
+    /// @dev Ex-`test_Open_RevertsWhenSecondWarrantReusesSameFunds`, premier volet.
+    ///      L'ancien scénario — deux mandats adossés au même virement — n'est plus
+    ///      exprimable : il n'existe plus de virement séparé à réutiliser. Et depuis
+    ///      que le nonce vaut `termsHash(termes)`, `id` compris, une autorisation
+    ///      ne peut plus **par construction** désigner un autre mandat : elle est
+    ///      refusée sur `TermsMismatch`, avant même que le token n'ait à constater
+    ///      que son nonce est consommé. La protection est passée d'une couche à deux,
+    ///      et la première est celle du contrat.
+    function test_Open_SecondWarrantCannotReuseTheSameAuthorization() public {
+        _fund(2 * BOND); // solde largement suffisant : le refus ne viendra pas de là
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
+
         vm.prank(opener);
-        vm.expectRevert(WarrantEscrow.Underfunded.selector);
-        escrow.open(
-            keccak256("warrant-2"),
-            agent,
-            beneficiary,
-            BOND,
-            CONDITION_HASH,
-            ACTION_HASH,
-            FUNDING_REF,
-            DURATION
-        );
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        // Même autorisation, autre identifiant : les termes ne correspondent plus.
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID2, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        // Même autorisation, même identifiant : l'identifiant est déjà consommé.
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.AlreadyExists.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        assertEq(escrow.totalLocked(), BOND, "un seul mandat finance");
+        assertEq(usdc.balanceOf(agent), BOND, "l'agent n'a ete debite qu'une fois");
+    }
+
+    /// @dev Second volet : chaque mandat exige son propre capital. Nonce neuf, mais
+    ///      solde déjà épuisé — l'ouverture échoue côté token.
+    function test_Open_SecondWarrantNeedsItsOwnFunds() public {
+        _openFunded(ID, BOND, DURATION); // l'agent a versé tout son solde
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID2, BOND, DURATION);
+        vm.prank(opener);
+        vm.expectRevert(MockUSDC.InsufficientBalance.selector);
+        escrow.open(ID2, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
         assertEq(escrow.totalLocked(), BOND);
     }
 
     function test_Open_RevertsBelowMinDuration() public {
         _fund(BOND);
         uint64 tooShort = escrow.MIN_DURATION() - 1;
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.BadDuration.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, tooShort);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, tooShort, auth);
     }
 
     function test_Open_RevertsAboveMaxDuration() public {
         _fund(BOND);
         uint64 tooLong = escrow.MAX_DURATION() + 1;
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.BadDuration.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, tooLong);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, tooLong, auth);
     }
 
     function test_Open_AcceptsExactBounds() public {
-        _fund(2 * BOND);
+        _fund(2 * BOND); // deux mandats, deux financements distincts
         _open(ID, BOND, escrow.MIN_DURATION());
-        _open(keccak256("warrant-2"), BOND, escrow.MAX_DURATION());
+        _open(ID2, BOND, escrow.MAX_DURATION());
 
         assertEq(escrow.getWarrant(ID).expiry, uint64(block.timestamp) + escrow.MIN_DURATION());
-        assertEq(
-            escrow.getWarrant(keccak256("warrant-2")).expiry, uint64(block.timestamp) + escrow.MAX_DURATION()
-        );
+        assertEq(escrow.getWarrant(ID2).expiry, uint64(block.timestamp) + escrow.MAX_DURATION());
+        assertEq(escrow.totalLocked(), 2 * BOND);
+    }
+
+    // ── open : les gardes ajoutées par l'audit ────────────────────────────
+
+    function test_Open_RevertsOnZeroBeneficiary() public {
+        _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.ZeroAddress.selector);
+        escrow.open(ID, address(0), BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+    }
+
+    /// @dev `auth.from == 0` est intercepté AVANT l'appel au token. Le mock ne
+    ///      reproduit pas le refus d'`address(0)` de FiatTokenV2_2 : c'est donc bien
+    ///      la garde du contrat que ce test exerce, et non celle du token.
+    function test_Open_RevertsOnZeroAuthFrom() public {
+        WarrantEscrow.Authorization memory auth =
+            _auth(usdc, address(escrow), address(0), agentKey, BOND, _nextNonce());
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.ZeroAddress.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+    }
+
+    /// @dev I6 vrai par construction : une saisie ne peut pas alimenter la trésorerie.
+    function test_Open_RevertsWhenBeneficiaryIsTreasury() public {
+        _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.BeneficiaryIsTreasury.selector);
+        escrow.open(ID, treasury, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+    }
+
+    /// @dev Bénéficiaire dégénéré : une saisie rembourserait le fautif, et la
+    ///      caution cesserait d'être une caution.
+    function test_Open_RevertsWhenBeneficiaryIsAgent() public {
+        _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.BadBeneficiary.selector);
+        escrow.open(ID, agent, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+    }
+
+    /// @dev Bénéficiaire dégénéré : la caution sortirait du passif sans sortir du
+    ///      contrat, devenant un excédent irrécupérable (aucun sweep n'existe).
+    function test_Open_RevertsWhenBeneficiaryIsEscrow() public {
+        _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.BadBeneficiary.selector);
+        escrow.open(ID, address(escrow), BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+    }
+
+    /// @dev Les deux sens du décalage. Un excédent est aussi grave qu'un déficit :
+    ///      il serait immobilisé pour toujours.
+    function test_Open_RevertsOnValueMismatch() public {
+        _fund(4 * BOND);
+
+        WarrantEscrow.Authorization memory tooMuch = _looseAuth(BOND + 1);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.ValueMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, tooMuch);
+
+        WarrantEscrow.Authorization memory tooLittle = _looseAuth(BOND - 1);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.ValueMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, tooLittle);
+
+        assertEq(escrow.totalLocked(), 0);
+    }
+
+    /// @dev Le nonce doit hacher les termes. Un nonce arbitraire — y compris
+    ///      parfaitement signé par l'agent — est refusé : sans quoi l'agent
+    ///      signerait un ordre de paiement sans savoir à quoi il l'adosse.
+    function test_Open_RevertsOnArbitraryNonce() public {
+        _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _looseAuth(BOND);
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+        assertEq(escrow.totalLocked(), 0);
+    }
+
+    /// @dev Les six composantes des termes, une par une. Chaque champ que l'`opener`
+    ///      pourrait vouloir substituer après coup est couvert par le nonce signé,
+    ///      donc verrouillé. C'est le test qui vaut le plus cher : il énumère
+    ///      exhaustivement la surface de détournement.
+    function test_Open_RevertsWhenAnyTermIsSubstituted() public {
+        _fund(BOND);
+        Terms memory t = _terms(ID, BOND, DURATION);
+        WarrantEscrow.Authorization memory auth = _authForTerms(escrow, usdc, agent, agentKey, t);
+        address other = makeAddr("autre-beneficiaire");
+        // Lu maintenant : sous `vm.expectRevert`, c'est le PROCHAIN appel qui est
+        // surveillé — et l'évaluation d'un argument est un appel. `MAX_DURATION()`
+        // dans la liste d'arguments capterait l'attente et ne révèrterait pas.
+        uint64 maxDuration = escrow.MAX_DURATION();
+
+        // (1) autre identifiant
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID2, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        // (2) autre bénéficiaire — la substitution la plus rentable pour l'opener
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID, other, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        // (3) autre post-condition : l'agent serait jugé sur un critère qu'il
+        //     n'a jamais accepté
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, keccak256("autre-condition"), ACTION_HASH, DURATION, auth);
+
+        // (4) autre action
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, keccak256("autre-action"), DURATION, auth);
+
+        // (5) autre durée : immobilisation prolongée sans consentement
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.TermsMismatch.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, maxDuration, auth);
+
+        // (6) le montant est déjà couvert par `ValueMismatch`, qui s'applique en
+        //     amont : `bond` différent de `auth.value` est refusé avant les termes.
+        vm.prank(opener);
+        vm.expectRevert(WarrantEscrow.ValueMismatch.selector);
+        escrow.open(ID, beneficiary, BOND + 1, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+
+        // Rien n'a été ouvert, et les termes d'origine restent honorables.
+        assertEq(escrow.totalLocked(), 0, "aucune substitution n'a abouti");
+        vm.prank(opener);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
+        assertEq(escrow.totalLocked(), BOND, "les termes signes, eux, passent");
+    }
+
+    /// @dev La signature est le seul lien entre `auth.from` et le paiement. Une
+    ///      autorisation dont la clé ne correspond pas à `from` est rejetée par le
+    ///      token : c'est ce qui interdit à quiconque de *désigner* un agent.
+    function test_Open_RevertsOnForgedSignature() public {
+        _fund(BOND);
+        (, uint256 wrongKey) = makeAddrAndKey("pas-l-agent");
+        // Termes parfaitement conformes — seule la clé est la mauvaise. Le contrôle
+        // des termes passe donc, et c'est bien la vérification de signature du token
+        // qui rejette : on isole exactement la propriété visée.
+        WarrantEscrow.Authorization memory forged =
+            _authForTerms(escrow, usdc, agent, wrongKey, _terms(ID, BOND, DURATION));
+        vm.prank(opener);
+        vm.expectRevert(MockUSDC.InvalidSignature.selector);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, forged);
     }
 
     // ── honor ─────────────────────────────────────────────────────────────
@@ -268,6 +615,55 @@ contract WarrantEscrowTest is Test {
         assertEq(usdc.balanceOf(address(escrow)), 0);
         assertEq(escrow.totalLocked(), 0);
         assertEq(uint8(escrow.getWarrant(ID).status), uint8(WarrantEscrow.Status.Honored));
+    }
+
+    /// @dev L'ordre des deux transferts a été inversé par le correctif : l'agent
+    ///      d'abord, la trésorerie ensuite. `totalLocked` est déjà décrémenté du
+    ///      bond ENTIER avant les transferts ; payer la trésorerie en premier
+    ///      laissait un intervalle où le solde du contrat excédait son passif
+    ///      déclaré. On vérifie donc l'ordre réel des événements `Transfer`, et non
+    ///      les soldes finaux — identiques dans les deux ordres, ils ne prouvent
+    ///      rien.
+    function test_Honor_PaysAgentBeforeTreasury() public {
+        _openFunded(ID, BOND, DURATION);
+
+        vm.recordLogs();
+        vm.prank(settler);
+        escrow.honor(ID, EXEC_REF);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 transferTopic = keccak256("Transfer(address,address,uint256)");
+        address[] memory recipients = new address[](2);
+        uint256 seen;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(usdc) || logs[i].topics[0] != transferTopic) continue;
+            if (seen < 2) recipients[seen] = address(uint160(uint256(logs[i].topics[2])));
+            ++seen;
+        }
+
+        assertEq(seen, 2, "exactement deux transferts");
+        assertEq(recipients[0], agent, "l'agent est paye en premier");
+        assertEq(recipients[1], treasury, "la tresorerie ensuite");
+    }
+
+    /// @dev Le taux est figé à l'ouverture : changer `feeBps` après coup ne modifie
+    ///      plus les conditions économiques d'un mandat déjà engagé.
+    function test_Honor_UsesFeeFrozenAtOpen() public {
+        _openFunded(ID, BOND, DURATION);
+        // `MAX_FEE_BPS()` est lu AVANT le prank : évalué en argument, il
+        // consommerait le `vm.prank` et `setFeeBps` partirait du mauvais appelant.
+        uint16 maxFee = escrow.MAX_FEE_BPS();
+        vm.prank(owner);
+        escrow.setFeeBps(maxFee); // 250 → 500 bps
+
+        vm.prank(settler);
+        escrow.honor(ID, EXEC_REF);
+
+        uint256 feeAtOpen = (BOND * FEE_BPS) / 10_000; // 2,5 USDC
+        assertEq(usdc.balanceOf(treasury), feeAtOpen, "frais au taux de l'ouverture");
+        assertEq(usdc.balanceOf(agent), BOND - feeAtOpen);
+        assertEq(escrow.feeBps(), 500, "le taux courant a bien change");
+        assertEq(escrow.getWarrant(ID).feeBpsAtOpen, FEE_BPS, "le taux du mandat, lui, est fige");
     }
 
     function test_Honor_WithZeroFee_RefundsEverything() public {
@@ -619,9 +1015,10 @@ contract WarrantEscrowTest is Test {
 
         // L'ancien opener n'a plus le droit d'ouvrir.
         _fund(BOND);
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, BOND, DURATION);
         vm.prank(opener);
         vm.expectRevert(WarrantEscrow.NotOpener.selector);
-        escrow.open(ID, agent, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+        escrow.open(ID, beneficiary, BOND, CONDITION_HASH, ACTION_HASH, DURATION, auth);
     }
 
     function test_SetSettler_OnlyOwner() public {
@@ -643,6 +1040,23 @@ contract WarrantEscrowTest is Test {
         escrow.honor(ID, EXEC_REF);
     }
 
+    /// @dev I10 — la rotation ne peut plus fusionner les deux rôles. Sans cette
+    ///      garde, l'owner reconstituait par rotation exactement la configuration
+    ///      que le constructeur interdit.
+    function test_SetOpener_RevertsWhenItWouldMergeRoles() public {
+        vm.prank(owner);
+        vm.expectRevert(WarrantEscrow.RolesMustDiffer.selector);
+        escrow.setOpener(settler);
+        assertEq(escrow.opener(), opener, "rotation refusee, etat inchange");
+    }
+
+    function test_SetSettler_RevertsWhenItWouldMergeRoles() public {
+        vm.prank(owner);
+        vm.expectRevert(WarrantEscrow.RolesMustDiffer.selector);
+        escrow.setSettler(opener);
+        assertEq(escrow.settler(), settler, "rotation refusee, etat inchange");
+    }
+
     /// @dev I4 — l'engagement est immuable : aucune fonction ne réécrit les hashes.
     function test_I4_HashesAreImmutable() public {
         _openFunded(ID, BOND, DURATION);
@@ -661,6 +1075,8 @@ contract WarrantEscrowTest is Test {
         assertEq(afterState.bond, before.bond);
         assertEq(afterState.agent, before.agent);
         assertEq(afterState.beneficiary, before.beneficiary);
+        // Le taux figé fait désormais partie de l'engagement immuable.
+        assertEq(afterState.feeBpsAtOpen, before.feeBpsAtOpen);
     }
 
     /// @dev I8 en fuzzing : conservation exacte sur toute la plage de bonds et de frais.
@@ -682,20 +1098,26 @@ contract WarrantEscrowTest is Test {
         assertEq(escrow.totalLocked(), 0);
     }
 
-    /// @dev I1 en fuzzing sur un mandat isolé : le solde couvre toujours l'engagement.
+    /// @dev I1 en fuzzing. La propriété est la même — le contrat ne promet jamais
+    ///      plus qu'il ne détient — mais le mécanisme a changé : le sous-financement
+    ///      est arbitré par le token, et en cas de succès le solde est exactement
+    ///      égal à `totalLocked`, plus seulement supérieur ou égal.
     function testFuzz_Open_NeverPromisesMoreThanItHolds(uint256 funded, uint256 bond) public {
         funded = bound(funded, 0, 1e18);
         bond = bound(bond, 1, 1e18);
         _fund(funded);
 
+        WarrantEscrow.Authorization memory auth = _agentAuth(ID, bond, DURATION);
         vm.prank(opener);
         if (bond > funded) {
-            vm.expectRevert(WarrantEscrow.Underfunded.selector);
-            escrow.open(ID, agent, beneficiary, bond, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+            vm.expectRevert(MockUSDC.InsufficientBalance.selector);
+            escrow.open(ID, beneficiary, bond, CONDITION_HASH, ACTION_HASH, DURATION, auth);
             assertEq(escrow.totalLocked(), 0);
+            assertEq(usdc.balanceOf(address(escrow)), 0);
         } else {
-            escrow.open(ID, agent, beneficiary, bond, CONDITION_HASH, ACTION_HASH, FUNDING_REF, DURATION);
+            escrow.open(ID, beneficiary, bond, CONDITION_HASH, ACTION_HASH, DURATION, auth);
             assertGe(usdc.balanceOf(address(escrow)), escrow.totalLocked());
+            assertEq(usdc.balanceOf(address(escrow)), escrow.totalLocked(), "financement exact");
         }
     }
 

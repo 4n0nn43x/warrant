@@ -439,8 +439,13 @@ export interface ReputationWalletClient {
  *
  * On l'utilise plutôt qu'un format maison précisément pour qu'un client
  * ERC-8004 qui ne connaît pas Warrant sache quand même relier le feedback au
- * règlement qui l'a financé. `txHash` est le `fundingRef` du mandat — le hash
- * de règlement x402 rapporté par le facilitateur (docs/04 § « fundingRef »).
+ * règlement qui l'a financé.
+ *
+ * `txHash` est le hash de la transaction d'**ouverture** du mandat, et non le
+ * `fundingRef` : depuis que `open()` tire lui-même le paiement EIP-3009, c'est
+ * cette transaction qui déplace l'USDC, et `fundingRef` n'est plus qu'un nonce
+ * — unique, mais ne désignant aucune transaction. Un consommateur qui résout
+ * `txHash` chez un explorateur doit tomber sur un transfert réel.
  */
 export interface ProofOfPayment {
   fromAddress: Address

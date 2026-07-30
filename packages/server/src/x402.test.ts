@@ -15,6 +15,7 @@ import {
   PROBLEM_CONTENT_TYPE,
   PaymentRejected,
   WireFormatError,
+  RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE,
   X402_VERSION,
   addressFromSource,
   assertPayloadMatches,
@@ -28,17 +29,29 @@ import {
   encodeHeaderObject,
   encodeJcs,
   encodeReceipt,
+  escrowAuthorizationOf,
   formatChallengeHeader,
-  fundingRefOf,
+  fundingRefOfAuthorization,
   parseChallengeHeader,
   paymentPayloadFromCredential,
   problem,
+  settlementTxOf,
   type MppCredential,
   type MppRequestBody,
   type PaymentPayload,
   type PaymentRequirements,
   type SettlementResponse,
 } from './x402.js'
+
+/**
+ * Une signature de 65 octets dont le dernier vaut 0x1b = 27.
+ *
+ * `v` ne peut être que 27 ou 28 — c'est ce qu'`ecrecover` accepte. L'ancien
+ * remplissage `0x2d…2d` de ces tests donnait v = 45, que le contrat aurait
+ * refusé : une signature de la bonne *longueur* n'est pas une signature de la
+ * bonne *forme*.
+ */
+const SIGNATURE = `0x${'aa'.repeat(32)}${'bb'.repeat(32)}1b` as Hex
 
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 const VAULT = `0x${'ab'.repeat(20)}`
@@ -61,7 +74,7 @@ function payload(over: Partial<PaymentPayload> = {}): PaymentPayload {
     resource: { url: 'https://api.warrant.sh/v1/warrants' },
     accepted: REQUIREMENTS,
     payload: {
-      signature: `0x${'2d'.repeat(65)}` as Hex,
+      signature: SIGNATURE,
       authorization: {
         from: AGENT,
         to: VAULT,
@@ -126,14 +139,33 @@ describe('PaymentRequired', () => {
     expect(required.accepts[0]?.network).toMatch(/^eip155:\d+$/)
   })
 
-  it('utilise le scheme exact et EIP-3009 par défaut', () => {
+  it('annonce `eip3009-receive`, et NON le défaut normatif du schéma exact', () => {
     expect(required.accepts[0]?.scheme).toBe('exact')
     expect(required.accepts[0]?.extra?.assetTransferMethod).toBe(DEFAULT_TRANSFER_METHOD)
-    expect(DEFAULT_TRANSFER_METHOD).toBe('eip3009')
+
+    // Cette assertion est là pour empêcher qu'on « corrige » le correctif.
+    // La spec dit « if present, MUST be "eip3009" », et `eip3009` y désigne
+    // `transferWithAuthorization`. L'escrow, lui, consomme
+    // `receiveWithAuthorization`. Annoncer `eip3009` ferait signer le mauvais
+    // typehash à tout client conforme, et `open()` révèrterait — vérifié contre
+    // le facilitateur CDP, qui répond 400 invalid_exact_evm_payload_signature.
+    // La non-conformité est donc délibérée, et elle est explicite plutôt que
+    // cachée derrière un champ standard qui mentirait.
+    expect(DEFAULT_TRANSFER_METHOD).toBe('eip3009-receive')
+    expect(DEFAULT_TRANSFER_METHOD).not.toBe('eip3009')
   })
 
   it('porte le domaine EIP-712 du token dans extra', () => {
     expect(required.accepts[0]?.extra).toMatchObject({ name: 'USDC', version: '2' })
+  })
+
+  it('annonce le typehash `receive`, et non le défaut du schéma exact', () => {
+    // Le seul champ du 402 qu'un client ne peut pas deviner : les deux
+    // typehashes EIP-3009 portent exactement les mêmes champs, et signer le
+    // mauvais ne se découvre qu'au revert du token.
+    expect(required.accepts[0]?.extra?.primaryType).toBe('ReceiveWithAuthorization')
+    expect(RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE).toBe('ReceiveWithAuthorization')
+    expect(required.accepts[0]?.extra?.primaryType).not.toBe('TransferWithAuthorization')
   })
 
   it('serre la fenêtre de paiement à 60 s', () => {
@@ -289,24 +321,118 @@ describe('facilitateur — /verify et /settle ne sont pas symétriques', () => {
   })
 })
 
-describe('fundingRef', () => {
-  it("est le hash de la transaction de règlement, en minuscules", () => {
+describe('settlementTxOf', () => {
+  it('est le hash de la transaction de règlement, en minuscules', () => {
     const settlement: SettlementResponse = {
       success: true,
       transaction: TX.toUpperCase() as Hex,
       network: 'eip155:8453',
       payer: AGENT,
     }
-    expect(fundingRefOf(settlement)).toBe(TX)
+    expect(settlementTxOf(settlement)).toBe(TX)
   })
 
   it('refuse un règlement sans hash exploitable', () => {
     expect(() =>
-      fundingRefOf({
+      settlementTxOf({
         success: true,
         transaction: '0xdeadbeef' as Hex,
         network: 'eip155:8453',
         payer: AGENT,
+      }),
+    ).toThrow(PaymentRejected)
+  })
+})
+
+describe('fundingRef = nonce EIP-3009', () => {
+  it("est le nonce de l'autorisation, en minuscules — pas un hash de transaction", () => {
+    const nonce = `0x${'F3'.repeat(32)}` as Hex
+    expect(fundingRefOfAuthorization({ ...payload().payload.authorization, nonce })).toBe(
+      `0x${'f3'.repeat(32)}`,
+    )
+  })
+
+  it('refuse un nonce qui ne fait pas 32 octets', () => {
+    // Le contrat l'accepterait — l'encodeur ABI complèterait à gauche — mais la
+    // valeur signée par l'agent ne serait alors pas celle soumise au token.
+    for (const nonce of ['0xf3', `0x${'f3'.repeat(33)}`, 'pas-un-hex']) {
+      expect(() =>
+        fundingRefOfAuthorization({
+          ...payload().payload.authorization,
+          nonce: nonce as Hex,
+        }),
+      ).toThrow(PaymentRejected)
+    }
+  })
+})
+
+describe('escrowAuthorizationOf', () => {
+  it('découpe la signature en v, r, s et coerce les entiers', () => {
+    const auth = escrowAuthorizationOf(payload().payload)
+    expect(auth).toEqual({
+      from: AGENT,
+      value: 25000000n,
+      validAfter: 1785000000n,
+      validBefore: 1785000060n,
+      nonce: `0x${'f3'.repeat(32)}`,
+      v: 27,
+      r: `0x${'aa'.repeat(32)}`,
+      s: `0x${'bb'.repeat(32)}`,
+    })
+  })
+
+  it("n'expose pas `to` : le contrat passe address(this), il ne le déclare pas", () => {
+    expect(escrowAuthorizationOf(payload().payload)).not.toHaveProperty('to')
+  })
+
+  it('refuse une signature qui ne fait pas 65 octets', () => {
+    for (const signature of [`0x${'aa'.repeat(64)}`, `0x${'aa'.repeat(66)}`, '0x']) {
+      expect(() =>
+        escrowAuthorizationOf({
+          ...payload().payload,
+          signature: signature as Hex,
+        }),
+      ).toThrow(PaymentRejected)
+    }
+  })
+
+  it('refuse un v que ecrecover ne saurait pas recouvrer', () => {
+    // 0x2d = 45. C'est la valeur que produisait l'ancien remplissage de test :
+    // longueur correcte, `v` impossible.
+    expect(() =>
+      escrowAuthorizationOf({
+        ...payload().payload,
+        signature: `0x${'aa'.repeat(32)}${'bb'.repeat(32)}2d` as Hex,
+      }),
+    ).toThrow(PaymentRejected)
+  })
+
+  it('normalise un dernier octet 0/1 en 27/28', () => {
+    // viem rend `yParity` sans `v` sur cette forme ; le token fait un
+    // `ecrecover`, qui veut 27 ou 28.
+    expect(
+      escrowAuthorizationOf({
+        ...payload().payload,
+        signature: `0x${'aa'.repeat(32)}${'bb'.repeat(32)}00` as Hex,
+      }).v,
+    ).toBe(27)
+    expect(
+      escrowAuthorizationOf({
+        ...payload().payload,
+        signature: `0x${'aa'.repeat(32)}${'bb'.repeat(32)}01` as Hex,
+      }).v,
+    ).toBe(28)
+  })
+
+  it('refuse une autorisation dont les champs ne sont pas exploitables', () => {
+    const base = payload().payload
+    expect(() =>
+      escrowAuthorizationOf({ ...base, authorization: { ...base.authorization, from: 'x' } }),
+    ).toThrow(PaymentRejected)
+    expect(() =>
+      escrowAuthorizationOf({
+        ...base,
+        authorization: { ...base.authorization, value: 'beaucoup' },
       }),
     ).toThrow(PaymentRejected)
   })
@@ -348,7 +474,7 @@ function credentialFor(challenge: ReturnType<typeof issue>): MppCredential {
     challenge,
     payload: {
       type: 'transaction',
-      signature: `0x${'2d'.repeat(65)}` as Hex,
+      signature: SIGNATURE,
       authorization: payload().payload.authorization,
     },
     source: `did:pkh:eip155:8453:${AGENT}`,

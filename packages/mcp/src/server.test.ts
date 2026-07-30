@@ -6,11 +6,19 @@
  * Claude Code, ElizaOS, n'importe lequel — voit réellement sur le fil. Un test
  * qui appelle le handler en direct valide notre code ; celui-ci valide le
  * protocole.
+ *
+ * **Ce fichier teste l'ère 2025.** `Client.connect()` négocie par défaut
+ * `mode: 'legacy'` (la révision 2026-07-28 ne se sélectionne que via un probe
+ * `server/discover`, cf. `ClientOptions.versionNegotiation`), et le probe
+ * n'existe pas sur `InMemoryTransport`. Loin d'être une limite, c'est ce qui
+ * fait la valeur de ce fichier après la migration : il prouve, comportement par
+ * comportement, qu'un client resté en 2025 obtient exactement ce qu'il obtenait
+ * avant. L'ère 2026-07-28 est couverte sur vraie socket dans `http.test.ts`,
+ * où le probe peut avoir lieu.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport, type CallToolResult } from '@modelcontextprotocol/server'
 import type { PaymentPayload, PaymentRequired } from '@warrant/sdk'
 import { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY } from '@warrant/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'

@@ -387,7 +387,10 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
             category: { type: 'string' },
             fundingRef: {
               $ref: '#/components/schemas/Bytes32',
-              description: 'Hash de la transaction de règlement rapportée par le facilitateur.',
+              description:
+                "Nonce EIP-3009 de l'autorisation qui a financé la caution, et non un " +
+                'hash de transaction : open() encaisse le paiement lui-même, et ce nonce ' +
+                'vaut le termsHash du mandat. Le token en garantit l’unicité par autorisant.',
             },
             agent: { $ref: '#/components/schemas/Address' },
             beneficiary: { $ref: '#/components/schemas/Address' },

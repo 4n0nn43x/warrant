@@ -37,6 +37,21 @@ contract DeployTest is Test {
         deployer.run(token, treasury, opener, opener, 250);
     }
 
+    /// @dev Le garde du script est désormais REDONDANT avec celui du constructeur, et
+    ///      on le garde à ce titre. Ce test documente les deux couches : contourner
+    ///      le script — ce que rien n'empêche — ne contourne pas I10, il change
+    ///      seulement l'erreur obtenue. C'est la différence entre une convention
+    ///      opérationnelle et une garantie, et c'est ce que l'audit reprochait à la
+    ///      version précédente, où seule la première existait.
+    function test_Deploy_ContractEnforcesI10EvenWithoutTheScript() public {
+        vm.expectRevert(Deploy.RolesMustBeDistinct.selector);
+        deployer.run(token, treasury, opener, opener, 250);
+
+        // Déploiement direct, script contourné : le constructeur refuse quand même.
+        vm.expectRevert(WarrantEscrow.RolesMustDiffer.selector);
+        new WarrantEscrow(token, treasury, opener, opener, 250);
+    }
+
     function test_Deploy_RevertsOnFeeAboveCap() public {
         vm.expectRevert(Deploy.FeeTooHigh.selector);
         deployer.run(token, treasury, opener, settler, 501);

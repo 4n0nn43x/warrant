@@ -26,7 +26,7 @@
  */
 
 import { canonicalize, type Address, type Hex } from '@warrant/core'
-import { keccak256, stringToBytes, toHex } from 'viem'
+import { keccak256, parseSignature, stringToBytes, toHex } from 'viem'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encodages
@@ -114,7 +114,36 @@ export interface ResourceInfo {
 }
 
 /** Méthodes de transfert du scheme `exact` sur EVM, par ordre de préférence. */
-export type AssetTransferMethod = 'eip3009' | 'permit2' | 'erc7710'
+/**
+ * Methode de transfert de l'actif, au sens du schema `exact` de x402 v2.
+ *
+ * Les trois premieres valeurs sont celles de la spec. `eip3009-receive` est une
+ * **extension assumee**, et il faut dire exactement pourquoi elle existe.
+ *
+ * La spec est normative sur ce champ : « if present, MUST be "eip3009" », et
+ * `eip3009` y designe sans ambiguite `transferWithAuthorization`. Or l'escrow
+ * consomme `receiveWithAuthorization`, dont la contrainte `msg.sender == to`
+ * interdit a un tiers d'intercepter l'autorisation pour consommer le nonce.
+ * Annoncer `eip3009` serait donc FAUX : un client conforme signerait le mauvais
+ * typehash, et `open()` reverterait sur une signature invalide.
+ *
+ * Mesure, pas suppose : le facilitateur CDP repond `HTTP 400
+ * invalid_exact_evm_payload_signature` a une autorisation `receive` sous le
+ * schema `exact`, et une valeur inconnue de ce champ ne le fait pas defaillir
+ * proprement — il retombe en silence sur `transfer`. Il n'existe donc aucune
+ * configuration ou un facilitateur public verifie une autorisation `receive`
+ * sous `exact`.
+ *
+ * Le precedent existe des deux cotes : le facilitateur CDP verifie deja des
+ * signatures `receiveWithAuthorization` pour son propre schema
+ * `batch-settlement`, avec un motif d'erreur dedie ; et trois PR upstream
+ * ajoutent des methodes de transfert par ce meme champ, dont #2886 qui fait
+ * elle aussi du nonce EIP-3009 un hash d'engagement.
+ *
+ * Mieux vaut une non-conformite explicite et sourcee qu'un champ standard qui
+ * mentait.
+ */
+export type AssetTransferMethod = 'eip3009' | 'eip3009-receive' | 'permit2' | 'erc7710'
 
 export interface PaymentRequirements {
   scheme: 'exact'
@@ -130,6 +159,16 @@ export interface PaymentRequirements {
     name: string
     version: string
     assetTransferMethod?: AssetTransferMethod
+    /**
+     * Le `primaryType` EIP-712 à signer.
+     *
+     * Annoncé dans le 402 plutôt que supposé, parce que le défaut du schéma
+     * `exact` (`TransferWithAuthorization`) n'est **pas** ce que l'escrow
+     * consomme. Un client qui lit ce champ signe le bon typehash du premier
+     * coup ; un client qui l'ignore verra `open()` révèrter à la vérification
+     * de signature du token, sans qu'aucun fonds n'ait bougé.
+     */
+    primaryType?: string
   }
 }
 
@@ -141,21 +180,70 @@ export interface PaymentRequired {
   extensions?: Record<string, unknown>
 }
 
-/** Autorisation EIP-3009 `transferWithAuthorization`. */
+/**
+ * Autorisation EIP-3009, telle que le schéma `exact` la transporte.
+ *
+ * ⚠ **Le typehash n'est pas dans ces champs, et c'est le piège.** EIP-3009
+ * définit deux opérations sur exactement la même liste d'arguments :
+ *
+ *   TransferWithAuthorization(address from,address to,uint256 value,…)
+ *   ReceiveWithAuthorization(address from,address to,uint256 value,…)
+ *
+ * Deux `keccak256` différents, donc deux digests EIP-712 différents, donc deux
+ * signatures qui ne sont **pas** interchangeables — alors que les données
+ * signées, elles, sont identiques au bit près. Rien dans un
+ * `ExactEvmAuthorization` ne dit laquelle des deux a été signée : la seule façon
+ * de le savoir est de soumettre la signature au token et de voir s'il révèrte.
+ *
+ * `WarrantEscrow.open` appelle `receiveWithAuthorization` — délibérément, parce
+ * que la variante `receive` impose `to == msg.sender` et empêche donc un tiers
+ * d'intercepter l'autorisation pour consommer le nonce avant nous. Les clients
+ * doivent signer le typehash `ReceiveWithAuthorization` ; une signature
+ * `TransferWithAuthorization`, qui est ce que produisent les implémentations
+ * x402 `exact` par défaut, sera rejetée par le token et fera révèrter `open()`.
+ * Voir `RECEIVE_WITH_AUTHORIZATION_TYPE`.
+ */
 export interface ExactEvmAuthorization {
   from: string
+  /** Doit être l'adresse de l'escrow : c'est lui qui appellera le token. */
   to: string
   value: string
   validAfter: string
   validBefore: string
-  /** 32 octets aléatoires, jamais réutilisés. */
+  /** 32 octets aléatoires, jamais réutilisés. Devient le `fundingRef`. */
   nonce: Hex
 }
 
 export interface ExactEvmPayload {
+  /** 65 octets, `r ‖ s ‖ v`. Découpée en `v`/`r`/`s` pour le contrat. */
   signature: Hex
   authorization: ExactEvmAuthorization
 }
+
+/**
+ * Le type EIP-712 que les clients doivent signer, sous forme `signTypedData`.
+ *
+ * Publié ici pour qu'un intégrateur n'ait pas à le retranscrire : l'ordre des
+ * champs fait partie du typehash, et un champ déplacé produit une signature
+ * valide pour un message que personne ne vérifiera jamais.
+ *
+ * Le domaine EIP-712 est celui du **token** — `{ name, version, chainId,
+ * verifyingContract: asset }` — et non celui de l'escrow. `name` et `version`
+ * sont annoncés dans `PaymentRequirements.extra`.
+ */
+export const RECEIVE_WITH_AUTHORIZATION_TYPE = {
+  ReceiveWithAuthorization: [
+    { name: 'from', type: 'address' },
+    { name: 'to', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'validAfter', type: 'uint256' },
+    { name: 'validBefore', type: 'uint256' },
+    { name: 'nonce', type: 'bytes32' },
+  ],
+} as const
+
+/** Nom du typehash attendu, annoncé dans `PaymentRequirements.extra`. */
+export const RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE = 'ReceiveWithAuthorization' as const
 
 export interface PaymentPayload {
   x402Version: typeof X402_VERSION
@@ -182,8 +270,14 @@ export interface SettlementResponse {
   errorReason?: string
 }
 
-/** Défaut de la spec quand `assetTransferMethod` n'est pas précisé. */
-export const DEFAULT_TRANSFER_METHOD: AssetTransferMethod = 'eip3009'
+/**
+ * Ce que CE Gateway annonce par defaut.
+ *
+ * Ce n'est PAS le defaut de la spec (`eip3009`) : c'est ce que l'escrow consomme
+ * reellement. Le defaut de la spec resterait juste pour un serveur x402
+ * ordinaire ; ici il decrirait une autre implementation que la notre.
+ */
+export const DEFAULT_TRANSFER_METHOD: AssetTransferMethod = 'eip3009-receive'
 
 /** Fenêtre de validité EIP-3009. Serrée pour limiter la fenêtre de rejeu. */
 export const MAX_TIMEOUT_SECONDS = 60
@@ -194,7 +288,12 @@ export interface BuildPaymentRequiredOptions {
   amount: string
   asset: string
   payTo: string
-  extra: { name: string; version: string; assetTransferMethod?: AssetTransferMethod }
+  extra: {
+    name: string
+    version: string
+    assetTransferMethod?: AssetTransferMethod
+    primaryType?: string
+  }
   maxTimeoutSeconds?: number
   error?: string
   extensions?: Record<string, unknown>
@@ -213,6 +312,9 @@ export function buildPaymentRequired(opts: BuildPaymentRequiredOptions): Payment
       name: opts.extra.name,
       version: opts.extra.version,
       assetTransferMethod: opts.extra.assetTransferMethod ?? DEFAULT_TRANSFER_METHOD,
+      // Toujours émis : c'est la seule information du 402 qui n'est pas
+      // devinable, et l'omettre laisserait le client sur le défaut du schéma.
+      primaryType: opts.extra.primaryType ?? RECEIVE_WITH_AUTHORIZATION_PRIMARY_TYPE,
     },
   }
   return {
@@ -343,9 +445,19 @@ export class FacilitatorError extends Error {
 }
 
 /**
- * Interface minimale dont le Gateway dépend. Le rail MPP passe par le **même**
- * facilitateur que le rail x402 : c'est ce qui garantit que `fundingRef` a la
- * même forme des deux côtés (docs/04 « Les deux rails de paiement »).
+ * Interface minimale dont le Gateway dépend.
+ *
+ * ⚠ `settle()` n'est **plus appelée sur la route des mandats**. Le règlement est
+ * désormais tiré par `WarrantEscrow.open()` lui-même, dans la transaction qui
+ * ouvre le mandat : déléguer le transfert au facilitateur, puis ouvrir dans une
+ * seconde transaction, était exactement la fenêtre de fonds orphelins que
+ * l'audit a fermée. La méthode reste sur l'interface parce que le facilitateur
+ * reste un service x402 conforme, et qu'un autre appelant peut légitimement s'en
+ * servir ; elle n'est simplement plus sur le chemin d'ouverture.
+ *
+ * `verify()`, elle, ne déplace rien et reste utilisable — mais voir
+ * `RECEIVE_WITH_AUTHORIZATION_TYPE` : un facilitateur qui n'implémente que le
+ * typehash `TransferWithAuthorization` invalidera à tort nos autorisations.
  */
 export interface Facilitator {
   verify(
@@ -368,6 +480,30 @@ export class FacilitatorClient implements Facilitator {
     this.url = cfg.url.replace(/\/+$/, '')
     this.apiKey = cfg.apiKey
     this.fetchImpl = cfg.fetchImpl ?? fetch
+  }
+
+  /**
+   * Ce que le facilitateur declare savoir servir.
+   *
+   * Warrant ne lui delegue PAS la verification de signature : l'escrow consomme
+   * `receiveWithAuthorization`, que le schema `exact` ne couvre pas, et le token
+   * verifie la signature de facon autoritative dans `open()` — il verifie meme
+   * davantage, puisque le contrat controle en plus que le nonce est bien le hash
+   * des termes engages.
+   *
+   * Cet appel a donc un role different, et il n'est pas decoratif : il verifie au
+   * demarrage que le facilitateur configure sert bien le schema et le reseau
+   * annonces dans nos challenges 402. Un facilitateur qui ne couvre pas notre
+   * chaine produirait des challenges que personne ne peut honorer, et l'echec
+   * n'apparaitrait qu'au premier paiement.
+   */
+  async supported(): Promise<{ kinds: { scheme: string; network: string; x402Version?: number }[] }> {
+    const res = await this.fetchImpl(`${this.url}/supported`, {
+      headers: { accept: 'application/json', ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}) },
+    })
+    if (!res.ok) throw new Error(`facilitateur /supported : HTTP ${res.status}`)
+    const body = (await res.json()) as { kinds?: { scheme: string; network: string; x402Version?: number }[] }
+    return { kinds: body.kinds ?? [] }
   }
 
   async verify(
@@ -439,18 +575,159 @@ export class FacilitatorClient implements Facilitator {
   }
 }
 
-/** `fundingRef` = hash de la transaction de règlement rapportée par le facilitateur. */
-export function fundingRefOf(settlement: SettlementResponse): Hex {
+/**
+ * Hash de la transaction qui a déplacé les fonds.
+ *
+ * Ce n'est **plus** le `fundingRef` du mandat : depuis que `open()` encaisse la
+ * caution lui-même, la transaction qui déplace les fonds est l'ouverture, et le
+ * `fundingRef` inscrit onchain est le nonce de l'autorisation
+ * (`fundingRefOfAuthorization`). Cette fonction ne sert donc plus qu'à valider
+ * la forme d'un hash avant de le rendre dans un reçu — x402 `PAYMENT-RESPONSE`
+ * ou MPP `Payment-Receipt`, qui attendent tous deux une référence de règlement.
+ */
+export function settlementTxOf(settlement: SettlementResponse): Hex {
   const tx = settlement.transaction
   // `0X` majuscule accepté : certains facilitateurs le rendent ainsi, et un
   // refus sur la casse du préfixe perdrait un règlement déjà diffusé.
   if (typeof tx !== 'string' || !/^0[xX][0-9a-fA-F]{64}$/.test(tx)) {
     throw new PaymentRejected(
       'malformed_settlement',
-      `le facilitateur rapporte une transaction inexploitable: ${String(tx)}`,
+      `transaction de règlement inexploitable: ${String(tx)}`,
     )
   }
   return tx.toLowerCase() as Hex
+}
+
+/**
+ * `fundingRef` = le **nonce EIP-3009** de l'autorisation.
+ *
+ * Le contrat inscrit `auth.nonce` et rien d'autre ; recalculer la même valeur
+ * ici plutôt que de relire l'onchain garde le journal et la chaîne d'accord sans
+ * appel RPC supplémentaire. C'est aussi une meilleure `fundingRef` que l'ancien
+ * hash de transaction : le token garantit lui-même que ce nonce ne sert qu'une
+ * fois, alors qu'un hash de tx ne garantissait rien de tel.
+ *
+ * @throws {PaymentRejected} si le nonce n'est pas un `bytes32`. Le contrat
+ *   l'accepterait — tout mot de 32 octets en est un — mais un nonce plus court
+ *   serait complété à gauche par l'encodeur ABI, donc **différent** de celui que
+ *   l'agent a signé, et le token révèrterait après coup. Refuser ici rend le
+ *   diagnostic immédiat.
+ */
+export function fundingRefOfAuthorization(auth: ExactEvmAuthorization): Hex {
+  const nonce = auth?.nonce
+  if (typeof nonce !== 'string' || !/^0[xX][0-9a-fA-F]{64}$/.test(nonce)) {
+    throw new PaymentRejected(
+      'malformed_authorization',
+      `nonce EIP-3009 inexploitable: ${String(nonce)} — 32 octets exactement attendus`,
+    )
+  }
+  return nonce.toLowerCase() as Hex
+}
+
+/**
+ * L'autorisation dans la forme que `WarrantEscrow.open` attend : la struct
+ * `Authorization`, signature déjà découpée en `v`/`r`/`s`.
+ *
+ * `to` **disparaît** de la struct, et ce n'est pas une omission : le contrat
+ * passe `address(this)` au token, précisément pour que `to` ne soit pas
+ * déclarable. C'est `assertPayloadMatches` qui a vérifié en amont que le `to`
+ * signé vaut bien `payTo` — lequel doit être l'escrow, sans quoi le digest que
+ * l'agent a signé ne sera pas celui que le token recalcule.
+ */
+export interface EscrowAuthorization {
+  from: Address
+  value: bigint
+  validAfter: bigint
+  validBefore: bigint
+  nonce: Hex
+  v: number
+  r: Hex
+  s: Hex
+}
+
+/**
+ * `ExactEvmPayload` → struct `Authorization`.
+ *
+ * @throws {PaymentRejected} sur une signature qui n'est pas 65 octets, ou des
+ *   bornes de validité illisibles. Ces refus valent mieux qu'un `open()` qui
+ *   révèrte : ils nomment le champ fautif au client, qui peut resigner.
+ */
+export function escrowAuthorizationOf(payload: ExactEvmPayload): EscrowAuthorization {
+  const auth = payload?.authorization
+  if (!auth) {
+    throw new PaymentRejected('malformed_payload', 'autorisation EIP-3009 absente')
+  }
+  const signature = payload.signature
+  // 65 octets exactement : `r`(32) ‖ `s`(32) ‖ `v`(1). `parseSignature` de viem
+  // accepte des formes plus larges — signatures compactes ERC-2098, `yParity`
+  // sans `v` — mais le contrat prend trois champs séparés dont un `uint8`, et
+  // deviner `v` depuis une signature compacte serait une reconstruction qu'on
+  // ne veut pas faire dans le silence.
+  if (typeof signature !== 'string' || !/^0[xX][0-9a-fA-F]{130}$/.test(signature)) {
+    throw new PaymentRejected(
+      'malformed_signature',
+      `signature de ${signature ? (signature.length - 2) / 2 : 0} octet(s) : ` +
+        '65 attendus (r ‖ s ‖ v)',
+    )
+  }
+
+  let parsed: { r: Hex; s: Hex; v?: bigint; yParity: number }
+  try {
+    parsed = parseSignature(signature.toLowerCase() as Hex) as typeof parsed
+  } catch (err) {
+    throw new PaymentRejected('malformed_signature', `signature illisible: ${errText(err)}`)
+  }
+  // `v` plutôt que `yParity` : le token fait un `ecrecover`, qui veut 27 ou 28.
+  // viem ne remplit `v` que si l'octet lu en valait déjà un ; sur une signature
+  // dont le dernier octet est 0 ou 1, on le normalise.
+  const v = parsed.v !== undefined ? Number(parsed.v) : parsed.yParity + 27
+  if (v !== 27 && v !== 28) {
+    throw new PaymentRejected(
+      'malformed_signature',
+      `v = ${v} : seuls 27 et 28 sont recouvrables par ecrecover`,
+    )
+  }
+
+  return {
+    from: requireAddress(auth.from, 'authorization.from'),
+    value: requireUint(auth.value, 'authorization.value'),
+    validAfter: requireUint(auth.validAfter, 'authorization.validAfter'),
+    validBefore: requireUint(auth.validBefore, 'authorization.validBefore'),
+    nonce: fundingRefOfAuthorization(auth),
+    v,
+    r: parsed.r,
+    s: parsed.s,
+  }
+}
+
+function requireAddress(value: unknown, field: string): Address {
+  if (typeof value !== 'string' || !/^0[xX][0-9a-fA-F]{40}$/.test(value)) {
+    throw new PaymentRejected(
+      'malformed_authorization',
+      `${field} : adresse EVM attendue, reçu ${String(value)}`,
+    )
+  }
+  return value.toLowerCase() as Address
+}
+
+function requireUint(value: unknown, field: string): bigint {
+  let parsed: bigint
+  try {
+    parsed = BigInt(String(value))
+  } catch {
+    throw new PaymentRejected(
+      'malformed_authorization',
+      `${field} : entier attendu, reçu ${String(value)}`,
+    )
+  }
+  if (parsed < 0n) {
+    throw new PaymentRejected('malformed_authorization', `${field} : négatif (${parsed})`)
+  }
+  return parsed
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -847,9 +1124,10 @@ export function problem(
 /**
  * Reconstruit un `PaymentPayload` x402 depuis un Credential MPP.
  *
- * C'est ce qui rend les deux rails **strictement équivalents en aval** : le
- * même facilitateur voit le même payload, rend le même `SettlementResponse`,
- * donc le même `fundingRef`. Le rail n'est qu'un moyen de payer (docs/04).
+ * C'est ce qui rend les deux rails **strictement équivalents en aval** : la même
+ * autorisation EIP-3009 arrive à `open()`, donc le même `fundingRef` — son
+ * nonce — et le même agent, `auth.from`. Le rail n'est qu'un moyen de
+ * transporter la signature (docs/04).
  *
  * @throws {PaymentRejected} si le Credential ne porte pas d'autorisation
  *   exploitable. Les payloads `hash` et `proof` de Tempo ne sont pas au
