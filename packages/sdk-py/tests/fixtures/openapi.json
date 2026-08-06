@@ -81,7 +81,7 @@
             },
             {
               "mpp": {
-                "method": "tempo",
+                "method": "evm",
                 "intent": "charge",
                 "currency": "USDC"
               }
@@ -459,7 +459,8 @@
             "type": "string",
             "enum": [
               "x402",
-              "mpp"
+              "mpp",
+              "direct"
             ]
           },
           "execution": {
@@ -602,7 +603,7 @@
       },
       {
         "mpp": {
-          "method": "tempo",
+          "method": "evm",
           "intent": "charge",
           "currency": "USDC"
         }

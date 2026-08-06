@@ -73,7 +73,7 @@ import {
   type Abi,
   type AbiFunction,
 } from 'viem'
-import { openapiDocument, type OpenApiOptions } from './openapi.js'
+import { DEFAULT_MPP_METHOD, openapiDocument, type OpenApiOptions } from './openapi.js'
 import {
   ChallengeStore,
   FacilitatorError,
@@ -559,7 +559,21 @@ export interface VerdictSource {
   get(warrantId: Hex): Promise<VerdictView | undefined> | VerdictView | undefined
 }
 
-export type Rail = 'x402' | 'mpp'
+/**
+ * How the bond was paid.
+ *
+ * `direct` is not a payment rail, and that is the point of naming it. The
+ * operations tool `bin/open-warrant.ts` signs the EIP-3009 authorization with a
+ * local key and calls `open()` itself: no 402, no Challenge, no facilitator
+ * settlement. It used to write `x402` into the ledger because the field admitted
+ * nothing else — so every warrant opened by the runner claimed a rail it had
+ * never traversed, on a route whose whole argument is that the two rails produce
+ * an identical warrant. A reader counting rails was reading a number we made up.
+ *
+ * The authorization itself is identical whichever value appears here; what
+ * `direct` says is that nobody was charged over HTTP.
+ */
+export type Rail = 'x402' | 'mpp' | 'direct'
 
 export interface WarrantRecord {
   id: Hex
@@ -705,7 +719,7 @@ export function createGateway(cfg: GatewayConfig) {
   })
   const randomNonce =
     cfg.randomNonce ?? (() => BigInt(toHex(crypto.getRandomValues(new Uint8Array(32)))))
-  const mppMethod = cfg.mppMethod ?? 'tempo'
+  const mppMethod = cfg.mppMethod ?? DEFAULT_MPP_METHOD
   const mppCurrency = cfg.mppCurrency ?? cfg.asset
   const resourceUrl = `${cfg.baseUrl.replace(/\/+$/, '')}/v1/warrants`
 

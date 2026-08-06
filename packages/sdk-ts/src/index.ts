@@ -12,6 +12,7 @@
  */
 
 export * from './x402.js'
+export * from './mpp.js'
 export * from './errors.js'
 export * from './gateway.js'
 export * from './schemas.js'

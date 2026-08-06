@@ -43,6 +43,7 @@ import {
   viemEscrow,
   type EscrowPort,
 } from '../gateway.js'
+import { DEFAULT_MPP_METHOD } from '../openapi.js'
 import { fileWarrantStore } from '../journal.js'
 import { KeeperHubClient } from '../keeperhub.js'
 import { FacilitatorClient } from '../x402.js'
@@ -533,7 +534,7 @@ async function main(): Promise<void> {
     }),
     escrow,
     mppSecret,
-    mppMethod: optional('MPP_METHOD', 'tempo'),
+    mppMethod: optional('MPP_METHOD', DEFAULT_MPP_METHOD),
     mppCurrency: optional('MPP_CURRENCY', 'USDC'),
     challengeTtlSeconds: Number(optional('MPP_CHALLENGE_TTL', '300')),
   })

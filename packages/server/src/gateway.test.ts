@@ -28,6 +28,14 @@ import {
   type SimulationOutcome,
   type VerdictView,
 } from './gateway.js'
+import { DEFAULT_MPP_METHOD } from './openapi.js'
+import {
+  challengeFromResponse,
+  decodeReceipt as decodeSdkReceipt,
+  mppAuthorization,
+} from '@warrant/sdk/mpp'
+import { X402_VERSION } from '@warrant/sdk'
+import type { PaymentRequired, PaymentSigner } from '@warrant/sdk'
 import type { KeeperHubClient } from './keeperhub.js'
 import {
   HEADER_AUTHORIZATION,
@@ -656,7 +664,12 @@ describe('POST /v1/warrants — the 402', () => {
 
     const challenge = parseChallengeHeader(header)
     expect(challenge.realm).toBe('warrant.sh')
-    expect(challenge.method).toBe('tempo')
+    // `evm` and not `tempo`: two distinct methods in the MPP registry. We settle
+    // an EIP-3009 authorization through the x402 facilitator on an EVM chain,
+    // which is what `evm` designates; `tempo` is TIP-20 on the Tempo chain, a
+    // request schema this Gateway does not implement.
+    expect(challenge.method).toBe(DEFAULT_MPP_METHOD)
+    expect(DEFAULT_MPP_METHOD).toBe('evm')
     expect(challenge.intent).toBe('charge')
     expect(challenge.id).toBeTruthy()
     expect(challenge.expires).toBeTruthy()
@@ -903,7 +916,7 @@ describe('POST /v1/warrants — MPP rail', () => {
     expect(paid.headers.get(HEADER_PAYMENT_RESPONSE)).toBeNull()
     expect(decodeReceipt(header)).toMatchObject({
       challengeId: challenge.id,
-      method: 'tempo',
+      method: DEFAULT_MPP_METHOD,
       reference: OPEN_TX,
       status: 'success',
       settlement: { amount: '5000000', currency: 'USDC' },
@@ -963,6 +976,69 @@ describe('POST /v1/warrants — MPP rail', () => {
     expect(String(body['type'])).toMatch(/^https:\/\/warrant\.sh\/problems\//)
     expect(res.headers.get(HEADER_WWW_AUTHENTICATE)).toBeTruthy()
     expect(res.headers.get(HEADER_PAYMENT_REQUIRED)).toBeTruthy()
+  })
+})
+
+describe('the MPP rail, driven by the published SDK', () => {
+  /**
+   * The rail exercised through `@warrant/sdk/mpp` rather than through this
+   * file's own helper.
+   *
+   * `payWithMpp` above builds the Credential by hand, so it proves the server
+   * against itself: if the Gateway put its Challenge somewhere no real client
+   * looks, or accepted a shape no published client emits, every test here would
+   * still pass. This one goes through the functions an integrator actually
+   * imports, and would fail on exactly that class of divergence.
+   */
+  it('finds the Challenge on the real 402 and gets a warrant opened', async () => {
+    const h = harness()
+    const challenged = await post(h, '/v1/warrants', { actionSpec: transferAction() })
+    expect(challenged.status).toBe(402)
+
+    // The SDK reads the response's headers, not a value we hand it.
+    const challenge = challengeFromResponse(challenged.headers)
+    expect(challenge).toBeDefined()
+    expect(challenge!.method).toBe(DEFAULT_MPP_METHOD)
+
+    const terms = termsFrom(challenged)
+    const requiredHeader = challenged.headers.get(HEADER_PAYMENT_REQUIRED) as string
+    const required = decodeHeaderObject<PaymentRequired>(requiredHeader)
+
+    const signer: PaymentSigner = {
+      createPayment: () => ({
+        x402Version: X402_VERSION,
+        resource: { url: 'http://warrant.test/v1/warrants' },
+        accepted: required.accepts[0]!,
+        payload: {
+          signature: SIGNATURE,
+          authorization: { ...AUTHORIZATION, nonce: terms.authNonce },
+        },
+      }),
+    }
+
+    const authorization = await mppAuthorization({
+      required,
+      challenge: challenge!,
+      signer,
+      source: `did:pkh:eip155:8453:${AGENT}`,
+    })
+
+    const paid = await post(
+      h,
+      '/v1/warrants',
+      { actionSpec: transferAction(), nonce: terms.nonce },
+      { [HEADER_AUTHORIZATION]: authorization },
+    )
+    expect(paid.status).toBe(200)
+
+    // And the receipt the SDK decodes is the one the Gateway emitted.
+    const receipt = decodeSdkReceipt(paid.headers.get('Payment-Receipt') as string)
+    expect(receipt.challengeId).toBe(challenge!.id)
+    expect(receipt.method).toBe(DEFAULT_MPP_METHOD)
+    expect(receipt.status).toBe('success')
+
+    const record = (await h.store.get((h.opened[0] as OpenWarrantArgs).id)) as Record<string, unknown>
+    expect(record['rail']).toBe('mpp')
   })
 })
 
@@ -1229,7 +1305,7 @@ describe('GET /openapi.json', () => {
     const info = doc['paths']['/v1/warrants']['post']['x-payment-info']
     expect(info['protocols']).toEqual([
       { x402: { network: 'eip155:8453' } },
-      { mpp: { method: 'tempo', intent: 'charge', currency: 'USDC' } },
+      { mpp: { method: DEFAULT_MPP_METHOD, intent: 'charge', currency: 'USDC' } },
     ])
 
     // Dynamic price: it is computed by the Risk Pricer, it cannot be fixed.

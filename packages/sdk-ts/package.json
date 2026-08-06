@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
-  "description": "Warrant TypeScript SDK — single source of tool definitions plus thin framework adapters",
+  "description": "Warrant TypeScript SDK \u2014 single source of tool definitions plus thin framework adapters",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,9 +22,15 @@
     "./x402": {
       "types": "./dist/x402.d.ts",
       "default": "./dist/x402.js"
+    },
+    "./mpp": {
+      "types": "./dist/mpp.d.ts",
+      "default": "./dist/mpp.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

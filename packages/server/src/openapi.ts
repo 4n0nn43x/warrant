@@ -13,7 +13,7 @@
  *   "price": { "mode": "fixed", "amount": "0.01", "currency": "USD" },
  *   "protocols": [
  *     { "x402": { "network": "eip155:8453" } },
- *     { "mpp": { "method": "tempo", "intent": "charge", "currency": "USDC" } }
+ *     { "mpp": { "method": "evm", "intent": "charge", "currency": "USDC" } }
  *   ]
  * }
  * ```
@@ -54,13 +54,35 @@ export interface OpenApiOptions {
   /** Policy bounds, in atomic units (6 decimals). */
   minBond: string
   maxBond: string
-  /** Advertised MPP method. */
+  /**
+   * Advertised MPP method. Defaults to `DEFAULT_MPP_METHOD`.
+   *
+   * @see DEFAULT_MPP_METHOD for why the default is not `tempo`.
+   */
   mppMethod?: string
   /** Currency advertised on the MPP side, as a readable symbol. */
   mppCurrency?: string
   title?: string
   version?: string
 }
+
+/**
+ * MPP payment method identifier this Gateway serves.
+ *
+ * `evm`, not `tempo`. The two are different methods in the MPP registry
+ * (mpp.dev/payment-methods): `tempo` is TIP-20 stablecoins on the Tempo chain,
+ * while `evm` is "stablecoin payments on EVM chains with inline x402 exact
+ * compatibility" — which is exactly what this Gateway does. It takes an EIP-3009
+ * authorization out of the Credential's `transaction` payload and hands it to
+ * the x402 facilitator, on Base Sepolia.
+ *
+ * The default used to be `tempo`, which advertised a method whose request schema
+ * we do not implement, on a chain we do not serve. A conforming MPP client
+ * choosing us on that basis would build a TIP-20 payload and be refused by
+ * `paymentPayloadFromCredential` — the refusal being correct and the
+ * advertisement being the bug.
+ */
+export const DEFAULT_MPP_METHOD = 'evm'
 
 /** 1e6 atomic units → a readable USD amount, with no floating point. */
 function toUsd(atomic: string): string {
@@ -76,7 +98,7 @@ function toUsd(atomic: string): string {
 }
 
 export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
-  const method = opts.mppMethod ?? 'tempo'
+  const method = opts.mppMethod ?? DEFAULT_MPP_METHOD
   const currency = opts.mppCurrency ?? 'USDC'
 
   const protocols = [
@@ -402,7 +424,7 @@ export function openapiDocument(opts: OpenApiOptions): Record<string, unknown> {
           type: 'object',
           properties: {
             warrant: { type: 'object' },
-            rail: { type: 'string', enum: ['x402', 'mpp'] },
+            rail: { type: 'string', enum: ['x402', 'mpp', 'direct'] },
             execution: { type: 'object' },
             quote: { type: 'object' },
             actionSpec: { $ref: '#/components/schemas/ActionSpec' },

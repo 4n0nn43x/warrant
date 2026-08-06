@@ -12,6 +12,7 @@
     "gateway": "node --env-file-if-exists=../../.env --import tsx src/bin/gateway.ts",
     "settler": "node --env-file-if-exists=../../.env --import tsx src/bin/settler.ts",
     "open-warrant": "node --env-file-if-exists=../../.env --import tsx src/bin/open-warrant.ts",
+    "open-via-gateway": "node --env-file-if-exists=../../.env --import tsx src/bin/open-via-gateway.ts",
     "register-agent": "node --env-file-if-exists=../../.env --import tsx src/bin/register-agent.ts"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
     "viem": "^2.21.55"
   },
   "devDependencies": {
+    "@warrant/sdk": "workspace:*",
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
