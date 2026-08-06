@@ -35,10 +35,9 @@ contract MockUSDC {
     error InvalidSignature();
 
     // ── EIP-3009 ──────────────────────────────────────────────────────────
-    bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH =
-        keccak256(
-            "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
-        );
+    bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH = keccak256(
+        "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    );
 
     /// @dev `authorizer => nonce => consumed`. The token is what guarantees
     ///      uniqueness, and that is what makes the nonce a `fundingRef` worthy
@@ -50,7 +49,9 @@ contract MockUSDC {
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256(bytes(name)),
                 keccak256(bytes("2")),
                 block.chainid,
@@ -83,7 +84,9 @@ contract MockUSDC {
                 "\x19\x01",
                 DOMAIN_SEPARATOR(),
                 keccak256(
-                    abi.encode(RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce)
+                    abi.encode(
+                        RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce
+                    )
                 )
             )
         );

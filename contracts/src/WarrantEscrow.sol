@@ -211,9 +211,18 @@ contract WarrantEscrow {
         // The payment is pulled HERE, against the agent's signature. If it does
         // not match `auth.from`, the token reverts and nothing opens.
         // `auth.from` is therefore the agent, cryptographically proven.
-        IERC3009(address(token)).receiveWithAuthorization(
-            auth.from, address(this), auth.value, auth.validAfter, auth.validBefore, auth.nonce, auth.v, auth.r, auth.s
-        );
+        IERC3009(address(token))
+            .receiveWithAuthorization(
+                auth.from,
+                address(this),
+                auth.value,
+                auth.validAfter,
+                auth.validBefore,
+                auth.nonce,
+                auth.v,
+                auth.r,
+                auth.s
+            );
 
         // Addition deliberately left *checked*. The balance check that follows
         // is now redundant — we just collected exactly `bond` — but we keep it:
