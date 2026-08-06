@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
-  "description": "Score de réputation ERC-8004 pondéré par le capital réellement immobilisé, calculé depuis les events onchain",
+  "description": "ERC-8004 reputation score weighted by the capital actually locked up, computed from onchain events",
   "keywords": ["erc-8004", "erc8004", "reputation", "agents", "onchain", "viem"],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

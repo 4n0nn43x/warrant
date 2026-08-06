@@ -67,6 +67,35 @@ erc20_balance_delta: attendu >=-1000000000, observe -9000000000 |
 erc20_balance(allowed_dest): attendu >=1000000000, observe 0
 ```
 
+## Two payment rails, one warrant
+
+`POST /v1/warrants` answers its 402 with an x402 v2 `PAYMENT-REQUIRED` **and** an MPP
+`WWW-Authenticate: Payment` on the same response, and takes either one back. KeeperHub shipped MPP
+support in late July 2026 and an external agent paid it $0.01 over MPP within a day, so this is the
+rail its own execution layer now speaks.
+
+The method advertised is **`evm`** — "stablecoin payments on EVM chains with inline x402 exact
+compatibility" in the [MPP method registry](https://mpp.dev/payment-methods) — and not `tempo`, which
+is TIP-20 on the Tempo chain and a request schema this Gateway does not implement. The default used to
+be `tempo`; a conforming client that selected us on that basis would have built a payload we refuse.
+
+What makes the two rails produce *the same* warrant rather than a similar one is that both carry the
+identical EIP-3009 authorization. The MPP Credential's `transaction` payload is unwrapped into the
+x402 `PaymentPayload` and handed to the same facilitator, so `fundingRef` — the authorization's nonce,
+which is the terms hash — is the same on either path. A test asserts the two openings field by field.
+
+Client-side, the rail lives in [`@warrant/sdk/mpp`](packages/sdk-ts/src/mpp.ts): it holds no key and
+signs nothing, asking the caller's existing `PaymentSigner` for the same authorization the x402 rail
+uses. A conformance test in `packages/server` holds the SDK's encoder against the Gateway's decoder,
+and an end-to-end test drives the real Gateway through the published SDK rather than through a
+test-local helper — the two shapes that could drift without either side's own tests noticing.
+
+> **Not yet demonstrated onchain.** Every warrant settled so far was opened by the operations tool,
+> which bypasses the Gateway entirely — no 402, no Challenge, no facilitator. Those records are
+> labelled `rail: direct` for that reason; they used to claim `x402`, which inflated a count of
+> something that never happened. `pnpm --filter @warrant/server open-via-gateway -- --rail mpp` is the
+> path that produces a real one, and it has not been run against the live deployment yet.
+
 ## Repository layout
 
 ```
@@ -135,16 +164,18 @@ Every verdict publishes `evaluatedAtBlock`, `rpcUrl` and the full `checks[]` wit
 observed values. Evaluation is an onchain read at a pinned block: anyone can redo it and get the same
 answer, or find a discrepancy.
 
-No `.env`, no account, nothing of ours but a public RPC — you need `cast`, `jq` and `python3`. Two
-verdicts settled on Base Sepolia, both committed as ERC-8004 feedback by agent `8652`:
+No `.env`, no account, nothing of ours but a public RPC — you need `cast`, `jq` and `python3`.
+[`verdicts/`](verdicts) holds **57 settled warrants** on Base Sepolia — 47 honored, 7 slashed, 3
+settled by an agent with no ERC-8004 identity. All 57 were replayed against the registry on
+2026-08-06: **57 `VERDICT REPRODUCED`, no divergence.** Two to start with:
 
 ```bash
 R=0x8004b663056A597dfFE9eCcC1965a193B7388713   # ReputationRegistry, Base Sepolia
 
-# a seizure — feedback #2, one document for one warrant
+# a seizure — committed on its own, one document for one warrant
 ./scripts/replay-verdict.sh 0x43223a3b5c4159f68302f25f3c925216aa5b298fdb32bf82c7bd84be06b38df5 --registry $R
 
-# an honoured warrant — feedback #1, inside a batch document under a single feedbackHash
+# an honoured warrant — committed inside a batch, under a single feedbackHash
 ./scripts/replay-verdict.sh 0x953ad5be12adc437bb5c0142549bee85c70557e40807be39f7b94b107592f791 --registry $R
 ```
 
@@ -170,20 +201,34 @@ clones. No host of ours sits between the commitment and the reader.
 [`verdicts/index.json`](verdicts/index.json) maps each `feedbackHash` to the URI that serves those
 exact bytes, batch documents included.
 
+**Not every document is a commitment, and the index says which.** Slashes are written to ERC-8004
+immediately, one feedback per verdict; honored warrants are **batched**, one feedback for N verdicts.
+A batched warrant therefore has two documents: its own, published so that every warrant has a page,
+and the batch — the only form whose hash was ever inscribed. 47 of the 57 carry a
+`batchFeedbackHash` naming their carrier; without it, checking a document's own hash against
+`NewFeedback` would come up empty and look like a broken commitment. `--registry` follows that link
+for you and reports which form carried the proof.
+
 Three caveats, stated rather than discovered:
 
 1. A verdict is written at settlement and committed to git afterwards, so between the two the public
    URI 404s. The hash is already true — only availability lags, and the script says so when it falls
-   back to the local copy of the repository.
-2. The `feedbackURI` recorded onchain for these two verdicts reads `https://warrant.sh/v/…`, a host
+   back to the local copy of the repository. `pnpm verdicts:publish` closes the gap: it collects what
+   the Settler wrote, refuses anything that is no longer in canonical form, and rebuilds the index.
+2. The `feedbackURI` recorded onchain for the earliest verdicts reads `https://warrant.sh/v/…`, a host
    that does not exist: they were settled before `VERDICT_BASE_URI` was pointed at this repository.
    What binds a document to its commitment is the hash, not the path — `verdicts/index.json` is how
    you get from one to the other, and the script resolves it for you.
 3. A document only carries an ERC-8004 commitment when the settling agent has an identity in the
-   registry. [`verdicts/0x45482f78…`](verdicts) was settled without one, so it is a raw
-   `VerdictDocument` whose hash appears in no `NewFeedback`. It still replays in full against the
-   escrow — five of the six checks do not involve ERC-8004 at all — and `--registry` reports the
-   missing link instead of glossing over it.
+   registry. Three warrants — [`verdicts/0x45482f78…`](verdicts) among them — were settled without
+   one, so they are raw `VerdictDocument`s whose hash appears in no `NewFeedback`. They still replay
+   in full against the escrow — five of the six checks do not involve ERC-8004 at all — and
+   `--registry` says so explicitly instead of reporting a divergence it would have manufactured.
+
+`verdicts/` serves **one deployment**: Base Sepolia, post-audit. Settlements against the earlier
+Ethereum Sepolia contracts are kept out of it — mixing them in would put verdicts produced by the
+contract this README tells you not to use in the same list as the ones offered for verification.
+Their history is in [`docs/transactions.md`](docs/transactions.md).
 
 That is the answer to *"why should we trust you?"* — we don't ask for trust, we make the verdict
 reproducible.

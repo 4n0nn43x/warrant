@@ -1,25 +1,29 @@
 /**
- * Generateur des vecteurs de test partages `fixtures/condition-hashes.json`.
+ * Generator of the shared test vectors `fixtures/condition-hashes.json`.
  *
- * Ces vecteurs sont la seule preuve que le TypeScript, le Python et le Go
- * calculent le meme `conditionHash`. Une divergence de canonicalisation entre
- * le client et le serveur rendrait tout mandat inevaluable — c'est le bug le
- * plus couteux possible sur ce projet (docs/07 § 4).
+ * These vectors are the only proof that TypeScript, Python and Go compute the
+ * same `conditionHash`. A canonicalisation divergence between client and server
+ * would make every warrant unevaluable — the costliest possible bug on this
+ * project (docs/07 § 4).
  *
- * Chaque vecteur porte un `type` :
- *   - `raw`           : `spec` est une valeur JSON quelconque, canonicalisee
- *                       telle quelle (RFC 8785 pur, sans normalisation metier).
- *   - `conditionSpec` : `spec` passe par `normalizeConditionSpec` avant JCS.
- *   - `actionSpec`    : `spec` passe par `normalizeActionSpec` avant JCS.
+ * Each vector carries a `type`:
+ *   - `raw`           : `spec` is an arbitrary JSON value, canonicalised as-is
+ *                       (pure RFC 8785, no domain normalisation).
+ *   - `conditionSpec` : `spec` goes through `normalizeConditionSpec` before JCS.
+ *   - `actionSpec`    : `spec` goes through `normalizeActionSpec` before JCS.
  *
- * Dans les trois cas : `hash = keccak256(utf8(canonical))`.
+ * In all three cases: `hash = keccak256(utf8(canonical))`.
  *
- * Regeneration :
+ * Regeneration:
  *   node node_modules/.pnpm/node_modules/.bin/vite-node \
  *     packages/core/scripts/gen-fixtures.ts
  *
- * Le test `canonical.test.ts` recalcule ces vecteurs et echoue si le fichier
- * est perime : il n'est jamais possible de committer un fixture desynchronise.
+ * The test `canonical.test.ts` recomputes these vectors and fails if the file is
+ * stale: it is never possible to commit a desynchronised fixture.
+ *
+ * ⚠ The vector VALUES are hashed content, French strings included — see
+ * `conditionSpec/unicode-and-accents`. Translating one changes a hash and
+ * detaches warrants already committed to it. Only the comments are in English.
  */
 
 import { canonicalize } from '../src/canonical.js'
@@ -46,8 +50,8 @@ export interface Fixture extends FixtureInput {
   hash: `0x${string}`
 }
 
-// Adresses de scenario. Les casses melangees sont voulues : la normalisation
-// doit les ramener en minuscules (docs/07 § 4, regle 2).
+// Scenario addresses. The mixed casing is deliberate: normalisation must bring
+// them back to lowercase (docs/07 § 4, rule 2).
 const USDT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
 const USDC_ETH = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
@@ -75,9 +79,9 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'raw/key-sorting-utf16-code-units',
     type: 'raw',
-    // Exemple de tri du RFC 8785 § 3.2.3 : l'ordre est celui des unites de
-    // code UTF-16, pas celui des points de code. Le sol (U+1D11E) precede
-    // donc l'emoji (U+1F602) mais tous deux passent apres U+2764.
+    // Sorting example from RFC 8785 § 3.2.3: the order is that of UTF-16 code
+    // units, not of code points. The G clef (U+1D11E) therefore precedes the
+    // emoji (U+1F602), but both come after U+2764.
     spec: {
       '€': 'Euro Sign',
       '\r': 'Carriage Return',
@@ -94,9 +98,9 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'raw/nested-structure-sorting',
     type: 'raw',
-    // Structure du RFC 8785 § 3.2.3, avec des entiers plutot que des flottants
-    // pour que le vecteur reste comparable entre langages sans dependre du
-    // formatage des doubles.
+    // Structure from RFC 8785 § 3.2.3, with integers rather than floats so the
+    // vector stays comparable across languages without depending on how each
+    // formats doubles.
     spec: {
       '1': { f: { f: 'hi', F: 5 }, '\n': 56 },
       '10': {},
@@ -145,7 +149,7 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'raw/array-order-is-preserved',
     type: 'raw',
-    // JCS trie les cles d'objet, jamais les elements d'un tableau.
+    // JCS sorts object keys, never the elements of an array.
     spec: {
       z: [3, 2, 1],
       a: [{ b: 1, a: 2 }, [2, 1]],
@@ -154,7 +158,7 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'raw/uint256-amounts-as-decimal-strings',
     type: 'raw',
-    // Regle 3 de docs/07 § 4 : jamais de `number` pour un montant. Ces valeurs
+    // Rule 3 of docs/07 § 4: never a `number` for an amount. These values
     // depassent toutes Number.MAX_SAFE_INTEGER (9007199254740991).
     spec: {
       maxUint256: UINT256_MAX_STR,
@@ -372,12 +376,12 @@ export const VECTORS: FixtureInput[] = [
   },
 
   // ───────────────────────────────────────────────────────────────────────
-  // Normalisation : casse des adresses, defauts injectes, montants coerces
+  // Normalisation: address casing, injected defaults, coerced amounts
   // ───────────────────────────────────────────────────────────────────────
   {
     name: 'normalize/checksummed-addresses-are-lowercased',
     type: 'conditionSpec',
-    // Meme spec que `check/erc20_allowance` mais avec les adresses en casse
+    // Same spec as `check/erc20_allowance` but with the addresses in mixed
     // EIP-55 partout : le hash doit etre identique a celui de ce vecteur.
     spec: {
       version: 1,
@@ -399,8 +403,8 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'normalize/defaults-are-injected',
     type: 'conditionSpec',
-    // `version`, `evaluateAt` et `confirmations` sont omis : la normalisation
-    // injecte 1, "tx" et 12 (chainId 1 = L1). `minCount` est omis : 1.
+    // `version`, `evaluateAt` and `confirmations` are omitted: normalisation
+    // injects 1, "tx" and 12 (chainId 1 = L1). `minCount` is omitted: 1.
     spec: {
       chainId: 1,
       checks: [
@@ -415,7 +419,7 @@ export const VECTORS: FixtureInput[] = [
   {
     name: 'normalize/amounts-are-canonical-decimals',
     type: 'conditionSpec',
-    // `"0000"`, `"+42"` et `"-0"` sont ramenes a leur forme canonique.
+    // `"0000"`, `"+42"` and `"-0"` are brought back to canonical form.
     spec: {
       version: 1,
       chainId: 8453,
@@ -596,7 +600,7 @@ export function buildFixtures(inputs: FixtureInput[] = VECTORS): Fixture[] {
         hash = hashCanonical(canonical)
         break
       case 'conditionSpec':
-        // Garde-fou : un vecteur partage doit etre une spec legale une fois
+        // Guard: a shared vector must be a legal spec once
         // normalisee, sinon on pinerait un hash inatteignable.
         validateConditionSpec(normalizeConditionSpec(input.spec), {
           allowCommitmentCheck: true,
@@ -631,8 +635,8 @@ async function main(): Promise<void> {
   console.log(`wrote ${fixtures.length} vectors to ${path}`)
 }
 
-// Ce module est un *script*, pas une bibliotheque : le charger regenere le
-// fichier. Rien dans `src/` ne doit l'importer — `canonical.test.ts` relit le
-// JSON committe et recalcule les hashs a partir des `spec`, ce qui prouve
+// This module is a *script*, not a library: loading it regenerates the file.
+// Nothing in `src/` may import it — `canonical.test.ts` re-reads the committed
+// JSON and recomputes the hashes from the `spec`, which proves
 // l'accord entre le fixture et l'implementation sans dependre de ce script.
 await main()

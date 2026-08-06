@@ -15,13 +15,13 @@ broadcast/*/*/run-[0-9]*.json
 *.log
 apps/*/dist/
 
-# Journal des mandats du Settler : etat local, jamais commite.
+# The Settler's warrant journal: local state, never committed.
 .warrant/
 
-# verdicts/ est VERSIONNE, volontairement : c'est l'hebergement des documents de
-# verdict, servis par raw.githubusercontent.com a l'URI inscrite onchain. Ne pas
-# l'ignorer, ne pas le reformater. Seuls les fichiers temporaires de l'ecriture
-# atomique (writeAtomic : <fichier>.<pid>.tmp) sont exclus, parce qu'un plantage
-# au mauvais moment en laisse un derriere lui.
+# verdicts/ IS version-controlled, deliberately: it is the hosting of the verdict
+# documents, served by raw.githubusercontent.com at the URI inscribed onchain. Do
+# not ignore it, do not reformat it. Only the temporary files of the atomic write
+# (writeAtomic: <file>.<pid>.tmp) are excluded, because a crash at the wrong
+# moment leaves one behind.
 verdicts/*.tmp
 verdicts/batch/*.tmp

@@ -2,7 +2,7 @@
   "network": "ethereum-sepolia",
   "chainId": 11155111,
   "deployedAt": "2026-07-30",
-  "note": "Deploiement POST-AUDIT. Remplace 0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12, qui reste vulnerable et ne doit plus etre utilise. Voir audit/findings/.",
+  "note": "POST-AUDIT deployment. Replaces 0xadDC715B79Cb972d3a7f0dce5998CC141CaAde12, which remains vulnerable and must no longer be used. See audit/findings/.",
   "contracts": {
     "WarrantEscrow": "0xE5bD3Ff2B0a1f2B0c780611C948f9E3221ff3800",
     "MockUSDC": "0x11299D2A51c5fe7a82bE887207f612eCDf9CeD75"
@@ -12,7 +12,7 @@
     "settler": "0x3e7f79962eD7C93BDf4A88Ce35Fb1061048136Ec",
     "treasury": "0xcaa18AFDd0Cdc50937E7a7a1dB911020aA55030b",
     "beneficiary": "0x000000000000000000000000000000000000bEEF",
-    "note": "opener != settler est desormais impose PAR LE CONTRAT (RolesMustDiffer), aux trois endroits : constructeur, setOpener, setSettler. Verifie onchain : setSettler(opener) revert 0x39a17874."
+    "note": "opener != settler is now enforced BY THE CONTRACT (RolesMustDiffer), in all three places: constructor, setOpener, setSettler. Verified onchain: setSettler(opener) reverts 0x39a17874."
   },
   "params": {
     "feeBps": 250,
@@ -20,21 +20,21 @@
     "maxDurationSeconds": 604800
   },
   "audit": {
-    "commitAudite": "6194b68529d8c73b64a47ee98247bc2640887621",
-    "correctifs": [
-      "open() encaisse la caution via EIP-3009 receiveWithAuthorization : l'agent est derive de la signature, plus declare par l'opener",
-      "auth.nonce doit valoir termsHash(id, beneficiary, bond, conditionHash, actionHash, duration) : signer l'autorisation revient a signer les termes",
-      "RolesMustDiffer au constructeur et aux deux setters (invariant I10, qui n'etait applique nulle part)",
-      "auth.value doit valoir exactement bond : plus d'excedent irrecuperable",
-      "quatre beneficiaires interdits : nul, tresorerie, l'agent, le contrat",
-      "feeBpsAtOpen fige les conditions economiques a l'engagement",
-      "honor paie l'agent avant la tresorerie",
-      "token et treasury non nuls au constructeur"
+    "auditedCommit": "6194b68529d8c73b64a47ee98247bc2640887621",
+    "fixes": [
+      "open() collects the bond via EIP-3009 receiveWithAuthorization: the agent is derived from the signature, no longer declared by the opener",
+      "auth.nonce must equal termsHash(id, beneficiary, bond, conditionHash, actionHash, duration): signing the authorization amounts to signing the terms",
+      "RolesMustDiffer in the constructor and in both setters (invariant I10, which was enforced nowhere)",
+      "auth.value must equal bond exactly: no more unrecoverable excess",
+      "four forbidden beneficiaries: zero, treasury, the agent, the contract",
+      "feeBpsAtOpen freezes the economic terms at commitment time",
+      "honor pays the agent before the treasury",
+      "token and treasury non-zero in the constructor"
     ],
-    "preuveOnchain": {
+    "onchainProof": {
       "openTx": "0x950b02f8023efaee66128f2e2176b9fe9b244a31051163f675fee2ccfc107f57",
       "warrantId": "0x71cd0ec25b52ae420882d6b14a3c8711adc27c77336c1c59fad2c2a5dc3466b4",
-      "fundingRefEgaleTermsHash": "0x4d0a78e3d4f5e5322644b7dd7f6a0f4239147917c232cfc37d4a3be1bda96edd"
+      "fundingRefEqualsTermsHash": "0x4d0a78e3d4f5e5322644b7dd7f6a0f4239147917c232cfc37d4a3be1bda96edd"
     }
   }
 }

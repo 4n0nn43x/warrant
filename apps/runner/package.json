@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Runner de volume — ouvre des mandats en continu sous budget explicite",
+  "description": "Volume runner — opens warrants continuously under an explicit budget",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "runner": "node --env-file-if-exists=../../.env --import tsx src/bin/runner.ts",

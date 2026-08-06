@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 /**
- * `@warrant/sdk` est résolu vers ses sources plutôt que vers `dist/`.
+ * `@warrant/sdk` resolves to its sources rather than to `dist/`.
  *
- * Sans cela, chaque modification du SDK exigerait un `build` avant de pouvoir
- * lancer les tests du serveur MCP — la boucle de retour la plus courte est
- * celle qu'on utilise réellement.
+ * Without this, every change to the SDK would require a `build` before the MCP
+ * server's tests could run — and the shortest feedback loop is the one people
+ * actually use.
  */
 export default defineConfig({
   resolve: {

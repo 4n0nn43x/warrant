@@ -1,10 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  // Pas de `rootDir` : le runner importe l'ABI de l'escrow et le journal depuis
-  // les **sources** de `@warrant/server` (voir l'en-tête de `src/chain.ts` — le
-  // `dist/` de l'arbre est antérieur à `getWarrant`). Un `rootDir` sur `./src`
-  // refuserait ces fichiers en TS6059. Pas d'`outDir` non plus : `noEmit`, ce
-  // paquet est un outil d'exploitation qu'on exécute par `tsx`, jamais publié.
+  // No `rootDir`: the runner imports the escrow ABI and the journal from the
+  // **sources** of `@warrant/server` (see the header of `src/chain.ts` — the
+  // tree's `dist/` predates `getWarrant`). A `rootDir` of `./src` would refuse
+  // those files with TS6059. No `outDir` either: `noEmit`, this package is an
+  // operations tool run through `tsx`, never published.
   "compilerOptions": {
     "noEmit": true,
     "declaration": false,
