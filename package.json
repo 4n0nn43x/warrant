@@ -14,11 +14,13 @@
     "typecheck": "pnpm -r typecheck",
     "test:contracts": "cd contracts && forge test -vv",
     "fixtures": "tsx packages/core/scripts/gen-fixtures.ts",
-    "faucet": "node --env-file-if-exists=.env --import tsx scripts/faucet-base-sepolia.ts"
+    "faucet": "node --env-file-if-exists=.env --import tsx scripts/faucet-base-sepolia.ts",
+    "verdicts:publish": "tsx scripts/publish-verdicts.ts"
   },
   "devDependencies": {
     "@coinbase/cdp-sdk": "^1.54.0",
     "@types/node": "^22.10.2",
+    "@warrant/core": "workspace:*",
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
