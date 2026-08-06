@@ -123,13 +123,26 @@ export function computeAgentReputation(
 /**
  * Extracts the warrant identifiers from a `feedbackURI`.
  *
- * Warrant convention: `https://warrant.sh/v/<warrantId>` for a single warrant. A
- * batch (`.../v/batch/<feedbackHash>`) does not carry its identifiers in its
- * URI — the document must then be downloaded, which the caller does through the
- * `warrantIdsOf` option.
+ * A single warrant's document is addressed by its own identifier as the last
+ * path segment: `<base><warrantId>`. A batch is addressed by the **hash of the
+ * document** instead (`<base>batch/<feedbackHash>`), which is not a warrant id
+ * and resolves to nothing here — the document has to be downloaded, which the
+ * caller does through the `warrantIdsOf` option.
+ *
+ * Deliberately **path-agnostic**. This used to require a literal `/v/` segment,
+ * the shape of the very first publication base. Every verdict published since
+ * lives under `…/verdicts/<warrantId>`, so the match silently returned nothing
+ * and the score counted zero settled warrants for the entire real corpus. The
+ * base is configuration — `VERDICT_BASE_URI` — and reading configuration out of
+ * a hardcoded path is what made a base change look like an empty history.
  */
 export function warrantIdsFromFeedbackURI(uri: string): Hex[] {
-  const m = /\/v\/(0x[0-9a-fA-F]{64})\s*$/.exec(uri.trim())
+  const trimmed = uri.trim()
+  // A batch first: its trailing hash has the same shape as a warrant id, so
+  // matching the identifier before ruling the batch out would attribute the
+  // document to a warrant that does not exist.
+  if (/\/batch\/0x[0-9a-fA-F]{64}\s*$/.test(trimmed)) return []
+  const m = /\/(0x[0-9a-fA-F]{64})\s*$/.exec(trimmed)
   return m?.[1] ? [m[1].toLowerCase() as Hex] : []
 }
 

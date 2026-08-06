@@ -79,7 +79,7 @@ describe('log decoding', () => {
     expect(f!.tag2).toBe('slashed')
     // endpoint is empty, and this is the only place on the chain where it shows.
     expect(f!.endpoint).toBe('')
-    expect(f!.feedbackURI).toBe(`https://warrant.sh/v/${warrantId(7)}`)
+    expect(f!.feedbackURI).toBe(`https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/${warrantId(7)}`)
     expect(f!.feedbackHash).toBe(`0x${'cc'.repeat(32)}`)
   })
 
@@ -114,15 +114,38 @@ describe('log decoding', () => {
 
 describe('warrantIdsFromFeedbackURI', () => {
   it('extracts the identifier from a single-warrant URI', () => {
-    expect(warrantIdsFromFeedbackURI(`https://warrant.sh/v/${warrantId(9)}`)).toEqual([
+    expect(warrantIdsFromFeedbackURI(`https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/${warrantId(9)}`)).toEqual([
       warrantId(9),
     ])
   })
 
   it('returns nothing for a batch URI', () => {
     expect(
-      warrantIdsFromFeedbackURI(`https://warrant.sh/v/batch/0x${'cc'.repeat(32)}`),
+      warrantIdsFromFeedbackURI(`https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/batch/0x${'cc'.repeat(32)}`),
     ).toEqual([])
+  })
+
+  it('reads the identifier whatever the base path', () => {
+    // `VERDICT_BASE_URI` is configuration, and it has already changed once. The
+    // parser used to require a literal `/v/` segment, so every verdict published
+    // under `…/verdicts/` extracted nothing and the score reported an empty
+    // history for the whole real corpus.
+    const id = warrantId(7)
+    for (const base of [
+      'https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/',
+      'https://warrant.sh/v/', // the first base, still inscribed onchain
+      'https://verdicts.example/',
+      'http://127.0.0.1:8403/verdicts/',
+    ]) {
+      expect(warrantIdsFromFeedbackURI(`${base}${id}`)).toEqual([id])
+    }
+  })
+
+  it('rules the batch out under any base too', () => {
+    const hash = `0x${'cc'.repeat(32)}`
+    for (const base of ['https://warrant.sh/v/', 'http://127.0.0.1:8403/verdicts/']) {
+      expect(warrantIdsFromFeedbackURI(`${base}batch/${hash}`)).toEqual([])
+    }
   })
 })
 
@@ -420,7 +443,7 @@ describe('crossReference', () => {
     const batch = decodeNewFeedbackLogs([
       newFeedbackLog({
         agentId: AGENT_ID,
-        feedbackURI: `https://warrant.sh/v/batch/0x${'cc'.repeat(32)}`,
+        feedbackURI: `https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/batch/0x${'cc'.repeat(32)}`,
       }),
     ])
 
