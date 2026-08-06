@@ -15,6 +15,8 @@ import {
 } from './verdicts.js'
 
 const WARRANT_ID = `0x${'ab'.repeat(32)}` as Hex
+/** A second identifier, to check that a batch only claims its own members. */
+const OTHER_ID = `0x${'cd'.repeat(32)}` as Hex
 const BASE = 'https://verdicts.example/v/'
 
 function tempDir(): string {
@@ -192,6 +194,53 @@ describe('publication into the git repository', () => {
       warrants: [{ warrantId: WARRANT_ID, feedbackHash: verdict.hash, uri: verdict.uri }],
       batches: [{ feedbackHash: batch.hash, uri: batch.uri }],
     })
+  })
+
+  it('a warrant carried by a batch names the batch that holds its commitment', () => {
+    const dir = tempDir()
+    const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
+    // Both documents exist for the same warrant, which is the real situation
+    // after a batched settlement: the individual one is published so the warrant
+    // has a page, the batch is the only one whose hash was inscribed.
+    const verdict = publisher.publish(WARRANT_ID, document())
+    const batch = publisher.publishBatch({
+      warrantCount: 1,
+      warrants: [{ warrantId: WARRANT_ID }],
+    })
+
+    const index = JSON.parse(readFileSync(publisher.indexPath, 'utf8')) as VerdictIndex
+    const entry = index.warrants.find((w) => w.warrantId === WARRANT_ID)
+    // Its own hash stays what it is — the file's bytes — and the batch is named
+    // alongside it. Without the second field, a third party checking this hash
+    // against NewFeedback finds nothing and has no way to learn why.
+    expect(entry?.feedbackHash).toBe(verdict.hash)
+    expect(entry?.batchFeedbackHash).toBe(batch.hash)
+  })
+
+  it('a warrant no batch covers carries no batch reference', () => {
+    const dir = tempDir()
+    const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
+    publisher.publish(WARRANT_ID, document())
+    // A batch that covers a different warrant must not attach itself to this one.
+    publisher.publishBatch({ warrantCount: 1, warrants: [{ warrantId: OTHER_ID }] })
+
+    const index = buildVerdictIndex(dir, BASE)
+    expect(index.warrants[0]).not.toHaveProperty('batchFeedbackHash')
+  })
+
+  it('a malformed batch costs its own members, not the whole index', () => {
+    const dir = tempDir()
+    const publisher = fileVerdictPublisher({ dir, baseUri: BASE })
+    const verdict = publisher.publish(WARRANT_ID, document())
+    const batch = publisher.publishBatch({ warrantCount: 1, warrants: [{ warrantId: WARRANT_ID }] })
+    writeFileSync(batch.path, 'not json at all', 'utf8')
+
+    // The index still builds, and still lists the document: an unreadable batch
+    // makes one link unknown, it does not make the other verdicts unfindable.
+    const index = buildVerdictIndex(dir, BASE)
+    expect(index.warrants[0]?.warrantId).toBe(WARRANT_ID)
+    expect(index.warrants[0]?.feedbackHash).toBe(verdict.hash)
+    expect(index.warrants[0]).not.toHaveProperty('batchFeedbackHash')
   })
 
   it('the index is canonical: republishing identically produces no diff', () => {

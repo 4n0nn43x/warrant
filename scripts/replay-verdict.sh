@@ -16,6 +16,13 @@
 #   1. The warrant exists onchain, and its `status` says what the protocol did.
 #   2. The verdict document is retrievable at the URI derived from `warrantId`.
 #   3. `keccak256` of the retrieved bytes = the committed `feedbackHash` (ERC-8004).
+#      A slash is committed on its own; an honored warrant is committed inside a
+#      **batch**, so its individual document — published so that every warrant has
+#      a page — is the preimage of no onchain hash. The step then follows
+#      `index.json` to the batch that carries it and checks that hash instead,
+#      naming which form held the proof. Without that indirection, 47 of the 57
+#      published verdicts would report a divergence against a registry that holds
+#      their commitment perfectly.
 #   4. Onchain `conditionHash` and `actionHash` = keccak of the document's specs:
 #      the document really does describe the warrant we read, not another one.
 #   5. Onchain `fundingRef` = `termsHash(...)` recomputed by the contract itself
@@ -54,6 +61,9 @@
 #   --span N          width of the block window scanned with --registry (200).
 #                     `sepolia.base.org` refuses ranges wider than 2,000 blocks:
 #                     beyond that, `eth_getLogs` fails and step 3 reports "silent".
+#                     A batch is looked for over six such windows, walked one at a
+#                     time: it is flushed once its last member has settled, which
+#                     lands its event 400 to 800 blocks later on Base Sepolia.
 #
 # Exit: 0 the verdict reproduces, 1 divergence, 2 usage error.
 
@@ -208,6 +218,11 @@ section "2. verdict document"
 
 DOC=""
 DOC_ORIGIN=""
+# The source the document was finally read from. Step 3 needs it to look for the
+# batch in the same place, rather than guessing a second time.
+RESOLVED_SRC=""
+BATCH_BODY=""
+BATCH_ORIGIN=""
 
 # Silent on HTTP error: a 404 on the public URI is an expected case (the verdict
 # has not been pushed yet), not an incident to dump raw.
@@ -251,8 +266,23 @@ try_source() {
 # committed under a single `feedbackHash`. The warrant is then inside `warrants[]`
 # of a `batch/<hash>` file, and the index is the only way to find it — without it,
 # a batch-settled `warrantId` would be unverifiable by a third party.
-try_batch() {
+# Locates the batch that carries `$WARRANT_ID` and publishes it through the
+# globals `BATCH_BODY` / `BATCH_ORIGIN`. Deliberately **not** a function that
+# echoes its result: a command substitution runs in a subshell, so the origin
+# would be lost on the way out and the report would name no file.
+#
+# Two callers need it, for two different reasons:
+#
+#   - resolving a warrant that has no document of its own;
+#   - finding the form that actually carries the ERC-8004 commitment, now that
+#     the individual documents of batch-settled warrants are published too.
+#
+# The index is the only way in: a batch is addressed by its own hash, which
+# nothing in the warrant's identifier predicts.
+find_batch() {
   local src="$1" index="" hash="" body=""
+  BATCH_BODY=""
+  BATCH_ORIGIN=""
   index="$(fetch_rel "$src" "$VERDICT_INDEX")" || return 1
   [ -n "$index" ] || return 1
   for hash in $(printf '%s' "$index" | jq -r '.batches[]?.uri' | awk -F/ '{print $NF}'); do
@@ -261,15 +291,21 @@ try_batch() {
     if printf '%s' "$body" \
       | jq -e --arg id "$WARRANT_ID" '[.warrants[]? | select((.warrantId | ascii_downcase) == $id)] | length > 0' \
         >/dev/null 2>&1; then
-      DOC="$body"
-      DOC_ORIGIN="${src%/}/batch/${hash}"
+      BATCH_BODY="$body"
+      BATCH_ORIGIN="${src%/}/batch/${hash}"
       return 0
     fi
   done
   return 1
 }
 
-resolve_from() { try_source "$1" || try_batch "$1"; }
+try_batch() {
+  find_batch "$1" || return 1
+  DOC="$BATCH_BODY"
+  DOC_ORIGIN="$BATCH_ORIGIN"
+}
+
+resolve_from() { RESOLVED_SRC="$1"; try_source "$1" || try_batch "$1"; }
 
 if [ -n "$SOURCE" ]; then
   resolve_from "$SOURCE" || die "no document found at ${SOURCE} (neither a warrant document nor an indexed batch)"
@@ -374,15 +410,72 @@ if [ -n "$REGISTRY" ]; then
   if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
   elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
   fi
-  LOGS="$($TIMEOUT_BIN ${TIMEOUT_BIN:+90} cast logs --rpc-url "$RPC" --address "$REGISTRY" \
-    'NewFeedback(uint256,address,uint64,int128,uint8,string,string,string,string,string,bytes32)' \
-    --from-block "$FROM_BLOCK" --to-block "$TO_BLOCK" 2>/dev/null || true)"
+  FEEDBACK_SIG='NewFeedback(uint256,address,uint64,int128,uint8,string,string,string,string,string,bytes32)'
+
+  # Echoes the registry's logs over [$1, $2]. Never fails the script: an RPC that
+  # refuses a range is a limitation to report, not a divergence to declare.
+  feedback_logs() {
+    $TIMEOUT_BIN ${TIMEOUT_BIN:+90} cast logs --rpc-url "$RPC" --address "$REGISTRY" \
+      "$FEEDBACK_SIG" --from-block "$1" --to-block "$2" 2>/dev/null || true
+  }
+
+  LOGS="$(feedback_logs "$FROM_BLOCK" "$TO_BLOCK")"
 
   if [ -z "$LOGS" ]; then
     skip "no readable NewFeedback over the window (silent registry, or an RPC that refuses the scan)"
     note "reduce --span, or aim at an RPC that serves eth_getLogs over ranges."
   elif printf '%s' "$LOGS" | tr 'A-F' 'a-f' | grep -q "${FEEDBACK_HASH#0x}"; then
     ok "feedbackHash found in a NewFeedback event of the registry"
+  elif ! printf '%s' "$DOC" | jq -e 'has("agentId")' >/dev/null 2>&1; then
+    # No ERC-8004 identity in the document: the warrant was settled by an agent
+    # that had none, so there is no feedback to find — by construction, not by
+    # accident. Calling that a divergence would flag an honest gap as a lie.
+    skip "this document carries no ERC-8004 commitment (no agentId): nothing to find in the registry"
+    note "the other steps still bind it to the onchain warrant — they do not involve ERC-8004."
+  elif [ "$DOC_SHAPE" != "batch" ] && find_batch "$RESOLVED_SRC"; then
+    # Honored warrants are committed **by batch**: one ERC-8004 feedback for N
+    # verdicts. The individual document is genuine Settler output, published so
+    # that each warrant has a readable page — but it is the preimage of no
+    # onchain hash. The commitment is the batch's, and the index is what links
+    # the two.
+    BATCH_HASH="$(printf '%s' "$BATCH_BODY" | cast keccak | tr 'A-F' 'a-f')"
+    note "the individual document is not the ERC-8004 preimage: this warrant was committed in a batch."
+    field "batch document"  "$BATCH_ORIGIN"
+    field "keccak256(batch)" "$BATCH_HASH"
+
+    # The window has to be recomputed, not reused. A batch is flushed once its
+    # LAST member has settled, and the flush is periodic: measured on Base
+    # Sepolia, the event lands 400 to 800 blocks after the batch's earliest
+    # member. Anchoring on *this* warrant's settlement — what the single-document
+    # path does — therefore looks past the event whenever the warrant is not the
+    # last of its batch, and reports a divergence about a registry that holds the
+    # commitment perfectly.
+    #
+    # We restart from the batch's latest member and walk forward in SPAN-sized
+    # chunks rather than issuing one wide range: an unfiltered `eth_getLogs` over
+    # a thousand blocks is exactly what public endpoints refuse.
+    BATCH_FROM="$(printf '%s' "$BATCH_BODY" | jq -r '[.warrants[].blockNumber | tonumber] | max')"
+    BATCH_TO=$((BATCH_FROM + SPAN * 6))
+    note "the batch is written after its last member: searching over [${BATCH_FROM}, ${BATCH_TO}]…"
+
+    BATCH_FOUND=0
+    CHUNK_FROM="$BATCH_FROM"
+    while [ "$CHUNK_FROM" -lt "$BATCH_TO" ]; do
+      CHUNK_TO=$((CHUNK_FROM + SPAN))
+      [ "$CHUNK_TO" -gt "$BATCH_TO" ] && CHUNK_TO="$BATCH_TO"
+      if feedback_logs "$CHUNK_FROM" "$CHUNK_TO" | tr 'A-F' 'a-f' | grep -q "${BATCH_HASH#0x}"; then
+        BATCH_FOUND=1
+        note "found in [${CHUNK_FROM}, ${CHUNK_TO}]"
+        break
+      fi
+      CHUNK_FROM="$CHUNK_TO"
+    done
+
+    if [ "$BATCH_FOUND" -eq 1 ]; then
+      ok "the batch's feedbackHash is carried by a NewFeedback event of the registry"
+    else
+      bad "neither the document nor its batch ${BATCH_HASH} appears over [${BATCH_FROM}, ${BATCH_TO}]"
+    fi
   else
     bad "no NewFeedback in the window carries ${FEEDBACK_HASH}"
   fi

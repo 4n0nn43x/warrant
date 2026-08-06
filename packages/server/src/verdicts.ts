@@ -233,6 +233,19 @@ export interface VerdictIndexEntry {
    */
   feedbackHash: Hex
   uri: string
+  /**
+   * `feedbackHash` of the batch that carries this warrant's ERC-8004
+   * commitment, when there is one. Absent otherwise.
+   *
+   * A batch-settled warrant has **two** documents: this one, published so that
+   * every warrant has a page of its own, and the batch, which is the only form
+   * whose hash was ever inscribed. Without this field the index reads as a list
+   * of commitments, and a third party checking every `feedbackHash` against
+   * `NewFeedback` finds nothing for the batched ones — a false negative
+   * manufactured by our own index. Naming the batch turns that dead end into a
+   * link.
+   */
+  batchFeedbackHash?: Hex
 }
 
 /** A published batch document. Indexed by its hash, it has no identifier. */
@@ -266,6 +279,29 @@ function listDocuments(dir: string): string[] {
 }
 
 /**
+ * Lowercased identifiers of the warrants a batch document covers.
+ *
+ * Tolerant on purpose: a file that is unreadable, not JSON, or not shaped like a
+ * batch yields no members rather than throwing. The index is rebuilt on every
+ * publication, and a single malformed file must not take down the publication of
+ * the others — the failure would surface as a document nobody can find.
+ */
+function membersOf(path: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return []
+    const list = (parsed as { warrants?: unknown }).warrants
+    if (!Array.isArray(list)) return []
+    return list
+      .map((w) => (w as { warrantId?: unknown }).warrantId)
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => id.toLowerCase())
+  } catch {
+    return []
+  }
+}
+
+/**
  * Builds the index by **re-reading the bytes from disk** rather than reusing the
  * hashes returned by `publish`.
  *
@@ -279,18 +315,38 @@ export function buildVerdictIndex(dir: string, baseUri: string): VerdictIndex {
   const base = normalizeBase(baseUri)
   const batchDir = join(dir, 'batch')
 
-  const warrants = listDocuments(dir).map((name) => ({
-    warrantId: name as Hex,
-    feedbackHash: hashCanonical(readFileSync(join(dir, name), 'utf8')),
-    uri: feedbackUriFor(name as Hex, base),
-  }))
-
   const batches = listDocuments(batchDir).map((name) => ({
     feedbackHash: hashCanonical(readFileSync(join(batchDir, name), 'utf8')),
     uri: batchFeedbackUriFor(name as Hex, base),
+    // Read once here rather than per warrant: the batches are read anyway, and
+    // the alternative is re-parsing every batch for every document.
+    members: membersOf(join(batchDir, name)),
   }))
 
-  return { base, count: warrants.length, warrants, batches }
+  const carriedBy = new Map<string, Hex>()
+  for (const batch of batches) {
+    for (const id of batch.members) carriedBy.set(id, batch.feedbackHash)
+  }
+
+  const warrants = listDocuments(dir).map((name) => {
+    const carrier = carriedBy.get(name.toLowerCase())
+    return {
+      warrantId: name as Hex,
+      feedbackHash: hashCanonical(readFileSync(join(dir, name), 'utf8')),
+      uri: feedbackUriFor(name as Hex, base),
+      ...(carrier ? { batchFeedbackHash: carrier } : {}),
+    }
+  })
+
+  return {
+    base,
+    count: warrants.length,
+    warrants,
+    // `members` is working state, not part of the published shape: the batch
+    // document itself already lists its warrants, and duplicating them in the
+    // index would create a second place for them to drift.
+    batches: batches.map(({ feedbackHash, uri }) => ({ feedbackHash, uri })),
+  }
 }
 
 /**
