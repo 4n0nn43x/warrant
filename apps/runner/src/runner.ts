@@ -49,6 +49,12 @@
  *   RUNNER_BACKLOG_CAP=6                at most this many warrants open at once
  *   RUNNER_BOND=200000                  bond, atomic units
  *   RUNNER_AMOUNT=1                     amount transferred by the action
+ *   RUNNER_ACTION=transfer              transfer | approve — the call shape
+ *                                       opened for the whole campaign. `approve`
+ *                                       is what exercises `erc20_allowance`; a
+ *                                       campaign of transfers never reaches it,
+ *                                       and a corpus of transfers only proves
+ *                                       one checker out of the catalogue
  *   RUNNER_DURATION=900                 warrant duration, seconds (= MIN_DURATION)
  *   RUNNER_SLASH_PRINCIPAL_BUDGET=800000  principal the slashes may destroy
  *   RUNNER_FEE_BUDGET=1000000           cumulative fees allowed on the honored ones
@@ -118,7 +124,7 @@ import {
   type BudgetState,
   type StopCap,
 } from './budget.js'
-import { address, bigint, eth, flag, integer, optional, required, usdc } from './env.js'
+import { action, address, bigint, eth, flag, integer, optional, required, usdc } from './env.js'
 import { TokenBucket, openWarrant, type OpenerConfig } from './opener.js'
 import { computeCounters, openLedger, tally, type Ledger, type Scenario } from './ledger.js'
 
@@ -243,6 +249,7 @@ export function loadConfig(): RunnerConfig {
       bond,
       amount: bigint('RUNNER_AMOUNT', 1n),
       duration: integer('RUNNER_DURATION', 900),
+      action: action('RUNNER_ACTION', 'transfer'),
       allowedDest: optional('RUNNER_ALLOWED_DEST', '0x000000000000000000000000000000000000dEaD'),
       divertedDest: optional('RUNNER_DIVERTED_DEST', '0x00000000000000000000000000000000DeaDBeef'),
       timeoutMs: integer('RUNNER_OPEN_TIMEOUT_MS', 180_000),
@@ -897,6 +904,7 @@ async function worker(s: Shared, slot: number): Promise<void> {
           campaign: s.cfg.campaign,
           seq: next,
           scenario,
+          action: s.cfg.opener.action,
           taggedAt: Date.now(),
         })
         return next
@@ -906,6 +914,7 @@ async function worker(s: Shared, slot: number): Promise<void> {
         slot,
         seq,
         scenario,
+        action: s.cfg.opener.action,
         warrantId: outcome.warrantId,
         openTx: outcome.openTx,
         actionTx: outcome.actionTx,

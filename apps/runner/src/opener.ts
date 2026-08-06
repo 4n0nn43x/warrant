@@ -38,7 +38,7 @@
 
 import { spawn } from 'node:child_process'
 import type { Hex } from '@warrant/core'
-import type { Scenario } from './ledger.js'
+import type { Action, Scenario } from './ledger.js'
 
 export interface OpenerConfig {
   /** Monorepo root. The child's `cwd`, so it finds `.env` and `tsx`. */
@@ -70,6 +70,16 @@ export interface OpenerConfig {
    * leave thirty times the margin.
    */
   duration: number
+  /**
+   * Call shape opened for this campaign — `RUNNER_ACTION`.
+   *
+   * Campaign-level and not per-warrant on purpose: the planner reasons about
+   * honored/diverted quotas and knows nothing of call shapes, so threading a
+   * second dimension through it would buy a mix that two successive campaigns
+   * already give, at the cost of coupling the budget to something that does not
+   * affect it — an `approve` and a `transfer` cost the same bond.
+   */
+  action: Action
   /** The **committed** destination, the one on the policy's allowlist. */
   allowedDest: string
   /** The destination actually served in the diverted scenario. */
@@ -122,6 +132,8 @@ export async function openWarrant(cfg: OpenerConfig, scenario: Scenario): Promis
     cfg.script,
     '--scenario',
     scenario,
+    '--action',
+    cfg.action,
     '--bond',
     cfg.bond.toString(10),
     '--amount',

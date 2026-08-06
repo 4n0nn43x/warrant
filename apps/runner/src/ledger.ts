@@ -45,6 +45,16 @@ import { readWarrants, type OnchainWarrant } from './chain.js'
 
 export type Scenario = 'honored' | 'diverted'
 
+/**
+ * The call shape a warrant commits to.
+ *
+ * Not cosmetic: the two exercise different post-conditions. A `transfer` is
+ * judged on `erc20_balance_delta`, an `approve` on `erc20_allowance` — and a
+ * campaign made only of transfers leaves the allowance checker with no onchain
+ * evidence at all, however well it is unit-tested.
+ */
+export type Action = 'transfer' | 'approve'
+
 /** Campaign tag the runner adds to a ledger record. */
 export interface RunnerTag {
   /** Campaign label — `RUNNER_CAMPAIGN`. Isolates budgets between series. */
@@ -53,6 +63,12 @@ export interface RunnerTag {
   seq: number
   /** Scenario asked of `open-warrant.ts`. The only non-deducible field. */
   scenario: Scenario
+  /**
+   * Call shape asked of `open-warrant.ts`. Optional: records written before the
+   * runner could drive anything but `transfer` do not carry it, and rewriting
+   * them would falsify a ledger whose value is that it was written as it went.
+   */
+  action?: Action
   /** Epoch milliseconds. Used to measure the throughput actually achieved. */
   taggedAt: number
 }

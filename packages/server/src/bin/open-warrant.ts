@@ -26,16 +26,31 @@
  * Two scenarios, and the second is the one that counts:
  *
  *   --scenario honored   the executed action is the one committed to;
- *   --scenario diverted  the **executed** action transfers to a destination
- *                        other than the one **committed to**. This is the
- *                        diversion of docs/13 § 5: the post-condition, written by
- *                        the policy and not by the agent, names the allowlist
- *                        destination. A diverted transfer therefore fails by
- *                        construction, and the bond goes to the beneficiary.
+ *   --scenario diverted  the **executed** action is not the one **committed to**.
+ *                        This is the diversion of docs/13 § 5: the
+ *                        post-condition is written by the policy, not by the
+ *                        agent, so it names the allowlist. A diverted action
+ *                        therefore fails by construction, and the bond goes to
+ *                        the beneficiary.
+ *
+ * Two action shapes, because one of them exercises a post-condition the other
+ * never reaches:
+ *
+ *   --action transfer  `transfer(dest, amount)`. Diverting means sending to
+ *                      another destination: `erc20_balance_delta` on the
+ *                      committed destination observes nothing arriving.
+ *   --action approve   `approve(spender, amount)`. Diverting means granting the
+ *                      **committed** spender more than the policy allows —
+ *                      the infinite-approval pattern behind most of the 2026
+ *                      incidents. What catches it is `erc20_allowance`, a
+ *                      checker no `transfer` warrant ever exercises: an approval
+ *                      moves no funds, so a balance delta sees a clean state
+ *                      while the allowance is what has been given away.
  *
  * Usage:
  *   pnpm --filter @warrant/server open-warrant -- --scenario honored
  *   pnpm --filter @warrant/server open-warrant -- --scenario diverted --amount 1000000
+ *   pnpm --filter @warrant/server open-warrant -- --action approve --scenario diverted
  */
 
 import { readFileSync } from 'node:fs'
@@ -88,9 +103,29 @@ const mockUsdcAbi = [
   },
   {
     type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+  {
+    type: 'function',
     name: 'balanceOf',
     stateMutability: 'view',
     inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
     outputs: [{ name: '', type: 'uint256' }],
   },
   // The EIP-712 domain `name`: read onchain, never assumed. A divergence of one
@@ -149,6 +184,11 @@ async function main(): Promise<void> {
   const scenario = arg('scenario', 'honored')
   if (scenario !== 'honored' && scenario !== 'diverted') {
     throw new Error(`--scenario must be honored or diverted, got "${scenario}"`)
+  }
+
+  const action = arg('action', 'transfer')
+  if (action !== 'transfer' && action !== 'approve') {
+    throw new Error(`--action must be transfer or approve, got "${action}"`)
   }
 
   // Chain table, aligned with the one in `bin/gateway.ts`. The tool used to be
@@ -232,13 +272,31 @@ async function main(): Promise<void> {
   const executor = ((await kh.getWallet()).walletAddress ?? '').toLowerCase() as Address
   if (!executor) throw new Error('KeeperHub reports no organization wallet')
 
+  // The registry follows the chain, because a `registryRef` is specific to a
+  // network: the key of an entry is the triple (chainId, target, selector).
+  // The default used to be Ethereum Sepolia's file whatever the chain — and
+  // `.env.example` sets no `WARRANT_REGISTRY_FILE`, so a fresh clone classified
+  // Base Sepolia calldata against another network's registry. Every lookup
+  // misses, the category falls back to `unknown`, and the tool quietly charges
+  // `maxBond` on a warrant whose `registryRef` names the wrong network.
+  // Mainnet and Base share `packages/core/registry/mainnet.json`, which carries
+  // entries for both chain ids; the testnets have one file each under
+  // `deployments/`.
+  const REGISTRY_FILES: Record<number, string> = {
+    1: 'packages/core/registry/mainnet.json',
+    8453: 'packages/core/registry/mainnet.json',
+    11155111: 'deployments/registry-ethereum-sepolia.json',
+    84532: 'deployments/registry-base-sepolia.json',
+  }
+  const registryDefault = REGISTRY_FILES[chainId]
+  if (!registryDefault && !process.env['WARRANT_REGISTRY_FILE']) {
+    throw new Error(
+      `no default classification registry for chain ${chainId}: set WARRANT_REGISTRY_FILE`,
+    )
+  }
   const registryFile = optional(
     'WARRANT_REGISTRY_FILE',
-    // The registry follows the chain: a `registryRef` is specific to a network.
-    optional(
-      'WARRANT_REGISTRY_FILE',
-      new URL('../../../../deployments/registry-ethereum-sepolia.json', import.meta.url).pathname,
-    ),
+    new URL(`../../../../${registryDefault}`, import.meta.url).pathname,
   )
   const registry = parseRegistry(readFileSync(registryFile, 'utf8'))
   const registryRef = registryRefOf(registry)
@@ -251,14 +309,36 @@ async function main(): Promise<void> {
   const bond = BigInt(arg('bond', optional('WARRANT_MIN_BOND', '5000000')))
   const duration = Number(arg('duration', '1800'))
 
-  // The **committed** destination, the one on the policy's allowlist.
+  // The **committed** destination, the one on the policy's allowlist. For an
+  // approval it is the spender allowlist — `approveChecks` caps any spender
+  // outside it at zero, so the only compliant approval to a stranger is a
+  // revocation.
   const allowedDest = optional('DEMO_ALLOWED_DEST', '0x000000000000000000000000000000000000dEaD')
     .toLowerCase() as Address
-  // The destination actually served. It differs only in the diverted scenario.
+  // The destination actually served. It differs only in the diverted scenario,
+  // and only for a transfer: see `executedAmount` for how an approval is
+  // diverted instead.
   const executedDest =
-    scenario === 'diverted'
+    scenario === 'diverted' && action === 'transfer'
       ? (optional('DEMO_DIVERTED_DEST', '0x00000000000000000000000000000000DeaDBeef').toLowerCase() as Address)
       : allowedDest
+
+  /**
+   * The amount actually served.
+   *
+   * An approval is diverted by **inflating it**, not by redirecting it. Sending
+   * the approval to another spender would leave `erc20_allowance` on the
+   * committed spender at zero — compliant — and the breach would be caught by
+   * `calldata_matches_commitment` alone, which a transfer already demonstrates.
+   * Granting the committed spender an unbounded allowance instead is both the
+   * incident that actually happens and the one case where `erc20_allowance` is
+   * the checker that fires.
+   */
+  const MAX_UINT256 = (1n << 256n) - 1n
+  const executedAmount =
+    scenario === 'diverted' && action === 'approve'
+      ? BigInt(optional('DEMO_INFLATED_ALLOWANCE', MAX_UINT256.toString(10)))
+      : amount
 
   /**
    * The capital owner's policy.
@@ -275,7 +355,17 @@ async function main(): Promise<void> {
     maxBond: optional('WARRANT_MAX_BOND', '250000000'),
     duration,
     categories: {
+      // Both categories are declared whatever the run does: the policy is the
+      // capital owner's standing position, not a per-action argument, and
+      // `priceRisk` reads only the one the calldata classifies into.
       'erc20.transfer': {
+        riskBps: 100,
+        maxOutflow: amount.toString(10),
+        allowedDest: [allowedDest],
+      },
+      // For an approval, `maxOutflow` is the **allowance ceiling** granted to an
+      // allowlisted spender — what `erc20_allowance` compares against.
+      'erc20.approve': {
         riskBps: 100,
         maxOutflow: amount.toString(10),
         allowedDest: [allowedDest],
@@ -291,7 +381,7 @@ async function main(): Promise<void> {
     value: '0',
     calldata: encodeFunctionData({
       abi: mockUsdcAbi,
-      functionName: 'transfer',
+      functionName: action,
       args: [allowedDest, amount],
     }),
     registryRef,
@@ -431,22 +521,27 @@ async function main(): Promise<void> {
     fundingRef,
   })
 
-  // 4. The execution wallet must hold enough to transfer.
-  const executorBalance = (await publicClient.readContract({
-    address: token,
-    abi: mockUsdcAbi,
-    functionName: 'balanceOf',
-    args: [executor],
-  })) as bigint
-  if (executorBalance < amount) {
-    const topUp = await wallet.writeContract({
+  // 4. The execution wallet must hold enough to transfer. An approval moves no
+  //    funds, so it needs no balance — and on Circle's real USDC there is no
+  //    `mint` to call anyway: attempting the top-up would revert here rather
+  //    than at the action, which is the confusing place to fail.
+  if (action === 'transfer') {
+    const executorBalance = (await publicClient.readContract({
       address: token,
       abi: mockUsdcAbi,
-      functionName: 'mint',
-      args: [executor, amount * 10n],
-    })
-    await publicClient.waitForTransactionReceipt({ hash: topUp })
-    log({ msg: 'execution wallet funded', tx: topUp })
+      functionName: 'balanceOf',
+      args: [executor],
+    })) as bigint
+    if (executorBalance < amount) {
+      const topUp = await wallet.writeContract({
+        address: token,
+        abi: mockUsdcAbi,
+        functionName: 'mint',
+        args: [executor, amount * 10n],
+      })
+      await publicClient.waitForTransactionReceipt({ hash: topUp })
+      log({ msg: 'execution wallet funded', tx: topUp })
+    }
   }
 
   // 5. Opening. This transaction collects the bond **and** opens the warrant: if
@@ -501,20 +596,23 @@ async function main(): Promise<void> {
     {
       chainId,
       contractAddress: token,
-      functionName: 'transfer',
-      functionArgs: [executedDest, amount.toString(10)],
+      functionName: action,
+      functionArgs: [executedDest, executedAmount.toString(10)],
       abi: mockUsdcAbi,
     },
     warrantId,
   )
   log({
     msg: 'action executed',
+    action,
     executionId: execution.executionId,
     status: execution.status,
     txHash: execution.txHash,
     executedDest,
     engagedDest: allowedDest,
-    diverted: executedDest !== allowedDest,
+    executedAmount: executedAmount.toString(10),
+    engagedAmount: amount.toString(10),
+    diverted: executedDest !== allowedDest || executedAmount !== amount,
   })
 
   // 7. The ledger. It is the only thing the Settler cannot recover on its own:
@@ -533,7 +631,10 @@ async function main(): Promise<void> {
     expiry: openedAt + duration,
     openedAt,
     status: WarrantStatus.Open,
-    rail: 'x402',
+    // Not a rail: this tool bypasses the Gateway entirely — no 402, no
+    // Challenge, no facilitator. Claiming `x402` here inflated the count of
+    // warrants that actually traversed a payment rail.
+    rail: 'direct',
     executionId: execution.executionId,
     openTx,
     actionSpec,

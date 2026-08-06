@@ -7,6 +7,7 @@
  */
 
 import type { Address, Hex } from '@warrant/core'
+import type { Action } from './ledger.js'
 
 export function required(name: string): string {
   const value = process.env[name]
@@ -66,6 +67,20 @@ export function bigint(name: string, fallback: bigint): bigint {
     throw new Error(`${name}: expected an unsigned decimal integer, got "${raw}"`)
   }
   return BigInt(raw)
+}
+
+/**
+ * The campaign's call shape. Rejects anything outside the closed set rather than
+ * passing it to the child: an unknown `--action` fails there too, but only after
+ * a process spawn and with the error buried in a subprocess's tail.
+ */
+export function action(name: string, fallback: Action): Action {
+  const raw = optional(name, '')
+  if (raw === '') return fallback
+  if (raw !== 'transfer' && raw !== 'approve') {
+    throw new Error(`${name}: expected transfer or approve, got "${raw}"`)
+  }
+  return raw
 }
 
 /** 6 decimals, display format. Never fed back into a computation. */
