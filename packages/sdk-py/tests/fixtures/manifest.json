@@ -456,42 +456,42 @@
     {
       "code": "invalid_input",
       "hint": "Check the tool's fields against its inputSchema, then call it again.",
-      "docs": "https://warrant.sh/docs/tools"
+      "docs": "https://github.com/4n0nn43x/warrant/tools"
     },
     {
       "code": "invalid_action_spec",
       "hint": "The actionSpec must carry version, chainId, target, value, calldata and registryRef. No category and no notional: both are derived from the calldata.",
-      "docs": "https://warrant.sh/docs/action-spec"
+      "docs": "https://github.com/4n0nn43x/warrant/action-spec"
     },
     {
       "code": "invalid_condition_spec",
       "hint": "Fix the field named in `field` then open the warrant again: a post-condition is immutable once committed.",
-      "docs": "https://warrant.sh/docs/post-conditions"
+      "docs": "https://github.com/4n0nn43x/warrant/post-conditions"
     },
     {
       "code": "classification_failed",
       "hint": "The (target, selector) pair is absent from the registry. Call quote_risk first: an unknown action remains fundable, at the strictest rate.",
-      "docs": "https://warrant.sh/docs/classification"
+      "docs": "https://github.com/4n0nn43x/warrant/classification"
     },
     {
       "code": "payment_invalid",
       "hint": "Rebuild the PaymentPayload from the PaymentRequired that was returned, without modifying `accepted`, and replay with _meta[\"x402/payment\"].",
-      "docs": "https://warrant.sh/docs/payments#x402"
+      "docs": "https://github.com/4n0nn43x/warrant/payments#x402"
     },
     {
       "code": "warrant_not_found",
       "hint": "Check the warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) lists the known warrants.",
-      "docs": "https://warrant.sh/docs/warrants#lookup"
+      "docs": "https://github.com/4n0nn43x/warrant/warrants#lookup"
     },
     {
       "code": "gateway_unreachable",
       "hint": "The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.",
-      "docs": "https://warrant.sh/docs/troubleshooting#gateway"
+      "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway"
     },
     {
       "code": "gateway_error",
       "hint": "Retry; if it persists, the detail is in `details`.",
-      "docs": "https://warrant.sh/docs/troubleshooting#gateway"
+      "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway"
     }
   ]
 }

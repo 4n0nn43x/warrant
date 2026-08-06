@@ -138,9 +138,9 @@ describe('verdict server', () => {
 
 describe('verdictPathPrefix', () => {
   it('derives the path from the public base', () => {
-    expect(verdictPathPrefix('https://warrant.sh/v/')).toBe('/v')
+    expect(verdictPathPrefix('https://verdicts.example/v/')).toBe('/v')
     expect(verdictPathPrefix('http://localhost:8403/v/')).toBe('/v')
-    expect(verdictPathPrefix('https://warrant.sh/')).toBe('')
+    expect(verdictPathPrefix('https://verdicts.example/')).toBe('')
   })
 
   it('strips owner/repo/ref from a git-raw base and keeps the repository path', () => {

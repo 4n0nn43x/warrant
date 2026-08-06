@@ -334,7 +334,7 @@ export const MAX_VALUE_DECIMALS = 18
 export const MAX_ABS_VALUE = 10n ** 38n
 
 /** Default URI base of the verdict document. */
-export const DEFAULT_FEEDBACK_URI_BASE = 'https://warrant.sh/v/'
+export const DEFAULT_FEEDBACK_URI_BASE = 'https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/'
 
 /** Metadata keys written onto the agent's identity (docs/10 § 4). */
 export const METADATA_KEYS = {

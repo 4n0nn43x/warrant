@@ -80,7 +80,7 @@ const required: PaymentRequired = {
 function challenge(over: Partial<MppChallenge> = {}): MppChallenge {
   return {
     id: 'sZ3-x_9aB0c',
-    realm: 'warrant.sh',
+    realm: 'warrant',
     method: MPP_METHOD_EVM,
     intent: 'charge',
     request: 'eyJhbW91bnQiOiI1MDAwMDAwIn0',
@@ -144,7 +144,7 @@ describe('MPP rail — the SDK packs what the Gateway unpacks', () => {
   it('an optional field the server omits is absent, not empty', () => {
     const bare: MppChallenge = {
       id: 'abc',
-      realm: 'warrant.sh',
+      realm: 'warrant',
       method: MPP_METHOD_EVM,
       intent: 'charge',
       request: 'eyJhIjoxfQ',

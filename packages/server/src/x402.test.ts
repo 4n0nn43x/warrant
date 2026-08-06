@@ -70,7 +70,7 @@ const REQUIREMENTS: PaymentRequirements = {
 function payload(over: Partial<PaymentPayload> = {}): PaymentPayload {
   return {
     x402Version: X402_VERSION,
-    resource: { url: 'https://api.warrant.sh/v1/warrants' },
+    resource: { url: 'https://gateway.example/v1/warrants' },
     accepted: REQUIREMENTS,
     payload: {
       signature: SIGNATURE,
@@ -118,7 +118,7 @@ describe('x402 v2 — wire names', () => {
 describe('PaymentRequired', () => {
   const required = buildPaymentRequired({
     resource: {
-      url: 'https://api.warrant.sh/v1/warrants',
+      url: 'https://gateway.example/v1/warrants',
       description: 'Bond for a KeeperHub-executed action',
       mimeType: 'application/json',
     },
@@ -460,7 +460,7 @@ function store(now = () => 1_785_000_000) {
 
 function issue(s: ReturnType<typeof store>) {
   return s.issue({
-    realm: 'warrant.sh',
+    realm: 'warrant',
     method: 'tempo',
     intent: 'charge',
     request: REQUEST,
@@ -485,7 +485,7 @@ describe('MPP Challenge', () => {
   const challenge = issue(store())
 
   it('carries the required parameters, intent charge', () => {
-    expect(challenge.realm).toBe('warrant.sh')
+    expect(challenge.realm).toBe('warrant')
     expect(challenge.method).toBe('tempo')
     expect(challenge.intent).toBe('charge')
     expect(challenge.id).not.toBe('')
@@ -516,14 +516,14 @@ describe('MPP Challenge', () => {
   it('binds its id to the parameters: two different amounts, two ids', () => {
     const s = store()
     const a = s.issue({
-      realm: 'warrant.sh',
+      realm: 'warrant',
       method: 'tempo',
       intent: 'charge',
       request: REQUEST,
       context: { bond: '25000000' },
     })
     const b = s.issue({
-      realm: 'warrant.sh',
+      realm: 'warrant',
       method: 'tempo',
       intent: 'charge',
       request: { ...REQUEST, amount: '1' },
@@ -631,7 +631,7 @@ describe('MPP → x402 bridge', () => {
     const built = paymentPayloadFromCredential(
       credential,
       REQUIREMENTS,
-      'https://api.warrant.sh/v1/warrants',
+      'https://gateway.example/v1/warrants',
     )
     expect(built.x402Version).toBe(2)
     expect(() => assertPayloadMatches(built, REQUIREMENTS)).not.toThrow()
@@ -691,7 +691,7 @@ describe('RFC 9457', () => {
     const p = problem('challenge_replayed', 409, 'Credential already used', 'detail', {
       rail: 'mpp',
     })
-    expect(p.type).toBe('https://warrant.sh/problems/challenge_replayed')
+    expect(p.type).toBe('urn:warrant:problem:challenge_replayed')
     expect(p).toMatchObject({ title: 'Credential already used', status: 409, rail: 'mpp' })
     expect(PROBLEM_CONTENT_TYPE).toBe('application/problem+json')
   })

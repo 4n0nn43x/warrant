@@ -224,7 +224,7 @@ describe('giveFeedbackArgs', () => {
   const args = giveFeedbackArgs({
     agentId: AGENT_ID,
     verdict: 'honored',
-    feedbackURI: 'https://warrant.sh/v/0xdead',
+    feedbackURI: 'https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/0xdead',
     feedbackHash: `0x${'aa'.repeat(32)}` as Hex,
   })
 
@@ -239,7 +239,7 @@ describe('giveFeedbackArgs', () => {
     expect(args[3]).toBe('warrant') // string tag1
     expect(args[4]).toBe('honored') // string tag2
     expect(args[5]).toBe('') // string endpoint
-    expect(args[6]).toBe('https://warrant.sh/v/0xdead') // string feedbackURI
+    expect(args[6]).toBe('https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/0xdead') // string feedbackURI
     expect(args[7]).toBe(`0x${'aa'.repeat(32)}`) // bytes32 feedbackHash
   })
 

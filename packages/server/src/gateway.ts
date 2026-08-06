@@ -628,7 +628,7 @@ export interface GatewayConfig {
   policy: Policy
   /** Public base of the service, for `resource.url` and `instance`. */
   baseUrl: string
-  /** MPP `realm`, e.g. `warrant.sh`. */
+  /** MPP `realm` — an identifier, not a hostname. Default `warrant`. */
   realm: string
   /** Settlement network of the bond, in **CAIP-2**. */
   network: string

@@ -82,7 +82,7 @@ export function newFeedbackLog(opts: {
   const tag1 = opts.tag1 ?? 'warrant'
   const uri =
     opts.feedbackURI ??
-    `https://warrant.sh/v/${(opts.warrantId ?? warrantId(1)).toLowerCase()}`
+    `https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/${(opts.warrantId ?? warrantId(1)).toLowerCase()}`
   return makeLog(REPUTATION, newFeedbackEvent, {
     agentId: opts.agentId,
     clientAddress: opts.client ?? SETTLER,

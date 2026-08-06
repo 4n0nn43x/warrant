@@ -115,7 +115,7 @@ export function createWarrantHttpServer(options: WarrantHttpOptions): NodeHttpSe
               'Protection against DNS rebinding. A non-browser MCP client sends no ' +
               'Origin header and is unaffected; to allow a web origin, pass it in ' +
               '`allowedOrigins`.',
-            docs: 'https://warrant.sh/docs/mcp#origin',
+            docs: 'https://github.com/4n0nn43x/warrant/mcp#origin',
           },
         }),
       )
@@ -136,7 +136,7 @@ export function createWarrantHttpServer(options: WarrantHttpOptions): NodeHttpSe
             code: 'not_found',
             message: `No resource under ${url.pathname}.`,
             hint: `The MCP endpoint is ${path}. Add the server with: claude mcp add --transport http warrant <url>${path}`,
-            docs: 'https://warrant.sh/docs/mcp',
+            docs: 'https://github.com/4n0nn43x/warrant/mcp',
           },
         }),
       )
@@ -152,7 +152,7 @@ export function createWarrantHttpServer(options: WarrantHttpOptions): NodeHttpSe
             code: 'internal_error',
             message: String(err),
             hint: 'Retry; no warrant and no payment were committed by a request that failed here.',
-            docs: 'https://warrant.sh/docs/troubleshooting#mcp',
+            docs: 'https://github.com/4n0nn43x/warrant/troubleshooting#mcp',
           },
         }),
       )

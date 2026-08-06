@@ -19,10 +19,16 @@
  * Where the documents are published: the git repository itself
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * `https://warrant.sh/v/` does not exist. A true `feedbackHash` whose URI does
- * not resolve is worse than no publication at all: it presents itself as
- * verifiable. The promise "we make the verdict reproducible" therefore required a
- * real host, while the project's constraint is to provision none.
+ * A true `feedbackHash` whose URI does not resolve is worse than no publication
+ * at all: it presents itself as verifiable. The promise "we make the verdict
+ * reproducible" therefore required a real host, while the project's constraint is
+ * to provision none.
+ *
+ * The first verdicts were published under `warrant.sh`, a domain this project
+ * does not own — it belongs to an unrelated tool. Those URIs are inscribed
+ * onchain and cannot be changed; what binds a document to its commitment is the
+ * hash, not the path, and `verdicts/index.json` is how a reader gets from one to
+ * the other.
  *
  * The public git repository already is one. A document written into `verdicts/`
  * and pushed is served as-is by
@@ -140,10 +146,10 @@ export function gitRawBaseUri(src: GitRawSource): string {
 /**
  * Default public base: the project's repository, branch `master`.
  *
- * It replaces `DEFAULT_FEEDBACK_URI_BASE` (`https://warrant.sh/v/`) across the
- * whole publication path. That constant stays in `reputation.ts` as the fallback
- * for the URI helpers, but no document is published under a domain that does not
- * exist any more.
+ * `DEFAULT_FEEDBACK_URI_BASE` in `reputation.ts` now resolves to this same base,
+ * so the fallback and the publication path can no longer disagree — which is how
+ * the earliest verdicts ended up inscribed under a domain the project does not
+ * own.
  */
 export const DEFAULT_VERDICT_BASE_URI = gitRawBaseUri({
   owner: '4n0nn43x',
@@ -420,7 +426,7 @@ function normalizeBase(base: string): string {
 
 /**
  * URL path under which the documents are served, derived from the public base.
- * `https://warrant.sh/v/` → `/v`.
+ * `https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/` → `/v`.
  *
  * Deriving it rather than freezing it avoids the most likely silent
  * disagreement: a `VERDICT_BASE_URI` pointing at a path the server does not

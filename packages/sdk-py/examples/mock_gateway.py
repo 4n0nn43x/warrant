@@ -343,7 +343,7 @@ class MockGateway:
             return (
                 400,
                 {
-                    "type": "https://warrant.sh/problems/missing_nonce",
+                    "type": "urn:warrant:problem:missing_nonce",
                     "title": "Warrant nonce absent",
                     "status": 400,
                     "detail": (
@@ -570,7 +570,7 @@ def make_handler(gateway: MockGateway, *, quiet: bool = False) -> type[BaseHTTPR
                     return self._send(
                         404,
                         {
-                            "type": "https://warrant.sh/problems/not_found",
+                            "type": "urn:warrant:problem:not_found",
                             "title": "Unknown warrant",
                             "status": 404,
                         },

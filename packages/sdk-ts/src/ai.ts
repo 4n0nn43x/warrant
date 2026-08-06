@@ -49,7 +49,7 @@ export interface WarrantToolsOptions {
   only?: readonly string[]
 }
 
-const DEFAULT_BASE_URL = 'https://api.warrant.sh'
+const DEFAULT_BASE_URL = 'https://gateway.example'
 
 export function warrantTools(options: WarrantToolsOptions = {}): Record<string, AiTool> {
   const client: GatewayClient =

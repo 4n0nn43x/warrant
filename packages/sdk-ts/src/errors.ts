@@ -20,7 +20,7 @@ export type WarrantErrorCode =
   | 'gateway_unreachable'
   | 'gateway_error'
 
-const DOCS_BASE = 'https://warrant.sh/docs'
+const DOCS_BASE = 'https://github.com/4n0nn43x/warrant'
 
 /** One link per code: the agent — or the builder — knows where to read on. */
 const DOCS: Record<WarrantErrorCode, string> = {

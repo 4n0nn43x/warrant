@@ -33,7 +33,7 @@ const ACTION_SPEC = {
 
 const PAYMENT_REQUIRED: PaymentRequired = {
   x402Version: 2,
-  resource: { url: 'https://api.warrant.sh/v1/warrants' },
+  resource: { url: 'https://gateway.example/v1/warrants' },
   accepts: [
     {
       scheme: 'exact',

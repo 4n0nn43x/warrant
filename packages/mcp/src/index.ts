@@ -2,7 +2,7 @@
  * `@warrant/mcp` — Warrant's MCP server.
  *
  * ```bash
- * claude mcp add --transport http warrant https://mcp.warrant.sh
+ * claude mcp add --transport http warrant https://mcp.example
  * ```
  *
  * Protocol revision **2026-07-28**, with automatic fallback for clients that

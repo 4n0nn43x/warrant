@@ -17,7 +17,7 @@ metadata:
         required: false
         description: Agent key that signs the EIP-3009 bond authorization. Only request_warrant needs it — the three read tools work without a key.
     emoji: "⚖️"
-    homepage: https://warrant.sh
+    homepage: https://github.com/4n0nn43x/warrant
 ---
 
 # Warrant — bonded execution
@@ -122,7 +122,7 @@ would not be replayable. The refusal carries the value to use:
 
 ```json
 {"error": {"code": "gateway_error", "details": {
-  "type": "https://warrant.sh/problems/registry_mismatch",
+  "type": "urn:warrant:problem:registry_mismatch",
   "declared": "0x00…01", "expected": "0x62bc8078…"}}}
 ```
 
@@ -182,7 +182,7 @@ kind of answer you got:
 On exit 1:
 
 ```json
-{"error": {"code": "invalid_action_spec", "message": "…", "hint": "what to do next", "docs": "https://warrant.sh/docs/action-spec", "field": "$.actionSpec.calldata"}}
+{"error": {"code": "invalid_action_spec", "message": "…", "hint": "what to do next", "docs": "https://github.com/4n0nn43x/warrant/action-spec", "field": "$.actionSpec.calldata"}}
 ```
 
 Read `field`, fix that one thing, call again. Never retry an unchanged call.

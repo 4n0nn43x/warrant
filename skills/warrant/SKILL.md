@@ -17,7 +17,7 @@ metadata:
         required: false
         description: Agent key that signs the EIP-3009 bond authorization. Only request_warrant needs it — the three read tools work without a key.
     emoji: "⚖️"
-    homepage: https://warrant.sh
+    homepage: https://github.com/4n0nn43x/warrant
 ---
 
 # Warrant — bonded execution
@@ -122,7 +122,7 @@ would not be replayable. The refusal carries the value to use:
 
 ```json
 {"error": {"code": "gateway_error", "details": {
-  "type": "https://warrant.sh/problems/registry_mismatch",
+  "type": "urn:warrant:problem:registry_mismatch",
   "declared": "0x00…01", "expected": "0x62bc8078…"}}}
 ```
 
@@ -182,7 +182,7 @@ kind of answer you got:
 On exit 1:
 
 ```json
-{"error": {"code": "invalid_action_spec", "message": "…", "hint": "what to do next", "docs": "https://warrant.sh/docs/action-spec", "field": "$.actionSpec.calldata"}}
+{"error": {"code": "invalid_action_spec", "message": "…", "hint": "what to do next", "docs": "https://github.com/4n0nn43x/warrant/action-spec", "field": "$.actionSpec.calldata"}}
 ```
 
 Read `field`, fix that one thing, call again. Never retry an unchanged call.
@@ -267,5 +267,5 @@ it is an action whose stated outcome is now backed by money.
 ---
 
 Tool definitions above are generated from the Warrant single source of truth,
-manifest `sha256:b4ca574277f0079d493f116a68447823b382abeec793e515ed169846c0e1a2c2`. If a tool here disagrees with what the Gateway
+manifest `sha256:367c087cbffe62183d7a99e2efdfdd419dd9c191ed3634df85fc70ff01046f1a`. If a tool here disagrees with what the Gateway
 serves, this skill is stale — `clawhub update @warrant/warrant`.

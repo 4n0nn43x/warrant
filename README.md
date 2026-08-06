@@ -8,9 +8,6 @@ post-condition its action must produce. KeeperHub executes. An independent RPC r
 block decides: post-condition held → bond returned; post-condition violated → bond seized and the
 verdict written to the ERC-8004 Reputation Registry.
 
-> Design documentation is in French, under [`../docs/`](../docs). This README, the explorer and the
-> agent-facing tool descriptions are in English, because their audience is.
-
 ---
 
 ## The inversion
@@ -215,10 +212,12 @@ Three caveats, stated rather than discovered:
    URI 404s. The hash is already true — only availability lags, and the script says so when it falls
    back to the local copy of the repository. `pnpm verdicts:publish` closes the gap: it collects what
    the Settler wrote, refuses anything that is no longer in canonical form, and rebuilds the index.
-2. The `feedbackURI` recorded onchain for the earliest verdicts reads `https://warrant.sh/v/…`, a host
-   that does not exist: they were settled before `VERDICT_BASE_URI` was pointed at this repository.
-   What binds a document to its commitment is the hash, not the path — `verdicts/index.json` is how
-   you get from one to the other, and the script resolves it for you.
+2. The `feedbackURI` recorded onchain for the earliest verdicts reads `https://warrant.sh/v/…`. That
+   was a mistake: the domain belongs to an unrelated project, and this one never owned it. It was the
+   default before `VERDICT_BASE_URI` was pointed at this repository, and the default has since been
+   changed at the source so it cannot recur. Those URIs are onchain and immutable — but what binds a
+   document to its commitment is the **hash**, not the path. `verdicts/index.json` maps one to the
+   other, and `replay-verdict.sh` resolves it for you.
 3. A document only carries an ERC-8004 commitment when the settling agent has an identity in the
    registry. Three warrants — [`verdicts/0x45482f78…`](verdicts) among them — were settled without
    one, so they are raw `VerdictDocument`s whose hash appears in no `NewFeedback`. They still replay
@@ -240,7 +239,7 @@ reproducible.
 Post-conditions are strictly onchain-verifiable: balance deltas, allowance, health factor, nonce,
 emitted event. Warrant does not judge the intent or the wisdom of a decision — that is undecidable,
 and claiming otherwise collapses at the first counterexample. This boundary is a documented design
-choice, not a gap. See [`../docs/13-risques.md`](../docs/13-risques.md).
+choice, not a gap.
 
 ## License
 

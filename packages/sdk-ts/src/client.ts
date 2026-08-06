@@ -42,7 +42,7 @@ const HEADER_PAYMENT_SIGNATURE = 'PAYMENT-SIGNATURE'
 const HEADER_PAYMENT_RESPONSE = 'PAYMENT-RESPONSE'
 
 export interface WarrantClientOptions {
-  /** Root of the Gateway, e.g. `https://api.warrant.sh`. */
+  /** Root of the Gateway, e.g. `https://gateway.example`. */
   baseUrl: string
   /** Signer of the bond. Without it, `call()` surfaces the PaymentRequired. */
   wallet?: PaymentSigner

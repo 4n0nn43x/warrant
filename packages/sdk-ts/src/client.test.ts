@@ -24,7 +24,7 @@ const ACTION_SPEC = {
 
 const PAYMENT_REQUIRED: PaymentRequired = {
   x402Version: 2,
-  resource: { url: 'https://api.warrant.sh/v1/warrants' },
+  resource: { url: 'https://gateway.example/v1/warrants' },
   accepts: [
     {
       scheme: 'exact',
@@ -61,7 +61,7 @@ describe('WarrantClient', () => {
           headers: { 'PAYMENT-REQUIRED': b64(PAYMENT_REQUIRED) },
         }),
     )
-    const client = new WarrantClient({ baseUrl: 'https://api.warrant.sh', fetch: fetchMock })
+    const client = new WarrantClient({ baseUrl: 'https://gateway.example', fetch: fetchMock })
 
     const result = await client.requestWarrant({
       actionSpec: ACTION_SPEC,
@@ -97,7 +97,7 @@ describe('WarrantClient', () => {
     })
 
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: fetchMock as unknown as typeof fetch,
       wallet: {
         createPayment: (required) => ({
@@ -144,7 +144,7 @@ describe('WarrantClient', () => {
       checks: [{ kind: 'erc20_balance_delta', expected: '0', observed: '-1', pass: false }],
     }
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: vi.fn(
         async () =>
           new Response(JSON.stringify(envelope), {
@@ -180,7 +180,7 @@ describe('WarrantClient', () => {
       checks: [],
     }
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: vi.fn(
         async () =>
           new Response(JSON.stringify(flat), {
@@ -194,7 +194,7 @@ describe('WarrantClient', () => {
 
   it('returns null — not an exception — for a missing warrant', async () => {
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: vi.fn(async () => new Response(null, { status: 404 })) as unknown as typeof fetch,
     })
     await expect(client.getWarrant(`0x${'ff'.repeat(32)}`)).resolves.toBeNull()
@@ -202,7 +202,7 @@ describe('WarrantClient', () => {
 
   it('turns a network failure into an actionable error', async () => {
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: vi.fn(async () => {
         throw new Error('ECONNREFUSED')
       }) as unknown as typeof fetch,
@@ -233,7 +233,7 @@ describe('WarrantClient', () => {
         ),
     )
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: fetchMock as unknown as typeof fetch,
     })
 
@@ -247,7 +247,7 @@ describe('WarrantClient', () => {
 
   it('explains what to do when no wallet is configured', async () => {
     const client = new WarrantClient({
-      baseUrl: 'https://api.warrant.sh',
+      baseUrl: 'https://gateway.example',
       fetch: vi.fn(
         async () =>
           new Response(null, {

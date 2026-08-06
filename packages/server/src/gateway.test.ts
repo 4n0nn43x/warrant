@@ -258,7 +258,7 @@ function harness(over: Partial<GatewayConfig> = {}): Harness {
     registry: REGISTRY,
     policy: POLICY,
     baseUrl: 'http://warrant.test',
-    realm: 'warrant.sh',
+    realm: 'warrant',
     network: 'eip155:8453',
     asset: USDC_BASE,
     payTo: VAULT,
@@ -663,7 +663,7 @@ describe('POST /v1/warrants — the 402', () => {
     expect(header.startsWith('Payment ')).toBe(true)
 
     const challenge = parseChallengeHeader(header)
-    expect(challenge.realm).toBe('warrant.sh')
+    expect(challenge.realm).toBe('warrant')
     // `evm` and not `tempo`: two distinct methods in the MPP registry. We settle
     // an EIP-3009 authorization through the x402 facilitator on an EVM chain,
     // which is what `evm` designates; `tempo` is TIP-20 on the Tempo chain, a
@@ -973,7 +973,7 @@ describe('POST /v1/warrants — MPP rail', () => {
     expect(res.status).toBe(402)
     const body = (await res.json()) as Record<string, unknown>
     expect(body['status']).toBe(402)
-    expect(String(body['type'])).toMatch(/^https:\/\/warrant\.sh\/problems\//)
+    expect(String(body['type'])).toMatch(/^urn:warrant:problem:/)
     expect(res.headers.get(HEADER_WWW_AUTHENTICATE)).toBeTruthy()
     expect(res.headers.get(HEADER_PAYMENT_REQUIRED)).toBeTruthy()
   })

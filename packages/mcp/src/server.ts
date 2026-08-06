@@ -2,7 +2,7 @@
  * Warrant's MCP server — protocol revision 2026-07-28.
  *
  * ```bash
- * claude mcp add --transport http warrant https://mcp.warrant.sh
+ * claude mcp add --transport http warrant https://mcp.example
  * ```
  *
  * Four tools, projected from `@warrant/sdk` — the server redefines no schema, no

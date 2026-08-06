@@ -219,8 +219,8 @@ describe('decideChain', () => {
 
 describe('defaultAgentUri', () => {
   it('derives the URI from the public base the project already announces', () => {
-    expect(defaultAgentUri(AGENT, 'https://warrant.sh/v/')).toBe(
-      `https://warrant.sh/agents/${AGENT}.json`,
+    expect(defaultAgentUri(AGENT, 'https://verdicts.example/v/')).toBe(
+      `https://verdicts.example/agents/${AGENT}.json`,
     )
   })
 

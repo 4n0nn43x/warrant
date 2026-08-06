@@ -39,8 +39,8 @@ crewai = ["crewai>=0.80"]
 dev = ["pytest>=8", "langchain-core>=0.3", "crewai>=0.80"]
 
 [project.urls]
-Homepage = "https://warrant.sh"
-Documentation = "https://warrant.sh/docs"
+Homepage = "https://github.com/4n0nn43x/warrant"
+Documentation = "https://github.com/4n0nn43x/warrant"
 
 [project.scripts]
 warrant = "warrant_sdk.cli:main"

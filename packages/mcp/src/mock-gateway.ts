@@ -81,7 +81,7 @@ export interface MockGateway extends GatewayClient {
 export function createMockGateway(options: MockGatewayOptions = {}): MockGateway {
   const minBond = options.minBond ?? 1_000_000n
   const maxBond = options.maxBond ?? 100_000_000n
-  const resourceUrl = options.resourceUrl ?? 'https://api.warrant.sh/v1/warrants'
+  const resourceUrl = options.resourceUrl ?? 'https://gateway.example/v1/warrants'
   const payTo = options.payTo ?? '0x00000000000000000000000000000000000000a1'
   const duration = options.duration ?? 3600
   const requirePayment = options.requirePayment ?? true

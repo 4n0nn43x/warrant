@@ -582,7 +582,7 @@ async function main(): Promise<void> {
   }
 
   // ── 5. The transaction, prepared by `reputation.ts` ────────────────────────
-  const verdictBaseUri = optional('VERDICT_BASE_URI', 'https://warrant.sh/v/')
+  const verdictBaseUri = optional('VERDICT_BASE_URI', 'https://raw.githubusercontent.com/4n0nn43x/warrant/master/verdicts/')
   const agentUri = arg('agent-uri', optional('ERC8004_AGENT_URI', defaultAgentUri(agent, verdictBaseUri)))
   /**
    * `since` comes from the last block's timestamp, not from the local clock: the

@@ -3,7 +3,7 @@
  * Entry point of the MCP server.
  *
  * ```bash
- * WARRANT_GATEWAY_URL=https://api.warrant.sh pnpm --filter @warrant/mcp start
+ * WARRANT_GATEWAY_URL=https://gateway.example pnpm --filter @warrant/mcp start
  * claude mcp add --transport http warrant http://localhost:8787/mcp
  * ```
  *

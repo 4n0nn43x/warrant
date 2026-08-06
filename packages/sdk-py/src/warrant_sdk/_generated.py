@@ -31,7 +31,7 @@ JSON_SCHEMA_DIALECT = "draft-7"
 #: sha256 of the manifest's canonical form. Identifies the revision of the single
 #: source of truth this file came from; published by `warrant tools` and by the
 #: OpenClaw skill so that a stale artifact can be spotted without reading code.
-MANIFEST_SHA256 = "sha256:b4ca574277f0079d493f116a68447823b382abeec793e515ed169846c0e1a2c2"
+MANIFEST_SHA256 = "sha256:367c087cbffe62183d7a99e2efdfdd419dd9c191ed3634df85fc70ff01046f1a"
 
 
 class ActionSpec(BaseModel):
@@ -93,35 +93,35 @@ class ListWarrantsInput(BaseModel):
 ERROR_CATALOG: dict[str, dict[str, str]] = {
     "invalid_input": {
         "hint": "Check the tool's fields against its inputSchema, then call it again.",
-        "docs": "https://warrant.sh/docs/tools",
+        "docs": "https://github.com/4n0nn43x/warrant/tools",
     },
     "invalid_action_spec": {
         "hint": "The actionSpec must carry version, chainId, target, value, calldata and registryRef. No category and no notional: both are derived from the calldata.",
-        "docs": "https://warrant.sh/docs/action-spec",
+        "docs": "https://github.com/4n0nn43x/warrant/action-spec",
     },
     "invalid_condition_spec": {
         "hint": "Fix the field named in `field` then open the warrant again: a post-condition is immutable once committed.",
-        "docs": "https://warrant.sh/docs/post-conditions",
+        "docs": "https://github.com/4n0nn43x/warrant/post-conditions",
     },
     "classification_failed": {
         "hint": "The (target, selector) pair is absent from the registry. Call quote_risk first: an unknown action remains fundable, at the strictest rate.",
-        "docs": "https://warrant.sh/docs/classification",
+        "docs": "https://github.com/4n0nn43x/warrant/classification",
     },
     "payment_invalid": {
         "hint": "Rebuild the PaymentPayload from the PaymentRequired that was returned, without modifying `accepted`, and replay with _meta[\"x402/payment\"].",
-        "docs": "https://warrant.sh/docs/payments#x402",
+        "docs": "https://github.com/4n0nn43x/warrant/payments#x402",
     },
     "warrant_not_found": {
         "hint": "Check the warrantId (bytes32, 0x + 64 hex). list_warrants({ agent }) lists the known warrants.",
-        "docs": "https://warrant.sh/docs/warrants#lookup",
+        "docs": "https://github.com/4n0nn43x/warrant/warrants#lookup",
     },
     "gateway_unreachable": {
         "hint": "The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.",
-        "docs": "https://warrant.sh/docs/troubleshooting#gateway",
+        "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway",
     },
     "gateway_error": {
         "hint": "Retry; if it persists, the detail is in `details`.",
-        "docs": "https://warrant.sh/docs/troubleshooting#gateway",
+        "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway",
     },
 }
 

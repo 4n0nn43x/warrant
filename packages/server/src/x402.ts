@@ -1100,7 +1100,16 @@ export interface ProblemDetails {
 }
 
 /** URI space of the Gateway's error types. */
-export const PROBLEM_BASE = 'https://warrant.sh/problems'
+/**
+ * RFC 9457 `type`. A URN, not an https URL.
+ *
+ * The `type` is an identifier first: the spec only says it SHOULD dereference to
+ * documentation, and this project publishes none. It used to be
+ * `https://warrant.sh/problems/…` — a domain owned by an unrelated project, so
+ * every error we returned pointed a reader at someone else's site. A URN
+ * promises nothing and misattributes nothing.
+ */
+export const PROBLEM_BASE = 'urn:warrant:problem'
 
 export function problem(
   code: string,
@@ -1110,7 +1119,7 @@ export function problem(
   extra: Record<string, unknown> = {},
 ): ProblemDetails {
   return {
-    type: `${PROBLEM_BASE}/${code}`,
+    type: `${PROBLEM_BASE}:${code}`,
     title,
     status,
     ...(detail ? { detail } : {}),

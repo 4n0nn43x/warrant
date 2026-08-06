@@ -517,7 +517,7 @@ async function main(): Promise<void> {
      * never to a slash.
      */
     store: fileWarrantStore(optional('WARRANT_JOURNAL_FILE', '.warrant/warrants.jsonl')),
-    realm: optional('WARRANT_REALM', 'warrant.sh'),
+    realm: optional('WARRANT_REALM', 'warrant'),
     network,
     asset,
     payTo,

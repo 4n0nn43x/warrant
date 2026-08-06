@@ -112,7 +112,7 @@ def test_a_malformed_action_field_names_itself(action_spec: dict[str, Any]) -> N
     # This code's hint is the one reminding the caller that category and notional
     # are derived: that is exactly where an agent needs it.
     assert "derived from the calldata" in err.hint
-    assert err.docs.startswith("https://warrant.sh/docs")
+    assert err.docs.startswith("https://github.com/4n0nn43x/warrant")
 
 
 def test_a_missing_required_argument_is_invalid_input() -> None:

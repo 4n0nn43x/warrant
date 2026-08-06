@@ -238,7 +238,7 @@ replayable. The placeholder from the walkthrough above gets you:
 
 ```json
 {"error": {"code": "gateway_error", "message": "POST /v1/quote answered 422.",
-  "details": {"type": "https://warrant.sh/problems/registry_mismatch",
+  "details": {"type": "urn:warrant:problem:registry_mismatch",
     "declared": "0x00…01",
     "expected": "0x62bc8078d52fd768cfb96011df5011fdbd5832539586b997631e472ec979b90e"}}}
 ```

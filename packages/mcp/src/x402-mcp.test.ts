@@ -23,7 +23,7 @@ const PAYMENT_REQUIRED: PaymentRequired = {
   x402Version: 2,
   error: 'PAYMENT-SIGNATURE header is required',
   resource: {
-    url: 'https://api.warrant.sh/v1/warrants',
+    url: 'https://gateway.example/v1/warrants',
     description: 'Bond for a KeeperHub-executed action — « post-condition » included',
     mimeType: 'application/json',
   },
@@ -117,7 +117,7 @@ describe('withSettlement', () => {
 describe('extractPayment', () => {
   const payload = {
     x402Version: 2,
-    resource: { url: 'https://api.warrant.sh/v1/warrants' },
+    resource: { url: 'https://gateway.example/v1/warrants' },
     accepted: PAYMENT_REQUIRED.accepts[0],
     payload: { type: 'proof' },
   }
