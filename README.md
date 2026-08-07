@@ -87,11 +87,22 @@ uses. A conformance test in `packages/server` holds the SDK's encoder against th
 and an end-to-end test drives the real Gateway through the published SDK rather than through a
 test-local helper — the two shapes that could drift without either side's own tests noticing.
 
-> **Not yet demonstrated onchain.** Every warrant settled so far was opened by the operations tool,
-> which bypasses the Gateway entirely — no 402, no Challenge, no facilitator. Those records are
-> labelled `rail: direct` for that reason; they used to claim `x402`, which inflated a count of
-> something that never happened. `pnpm --filter @warrant/server open-via-gateway -- --rail mpp` is the
-> path that produces a real one, and it has not been run against the live deployment yet.
+**Demonstrated onchain on 2026-08-07**, and it took the hosted Gateway plus a running Settler to do
+it. Warrant [`0x15f34971…dde4`](verdicts/0x15f3497102114c00d663fd64e673005d2a5cf24f972cc149eea27057d127dde4)
+was opened on the **MPP rail** against `warrant.fyra.fun`: 402 carrying both challenges on one
+response, an EIP-3009 authorization whose nonce is the terms hash, the facilitator settling, KeeperHub
+executing with sponsored gas, and the Settler slashing at a pinned block. `keccak256` of the document
+GitHub serves equals the `feedbackHash` written to ERC-8004, and `replay-verdict.sh` reproduces all
+four checks.
+
+It was slashed, and correctly: the action transferred 1 USDC to `0x…dEaD` while the policy's allowlist
+names another address. The post-condition is written by the policy, never by the agent, so a transfer
+outside the allowlist fails by construction — which is the whole enforcement mechanism, observed
+working rather than asserted.
+
+The 60 warrants that predate it were opened by the operations tool, which bypasses the Gateway
+entirely. They are labelled `rail: direct` for that reason; they used to claim `x402`, which inflated
+a count of something that never happened.
 
 ## Using it from an agent
 
@@ -122,7 +133,6 @@ packages/mcp/       MCP server — 4 tools, protocol revision 2026-07-28
 packages/sdk-ts/    the single source of tool definitions, plus framework adapters
 packages/reputation-reader/   stake-weighted ERC-8004 score, read from onchain events
 packages/sdk-py/    Python projection of the same tools — LangChain, CrewAI
-apps/explorer/      block explorer for warrants; reads the Gateway, falls back to chain events
 apps/runner/        volume runner: opens and settles warrants on a budget
 skills/             OpenClaw skill
 verdicts/           published verdict documents — the bytes ERC-8004 commits to

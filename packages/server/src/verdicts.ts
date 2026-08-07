@@ -76,7 +76,7 @@
  *      repository's history — for no gain at all.
  *
  * The read-only HTTP server is **kept**: it serves the same tree locally, before
- * the push, for development and for the explorer. Configured with the git-raw
+ * the push, for development. Configured with the git-raw
  * base, it serves under the same relative path (`/verdicts/<warrantId>`), so a
  * client only has one prefix to change.
  */

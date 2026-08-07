@@ -175,7 +175,7 @@ export const listWarrantsOutputSchema = z.object({
     slashed: z.number(),
     reclaimed: z.number(),
     // These three names are the ones the Gateway actually serves
-    // (`GET /v1/warrants`), and the ones the explorer consumes. The schema used
+    // (`GET /v1/warrants`). The schema used
     // to declare `totalBonded` / `totalSlashed` / `honorRateBps`, which existed
     // nowhere else: an adapter generated from this single source therefore
     // promised fields absent from the response.
