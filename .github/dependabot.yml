@@ -1,0 +1,38 @@
+# Dependency updates.
+#
+# Grouped on purpose. Ungrouped Dependabot on a pnpm monorepo with five
+# manifests opens dozens of pull requests a week, they stop being read, and the
+# security updates drown with the rest.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        applies-to: version-updates
+        dependency-type: production
+      development:
+        applies-to: version-updates
+        dependency-type: development
+      security:
+        applies-to: security-updates
+        patterns: ['*']
+
+  - package-ecosystem: pip
+    directory: /packages/sdk-py
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+
+  # The workflows pull third-party actions. A repointed tag is how
+  # tj-actions/changed-files was compromised, so these are pinned to commit
+  # SHAs — Dependabot understands that and bumps the SHA with the version in
+  # the comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: monday }

@@ -1,0 +1,138 @@
+# Build, typecheck, test — the gates that were removed in 917a1f8 and cost us
+# twice since.
+#
+# That commit stated what would be lost, and both losses arrived:
+#
+#   • the classification registry's `registryRef` pin. Without it, a Gateway was
+#     deployed loading the wrong registry and refused *every* quote in
+#     production with `registry_mismatch`. The failure was silent — the health
+#     check passed, the logs looked calm, and the only symptom was a counter
+#     that never moved (fixed in 073f8a7, and pinned again below).
+#   • `forge test` on the only component that holds funds.
+#
+# Everything here already runs locally. The point of the file is that it runs
+# when someone forgets.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# Read-only floor. No job in this file needs more; widen per job, never here.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Base Sepolia — the live deployment. `registryRef = keccak256(JCS(registry))`
+  # is inscribed in the `actionSpec` of every warrant ever opened, so this is a
+  # commitment, not a checksum: it may only change alongside a new deployment.
+  EXPECTED_REGISTRY_REF: '0x62bc8078d52fd768cfb96011df5011fdbd5832539586b997631e472ec979b90e'
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Frozen: the lockfile is the supply-chain control. A CI run that is
+      # allowed to resolve a version nobody reviewed proves nothing about what
+      # ships.
+      - run: pnpm install --frozen-lockfile
+
+      # Build before typecheck: packages resolve each other through `dist`, so a
+      # typecheck on a cold tree fails on missing declarations rather than on
+      # anything real.
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+      # Canonicalisation is a commitment, not a formatting choice. If JCS output
+      # moves, every `conditionHash` moves with it — this turns that from an
+      # invisible break into a failed build.
+      - name: conditionHash fixtures still recompute identically
+        run: |
+          pnpm fixtures
+          git diff --quiet -- packages/core/fixtures || {
+            echo "::error::JCS canonicalisation changed: the fixtures no longer recompute."
+            git --no-pager diff -- packages/core/fixtures
+            exit 1
+          }
+
+      - name: registryRef of the live deployment is unchanged
+        run: |
+          # ESM explicitly. `require()` of an ESM module happens to work on
+          # Node 22, but leaning on that would make this step depend on a
+          # runtime detail rather than on the package's actual shape.
+          ACTUAL=$(node --input-type=module -e "
+            import { parseRegistry, registryRefOf } from './packages/core/dist/index.js';
+            import { readFileSync } from 'node:fs';
+            process.stdout.write(registryRefOf(parseRegistry(
+              readFileSync('deployments/registry-base-sepolia.json','utf8'))));
+          ")
+          echo "expected $EXPECTED_REGISTRY_REF"
+          echo "actual   $ACTUAL"
+          [ "$ACTUAL" = "$EXPECTED_REGISTRY_REF" ] || {
+            echo "::error::registryRef moved. It is inscribed in the actionSpec of every warrant opened so far; a Gateway loading this registry would refuse every quote."
+            exit 1
+          }
+
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk-py
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with: { python-version: '3.12' }
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - run: uv venv && uv pip install -e '.[dev]'
+      - run: uv run pytest -q
+
+      # The Python SDK, the OpenAPI snapshot and the OpenClaw skill are all
+      # generated from the TypeScript tool definitions. This fails when someone
+      # edits a generated file by hand, which is the only way the projections
+      # can silently disagree with their source.
+      - name: generated artefacts match their single source
+        working-directory: .
+        run: |
+          npm install -g pnpm@11.17.0
+          pnpm install --frozen-lockfile
+          pnpm --filter warrant-core build
+          pnpm --filter @warrant/sdk-py codegen:check
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive   # forge-std and openzeppelin-contracts
+          persist-credentials: false
+
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
+
+      - name: forge test
+        working-directory: contracts
+        run: forge test -vv
+
+      # Formatting is checked because the deployed bytecode is reproducible only
+      # from a source everyone agrees on.
+      - name: forge fmt
+        working-directory: contracts
+        run: forge fmt --check

@@ -1,0 +1,19 @@
+# Everything, by default.
+*                       @4n0nn43x
+
+# The three places where a mistake is expensive rather than annoying.
+#
+# The escrow holds the bonds and has no upgrade path: no proxy, no governance,
+# no emergency withdrawal. A bug here is permanent.
+/contracts/             @4n0nn43x
+
+# CI holds the registry credential and the publish rights. It is the highest
+# value target in the repository, and it is what every major supply-chain
+# incident of 2025-2026 went through.
+/.github/workflows/     @4n0nn43x
+
+# These are commitments, not configuration. `registryRef` is inscribed in the
+# actionSpec of every warrant ever opened, and the verdict corpus is the bytes
+# ERC-8004 hashes.
+/deployments/           @4n0nn43x
+/verdicts/              @4n0nn43x

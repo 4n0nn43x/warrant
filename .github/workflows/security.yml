@@ -1,0 +1,198 @@
+# Security gate.
+#
+# Every job here is blocking, which is unusual for a first rollout and is a
+# deliberate exception. The standard advice — report-only, collect a baseline,
+# flip later — exists because turning full gates on a mature repository produces
+# hundreds of findings and a team that disables the pipeline within a month.
+#
+# That is not the state of this repository. Measured on 2026-08-07, before this
+# file existed:
+#
+#   SCA (fixable, CRITICAL+HIGH)   0
+#   IaC / Dockerfile misconfig     0
+#   hadolint (warning threshold)   0
+#   SAST                           1 WARNING — `dynamic-urllib-use-detected`
+#                                    in the SDK's HTTP client, which is what an
+#                                    HTTP client does
+#   Secrets, full history          0 with .gitleaks.toml
+#
+# A baseline of zero is not a baseline. Blocking from day one costs nothing here
+# and means the first real finding is the one that stops a merge.
+
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '0 3 * * 1'   # Monday, full history and full inventory
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Secrets. Blocking from day one, no baseline, no exceptions.
+  #
+  # The rules that matter here are the custom ones in .gitleaks.toml: an EVM
+  # private key assignment, a `kh_` KeeperHub key, a PyPI or npm publish token.
+  # Generic detectors miss all four, and those are precisely the credentials
+  # nobody else will revoke for us — `settler` can seize a bond and send it to a
+  # third party.
+  # --------------------------------------------------------------------------
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0             # history, not just the tip
+          persist-credentials: false # do not leave the token in .git/config
+
+      # Pinned image rather than the marketplace action: this job reads
+      # untrusted input, and one fewer third party in that path is one fewer
+      # place a tag can be repointed.
+      #
+      # `git` and `dir` find different things and both run. `--redact` is not
+      # optional: without it the finding lands in the build log in plaintext and
+      # the log becomes the leak.
+      - name: gitleaks — full history
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 \
+            git /repo --config /repo/.gitleaks.toml --redact --no-banner
+
+      - name: gitleaks — working tree
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 \
+            dir /repo --config /repo/.gitleaks.toml --redact --no-banner
+
+  # --------------------------------------------------------------------------
+  # SCA — fixable only. A CVE with no patch is a risk-acceptance decision, not a
+  # merge blocker, and treating it as one is how a gate earns its reputation for
+  # crying wolf.
+  # --------------------------------------------------------------------------
+  sca:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write    # free on public repositories
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'        # the gate. Without this Trivy always exits 0.
+          format: sarif
+          output: trivy.sarif
+          skip-dirs: contracts/lib,node_modules
+
+      - name: Upload SARIF
+        if: always()            # upload even when the gate failed
+        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  # Blocks a pull request that *introduces* a vulnerable or badly licensed
+  # dependency. Diff-scoped, so close to zero noise.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4
+        with:
+          fail-on-severity: high
+
+  # --------------------------------------------------------------------------
+  # SAST — diff-scoped on pull requests. Blocking on the whole existing finding
+  # set is the classic rollout failure, even when that set is one line long.
+  # --------------------------------------------------------------------------
+  sast:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    container:
+      image: semgrep/semgrep:1.99.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Semgrep
+        run: |
+          BASE=$(git merge-base "origin/${BASE_REF:-master}" HEAD 2>/dev/null || echo "")
+          if [ -n "$BASE" ]; then
+            semgrep ci --config=p/security-audit --config=p/secrets \
+              --baseline-commit "$BASE" --sarif --output=semgrep.sarif
+          else
+            semgrep scan --config=p/security-audit --config=p/secrets \
+              --exclude=contracts/lib --exclude=node_modules --exclude='**/dist' \
+              --sarif --output=semgrep.sarif
+          fi
+        env:
+          # Through `env`, never interpolated into the shell: a ref is
+          # attacker-controlled on a fork and `${{ }}` inside `run:` is command
+          # injection.
+          BASE_REF: ${{ github.base_ref }}
+
+      - if: always()
+        uses: github/codeql-action/upload-sarif@c4dd10e44af883a891fe31ced449bcb4a6728b9b # v3.37.6
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  # --------------------------------------------------------------------------
+  # The image this repository ships is the Gateway and the Settler. Both hold
+  # credentials: KH_API_KEY on one, SETTLER_PRIVATE_KEY on the other.
+  # --------------------------------------------------------------------------
+  dockerfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - name: hadolint
+        run: |
+          docker run --rm -i hadolint/hadolint:2.12.0 \
+            hadolint --failure-threshold warning - < Dockerfile
+
+      - name: Trivy config
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          skip-dirs: contracts/lib,node_modules
+
+  # --------------------------------------------------------------------------
+  # The workflows are themselves attack surface, and the highest-value one in
+  # the repository: CI holds the registry credential and the publish rights.
+  # Every major Actions incident of 2025-2026 entered this way, not through the
+  # application. zizmor finds those classes — injection, unpinned actions,
+  # pull_request_target misuse, excessive permissions, credential persistence.
+  # --------------------------------------------------------------------------
+  workflow-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+      - name: zizmor
+        run: |
+          docker run --rm -v "$PWD:/src:ro" ghcr.io/zizmorcore/zizmor@sha256:863026d54f91271b10b60b67ad8054cb37120167e162482597db102b3026a284 \
+            --min-severity medium /src/.github/workflows

@@ -1,0 +1,197 @@
+# Build → scan → push → sign → attest → **verify**.
+#
+# The last step is the one that matters. A signature nobody checks is
+# decoration, so this workflow verifies its own output, in a separate job with
+# no write permissions, before the release is considered consumable.
+#
+# The image is the Gateway and the Settler — the same build, two entrypoints.
+# What it runs holds `KH_API_KEY` on one side and `SETTLER_PRIVATE_KEY` on the
+# other, the key that can seize a bond and pay it to a third party. That is the
+# reason for the whole chain: an operator pulling this image should be able to
+# prove it came from this repository and nowhere else.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # push to GHCR
+      id-token: write       # OIDC — keyless signing, no key to leak or rotate
+      attestations: write
+
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # The job's own OIDC-minted GITHUB_TOKEN. No PAT, no stored registry
+      # credential — there is nothing here for a later leak to expose.
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+
+      # Build, load locally, scan, and only then push. Scanning after the push
+      # means a vulnerable image is already pullable by the time the gate fires.
+      - name: Build (local, not pushed)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          tags: scan-target:local
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan before publishing
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: scan-target:local
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # The container must not start as root, and must not be able to write its
+      # own code. Checked here rather than trusted, because the Dockerfile can
+      # be edited and this is the property the deployment depends on.
+      - name: The image runs unprivileged
+        run: |
+          USER_ID=$(docker image inspect scan-target:local --format '{{.Config.User}}')
+          echo "image USER = '${USER_ID}'"
+          [ -n "$USER_ID" ] && [ "$USER_ID" != "root" ] && [ "$USER_ID" != "0" ] || {
+            echo "::error::the image would start as root"
+            exit 1
+          }
+
+      - name: Push with SBOM and provenance
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+
+      # A standalone SBOM outlives the build. It is what answers "which releases
+      # contain component X" months later, when the build logs are long gone.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          retention-days: 90
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      # The digest, never the tag. A tag is mutable, and signing something that
+      # can be repointed defeats the entire exercise.
+      - name: Sign the digest
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$IMG"
+
+      - name: Attest the SBOM
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
+        run: cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMG"
+
+  # --------------------------------------------------------------------------
+  # Verification, in a job that can write nothing. If this fails, the release is
+  # not consumable — which is the point of running it at all.
+  # --------------------------------------------------------------------------
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # to query the transparency log
+    steps:
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+
+      # The two identity flags ARE the policy. `cosign verify` without them
+      # accepts any valid Sigstore signature from anyone on earth, which is a
+      # check that always passes and proves nothing.
+      - name: Verify the signature against a pinned identity
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          cosign verify "$IMG" \
+            --certificate-identity-regexp "^https://github\.com/${REPO}/\.github/workflows/.+@refs/tags/v.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: Verify the SBOM attestation
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          cosign verify-attestation --type cyclonedx "$IMG" \
+            --certificate-identity-regexp "^https://github\.com/${REPO}/\.github/workflows/.+@refs/tags/v.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+      - name: What an operator runs to check this image
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE }}@${{ needs.build.outputs.digest }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Verified image
+
+          \`\`\`
+          $IMG
+          \`\`\`
+
+          Before pulling it anywhere that matters:
+
+          \`\`\`bash
+          cosign verify $IMG \\
+            --certificate-identity-regexp '^https://github\.com/${REPO}/\.github/workflows/.+@refs/tags/v.+' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          \`\`\`
+
+          Without the two \`--certificate-*\` flags the command accepts any valid
+          Sigstore signature from anyone, and tells you nothing.
+          EOF

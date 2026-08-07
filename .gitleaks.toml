@@ -1,0 +1,133 @@
+# Secret detection for this repository.
+#
+# The default ruleset covers the big providers. What it does not cover is the
+# handful of credential formats this project actually holds — and those are the
+# ones nobody else will revoke for us.
+#
+# Measured on 2026-08-07, before the repository went public: the default rules
+# alone produced 199 findings, 179 of them inside the vendored OpenZeppelin
+# submodule. A gate that fires 199 times on its first run is a gate somebody
+# turns off in week two, so the allowlist below is as load-bearing as the rules.
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# The credentials this project can actually leak.
+# ---------------------------------------------------------------------------
+
+# The one that matters most. Both roles are onchain authorities: `opener` may
+# open a warrant against funds already paid in, `settler` may seize a bond and
+# send it to a third party. A leaked key here is not a scare, it is a loss.
+[[rules]]
+id = "evm-private-key-assignment"
+description = "EVM private key assigned to a variable or an env var"
+regex = '''(?i)(?:private[_-]?key|_pk|secret[_-]?key)\s*[=:]\s*["']?0x[0-9a-fA-F]{64}'''
+keywords = ["private_key", "privatekey", "PRIVATE_KEY", "0x"]
+
+[[rules]]
+id = "keeperhub-api-key"
+description = "KeeperHub organization API key"
+regex = '''kh_[A-Za-z0-9]{16,}'''
+keywords = ["kh_"]
+entropy = 3.0
+
+# Added after three of these were pasted into a terminal in one evening. The
+# publish flow is exactly when a token is most likely to end up in a command.
+[[rules]]
+id = "pypi-upload-token"
+description = "PyPI API token"
+regex = '''pypi-Ag[A-Za-z0-9_\-]{40,}'''
+keywords = ["pypi-Ag"]
+
+[[rules]]
+id = "npm-access-token"
+description = "npm automation or publish token"
+regex = '''npm_[A-Za-z0-9]{36}'''
+keywords = ["npm_"]
+
+# Signs the MPP Challenges. Not a fund-moving key, but forging a Challenge means
+# forging the terms a client believes it is paying for.
+[[rules]]
+id = "warrant-mpp-secret"
+description = "MPP Challenge signing secret"
+regex = '''MPP_SECRET_KEY\s*[=:]\s*["']?[A-Za-z0-9_\-]{40,}'''
+keywords = ["MPP_SECRET_KEY"]
+
+[[rules]]
+id = "private-key-block"
+description = "PEM private key material"
+regex = '''-----BEGIN (RSA|EC|OPENSSH|PGP|DSA)? ?PRIVATE KEY( BLOCK)?-----'''
+keywords = ["BEGIN", "PRIVATE KEY"]
+
+# ---------------------------------------------------------------------------
+# Allowlist — every entry verified, not assumed.
+#
+# Nothing here is a live credential. `.env` has never been tracked (checked
+# against every commit), and the single 64-hex key in the whole history is
+# Anvil's, below.
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Verified non-credentials"
+
+paths = [
+  # Not version-controlled, and 1838 of the 1842 working-tree findings. Scanning
+  # a dependency tree tells us about other people's fixtures, never about us.
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)\.warrant/''',
+  '''(^|/)out/''',
+  '''(^|/)cache/''',
+
+  # Vendored submodules. OpenZeppelin's own ECDSA and ERC-20 test vectors, all
+  # public on their repository, and 179 of the 199 default-rule findings. We do
+  # not own this code and cannot fix it; scanning it teaches us nothing.
+  '''(^|/)contracts/lib/''',
+
+  # JCS canonicalisation vectors: Unicode key-ordering cases and the keccak
+  # hashes they must produce. High-entropy by construction and hashed *data*,
+  # not prose — translating or reformatting one changes a commitment.
+  '''(^|/)packages/core/fixtures/condition-hashes\.json$''',
+
+  # Recorded onchain artefacts: transaction hashes, calldata, addresses,
+  # feedback hashes. All public by definition — they are what a third party
+  # replays.
+  '''(^|/)verdicts/''',
+  '''(^|/)deployments/''',
+  '''(^|/)contracts/broadcast/''',
+
+  '''pnpm-lock\.yaml$''',
+]
+
+regexes = [
+  # Anvil / Hardhat deterministic account #1. Printed by `anvil` on every
+  # start, published in every Foundry tutorial, and holding nothing on any real
+  # network. Used as the demo signer in the Python quickstarts and conftest.
+  '''0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d''',
+
+  # An EVM **address** is 20 bytes; a private key is 32. `0x` followed by
+  # exactly 40 hex digits and then a word boundary therefore cannot be a key —
+  # it is a contract or an account. (Go uses RE2, so this is a boundary and not
+  # a negative lookahead, which RE2 rejects outright.) The generic rule flags
+  # these because the variable holding one is usually called `token`, which in
+  # this codebase means an ERC-20 contract and never a credential.
+  '''0x[0-9a-fA-F]{40}\b''',
+
+  '''(?i)your[-_]?(api[-_]?)?key[-_]?here''',
+  '''(?i)(changeme|placeholder|dummy|redacted|xxxxx)''',
+  '''REMPLACE-PAR-TON-JETON''',
+]
+
+# ---------------------------------------------------------------------------
+# Running it
+#
+#   gitleaks dir .  --config .gitleaks.toml --redact     # working tree
+#   gitleaks git .  --config .gitleaks.toml --redact     # full history
+#
+# `dir` and `git` find different things — run both. `--redact` is not optional
+# in CI: without it the finding lands in the build log in plaintext, and the
+# build log becomes the leak, readable by anyone with repo access and retained
+# far longer than the secret's useful life.
+# ---------------------------------------------------------------------------
