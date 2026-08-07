@@ -1,0 +1,19 @@
+# Anything that could carry a secret, a stale build, or 70 MB of nothing.
+.env
+.env.*
+!.env.example
+.git
+.warrant
+node_modules
+**/node_modules
+**/dist
+contracts
+apps
+audit
+docs
+verdicts
+skills
+packages/sdk-py
+packages/mcp
+packages/reputation-reader
+*.log

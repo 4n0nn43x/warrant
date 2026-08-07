@@ -30,6 +30,7 @@
 
 import { readFileSync } from 'node:fs'
 import { serve } from '@hono/node-server'
+import { Hono } from 'hono'
 import { loadRegistry, parseRegistry, type Address, type Policy } from '@warrant/core'
 import { createHash } from 'node:crypto'
 import { createPublicClient, createWalletClient, http } from 'viem'
@@ -43,6 +44,12 @@ import {
   viemEscrow,
   type EscrowPort,
 } from '../gateway.js'
+import {
+  bodyLimitGuard,
+  corsGuard,
+  parseOrigins,
+  rateLimitGuard,
+} from '../http-guards.js'
 import { DEFAULT_MPP_METHOD } from '../openapi.js'
 import { fileWarrantStore } from '../journal.js'
 import { KeeperHubClient } from '../keeperhub.js'
@@ -539,7 +546,47 @@ async function main(): Promise<void> {
     challengeTtlSeconds: Number(optional('MPP_CHALLENGE_TTL', '300')),
   })
 
-  serve({ fetch: app.fetch, port }, (info) => {
+  // ── Perimeter ────────────────────────────────────────────────────────────
+  //
+  // Wrapped around the protocol app rather than built into `createGateway`: the
+  // guards only mean something for a Gateway with a public DNS name, and every
+  // unit test would otherwise carry a rate limiter it has no use for.
+  //
+  // The order is the point, and it is not the intuitive one.
+  //
+  //   CORS first — it has to annotate *every* response, a 429 included, or a
+  //     browser hitting the limit sees an opaque network error instead of the
+  //     reason. It also answers preflights itself, so they never reach the
+  //     limiter and never consume a visitor's quota.
+  //   Rate limit second — before the body guard, deliberately. The other way
+  //     round, an oversized request would be rejected without ever being
+  //     counted, which hands an attacker an unmetered channel.
+  //   Body limit last — it only reads `Content-Length`, so it is cheap wherever
+  //     it sits, and it is the guard closest to the JSON it protects.
+  const corsOrigins = parseOrigins(process.env['WARRANT_CORS_ORIGINS'])
+  const rateLimitRpm = Number(optional('WARRANT_RATE_LIMIT_RPM', '60'))
+  const maxBodyBytes = Number(optional('WARRANT_MAX_BODY_BYTES', '65536'))
+  const trustProxy = optional('WARRANT_TRUST_PROXY', 'false') === 'true'
+
+  const guarded = new Hono()
+  guarded.use('*', corsGuard({ origins: corsOrigins }))
+  if (rateLimitRpm > 0) {
+    guarded.use(
+      '*',
+      rateLimitGuard({
+        limit: rateLimitRpm,
+        windowMs: 60_000,
+        trustProxy,
+        // The health probe is what tells the container it is alive; letting it
+        // consume quota would make the limiter able to kill its own service.
+        skip: (path) => path === '/healthz',
+      }),
+    )
+  }
+  guarded.use('*', bodyLimitGuard(maxBodyBytes))
+  guarded.route('/', app)
+
+  serve({ fetch: guarded.fetch, port }, (info) => {
     console.log(
       JSON.stringify({
         msg: 'warrant gateway',
