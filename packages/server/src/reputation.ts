@@ -8,7 +8,7 @@
  *      `proofOfPayment` field, which is the standard bridge between the x402
  *      payment and reputation;
  *   2. it computes `feedbackHash = keccak256(canonicalize(doc))` with
- *      `@warrant/core`'s JCS canonicalisation — the same one that produces the
+ *      `warrant-core`'s JCS canonicalisation — the same one that produces the
  *      onchain `conditionHash`: one implementation, never two;
  *   3. it calls `giveFeedback` from the Settler's address.
  *
@@ -58,7 +58,7 @@ import {
   hashCanonical,
   normalizeActionSpec,
   normalizeConditionSpec,
-} from '@warrant/core'
+} from 'warrant-core'
 import type {
   ActionSpec,
   Address,
@@ -67,7 +67,7 @@ import type {
   ConditionSpec,
   Hex,
   VerdictDocument,
-} from '@warrant/core'
+} from 'warrant-core'
 import { encodeFunctionData, stringToHex } from 'viem'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ export type WarrantVerdict = 'honored' | 'slashed' | 'reclaimed'
 
 /**
  * The verdict document as the Settler produces it, widened to `reclaimed`.
- * `@warrant/core`'s `VerdictDocument` only knows `honored` / `slashed`: an expired
+ * `warrant-core`'s `VerdictDocument` only knows `honored` / `slashed`: an expired
  * warrant produces no publishable document, but it still travels through
  * `publishVerdict`, which must be able to refuse it explicitly.
  */
@@ -530,7 +530,7 @@ function lowerHex(value: string, path: string): Hex {
  *     into what gets hashed.
  *
  * An absent `settlementTx` becomes `null` rather than being omitted — the same
- * rule as `@warrant/core`: no absent optional field, otherwise two semantically
+ * rule as `warrant-core`: no absent optional field, otherwise two semantically
  * identical documents would produce two hashes (docs/07 § 4, rule 4).
  */
 export function toVerdictRecord(

@@ -37,7 +37,7 @@
  * serves the accounting.
  */
 
-import { WarrantStatus, type Address, type Hex } from '@warrant/core'
+import { WarrantStatus, type Address, type Hex } from 'warrant-core'
 import type { PublicClient } from 'viem'
 import { fileWarrantStore, type WarrantJournal } from '../../../packages/server/src/journal.js'
 import type { WarrantRecord } from '../../../packages/server/src/gateway.js'

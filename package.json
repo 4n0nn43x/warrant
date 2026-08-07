@@ -20,7 +20,7 @@
   "devDependencies": {
     "@coinbase/cdp-sdk": "^1.54.0",
     "@types/node": "^22.10.2",
-    "@warrant/core": "workspace:*",
+    "warrant-core": "workspace:*",
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

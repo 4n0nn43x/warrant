@@ -6,7 +6,7 @@
  * reads the wrong variable does not fail, it spends.
  */
 
-import type { Address, Hex } from '@warrant/core'
+import type { Address, Hex } from 'warrant-core'
 import type { Action } from './ledger.js'
 
 export function required(name: string): string {

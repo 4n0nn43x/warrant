@@ -10,7 +10,7 @@ import {
   type Address,
   type ConditionSpec,
   type Hex,
-} from '@warrant/core'
+} from 'warrant-core'
 import type { PublicClient } from 'viem'
 import {
   createSettlementDaemon,
@@ -383,7 +383,7 @@ describe('daemon — ERC-8004 recording', () => {
     await daemon.tick()
 
     const feedback = wallet.calls.find((c) => c.functionName === 'giveFeedback')
-    const { hashCanonical } = await import('@warrant/core')
+    const { hashCanonical } = await import('warrant-core')
     expect(hashCanonical(pub.read(WARRANT_ID) as string)).toBe(feedback?.args[7])
   })
 

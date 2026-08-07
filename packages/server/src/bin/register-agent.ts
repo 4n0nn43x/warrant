@@ -55,7 +55,7 @@
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ERC8004, type Address, type Hex } from '@warrant/core'
+import { ERC8004, type Address, type Hex } from 'warrant-core'
 import {
   createPublicClient,
   createWalletClient,
@@ -109,7 +109,7 @@ function optional(name: string, fallback: string): string {
  * address whose case does not match — the vanity-prefixed ERC-8004 addresses as
  * they circulate (`0x8004A818BFb912233C491871b3d84C89A494Bd9e`) do not have a
  * valid checksum and make `readContract` fail before even reaching the network.
- * The constants in `@warrant/core` are lowercase for the same reason.
+ * The constants in `warrant-core` are lowercase for the same reason.
  */
 function address(name: string, value: string): Address {
   if (!/^0x[0-9a-fA-F]{40}$/.test(value)) {

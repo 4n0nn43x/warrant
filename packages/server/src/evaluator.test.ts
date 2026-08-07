@@ -32,7 +32,7 @@ import {
   type EvaluationContext,
 } from './evaluator.js'
 import { TOPIC_APPROVAL, TOPIC_TRANSFER } from './checks/abi.js'
-import { actionHash as defaultActionHash, canonicalize } from '@warrant/core'
+import { actionHash as defaultActionHash, canonicalize } from 'warrant-core'
 import type { Check, ConditionSpec } from './checks/types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -942,7 +942,7 @@ describe('calldata_matches_commitment', () => {
     expect(result.pass).toBe(false)
   })
 
-  it("accepts an injected hasher — @warrant/core's one in integration", async () => {
+  it("accepts an injected hasher — warrant-core's one in integration", async () => {
     const injected = `0x${'11'.repeat(32)}` as Hex
     const result = await one(
       { kind: 'calldata_matches_commitment', actionHash: injected },

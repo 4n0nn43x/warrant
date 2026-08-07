@@ -12,7 +12,7 @@ metadata:
     envVars:
       - name: WARRANT_BASE_URL
         required: false
-        description: Warrant Gateway root. Defaults to http://127.0.0.1:8402.
+        description: Warrant Gateway root. Defaults to the hosted one, https://warrant.fyra.fun.
       - name: WARRANT_PRIVATE_KEY
         required: false
         description: Agent key that signs the EIP-3009 bond authorization. Only request_warrant needs it — the three read tools work without a key.
@@ -66,7 +66,9 @@ With `pipx` instead of `uv`, every command below is the same with
 declares both under `requires.anyBins`, so OpenClaw gates the skill off rather than
 offering a tool that cannot run.
 
-Set `WARRANT_BASE_URL` if the Gateway is not on `http://127.0.0.1:8402`. Set
+The tools talk to the hosted Gateway at `https://warrant.fyra.fun` unless told
+otherwise — Base Sepolia, real Circle USDC, no account and no signup. Set
+`WARRANT_BASE_URL` to point at your own Gateway instead. Set
 `WARRANT_PRIVATE_KEY` only when you actually intend to open a warrant — the
 three read tools need no key and spend nothing.
 

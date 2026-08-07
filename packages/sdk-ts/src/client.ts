@@ -12,7 +12,7 @@
  * agent should not have to know about the 402 protocol.
  */
 
-import type { Hex } from '@warrant/core'
+import type { Hex } from 'warrant-core'
 
 import { WarrantError, toWarrantError } from './errors.js'
 import type {

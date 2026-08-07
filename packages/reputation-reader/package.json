@@ -1,10 +1,18 @@
 {
   "name": "@warrant/reputation-reader",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "description": "ERC-8004 reputation score weighted by the capital actually locked up, computed from onchain events",
-  "keywords": ["erc-8004", "erc8004", "reputation", "agents", "onchain", "viem"],
+  "keywords": [
+    "erc-8004",
+    "erc8004",
+    "reputation",
+    "agents",
+    "onchain",
+    "viem"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -13,7 +21,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc -p tsconfig.json",

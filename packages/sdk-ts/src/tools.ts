@@ -12,8 +12,8 @@
  * (docs/09 § intro).
  */
 
-import { validateActionSpec } from '@warrant/core'
-import type { ActionSpec, Address, Hex } from '@warrant/core'
+import { validateActionSpec } from 'warrant-core'
+import type { ActionSpec, Address, Hex } from 'warrant-core'
 import { z } from 'zod'
 
 import { WarrantError, toWarrantError } from './errors.js'
@@ -95,7 +95,7 @@ function parseArgs<S extends z.ZodObject<z.ZodRawShape>>(schema: S, args: unknow
 }
 
 /**
- * Double validation of the `actionSpec`: Zod for the shape, `@warrant/core` for
+ * Double validation of the `actionSpec`: Zod for the shape, `warrant-core` for
  * the domain invariants.
  *
  * Redundant in appearance, useful in practice: the core is the authority on what

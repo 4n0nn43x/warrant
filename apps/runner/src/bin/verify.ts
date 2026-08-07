@@ -63,7 +63,7 @@
  */
 
 import { resolve } from 'node:path'
-import type { Address, Hex } from '@warrant/core'
+import type { Address, Hex } from 'warrant-core'
 import {
   ERC20_READ_ABI,
   deploymentBlock,

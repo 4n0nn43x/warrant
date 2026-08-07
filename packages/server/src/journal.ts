@@ -63,7 +63,7 @@ import {
   appendFileSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
-import type { Hex } from '@warrant/core'
+import type { Hex } from 'warrant-core'
 import type { WarrantRecord, WarrantStore } from './gateway.js'
 
 /** A journal line we could not read back. Never silent. */

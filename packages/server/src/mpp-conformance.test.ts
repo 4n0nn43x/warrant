@@ -1,7 +1,7 @@
 /**
  * The two halves of the MPP rail, held against each other.
  *
- * `@warrant/sdk` packs a Credential; this package unpacks it. They are two files
+ * `warrant-sdk` packs a Credential; this package unpacks it. They are two files
  * in two packages that never import one another at runtime, and the format that
  * binds them lives only in a specification. That is exactly the shape of a
  * divergence nobody notices until a real client is refused — so the check is
@@ -22,8 +22,8 @@ import {
   mppAuthorization,
   parseChallengeHeader as parseChallengeSdk,
   type MppChallenge as SdkChallenge,
-} from '@warrant/sdk/mpp'
-import type { PaymentPayload, PaymentRequired, PaymentSigner } from '@warrant/sdk'
+} from 'warrant-sdk/mpp'
+import type { PaymentPayload, PaymentRequired, PaymentSigner } from 'warrant-sdk'
 import {
   X402_VERSION,
   decodeCredentialHeader,

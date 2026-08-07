@@ -92,7 +92,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { canonicalize, hashCanonical, type Hex } from '@warrant/core'
+import { canonicalize, hashCanonical, type Hex } from 'warrant-core'
 import { batchFeedbackUriFor, feedbackUriFor } from './reputation.js'
 
 /**
@@ -375,7 +375,7 @@ export function fileVerdictPublisher(opts: VerdictPublisherOptions): VerdictPubl
   mkdirSync(batchDir, { recursive: true })
 
   function emit(path: string, uri: string, document: unknown): PublishedVerdict {
-    // A single canonicalisation, `@warrant/core`'s — the same one that backs the
+    // A single canonicalisation, `warrant-core`'s — the same one that backs the
     // onchain `conditionHash`. Two implementations would produce two hashes for
     // one document (risk R1 in docs/13).
     const bytes = canonicalize(document)

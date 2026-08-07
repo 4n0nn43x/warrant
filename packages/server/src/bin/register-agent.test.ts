@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { Address, Hex } from '@warrant/core'
+import type { Address, Hex } from 'warrant-core'
 import { encodeAbiParameters, encodeEventTopics } from 'viem'
 import {
   AGENT_IDS_BASENAME,

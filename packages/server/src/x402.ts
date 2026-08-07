@@ -25,7 +25,7 @@
  *    not recompute the same `id`.
  */
 
-import { canonicalize, type Address, type Hex } from '@warrant/core'
+import { canonicalize, type Address, type Hex } from 'warrant-core'
 import { keccak256, parseSignature, stringToBytes, toHex } from 'viem'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +81,7 @@ export function decodeHeaderObject<T>(header: string): T {
 /**
  * Object → base64url of its **JCS (RFC 8785)** form.
  *
- * MPP requires JCS for `request` and `opaque`. We reuse `@warrant/core`'s
+ * MPP requires JCS for `request` and `opaque`. We reuse `warrant-core`'s
  * canonicalisation — the one behind `conditionHash` — rather than write a second
  * one: a divergence between two canonicalisations would be exactly risk R1 of
  * docs/13.

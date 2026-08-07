@@ -81,7 +81,7 @@ identical EIP-3009 authorization. The MPP Credential's `transaction` payload is 
 x402 `PaymentPayload` and handed to the same facilitator, so `fundingRef` — the authorization's nonce,
 which is the terms hash — is the same on either path. A test asserts the two openings field by field.
 
-Client-side, the rail lives in [`@warrant/sdk/mpp`](packages/sdk-ts/src/mpp.ts): it holds no key and
+Client-side, the rail lives in [`warrant-sdk/mpp`](packages/sdk-ts/src/mpp.ts): it holds no key and
 signs nothing, asking the caller's existing `PaymentSigner` for the same authorization the x402 rail
 uses. A conformance test in `packages/server` holds the SDK's encoder against the Gateway's decoder,
 and an end-to-end test drives the real Gateway through the published SDK rather than through a

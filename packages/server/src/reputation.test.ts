@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { canonicalize, hashCanonical } from '@warrant/core'
-import type { Address, Hex } from '@warrant/core'
+import { canonicalize, hashCanonical } from 'warrant-core'
+import type { Address, Hex } from 'warrant-core'
 import {
   decodeFunctionData,
   encodeFunctionData,

@@ -18,7 +18,7 @@
  */
 
 import type { PublicClient } from 'viem'
-import { MAX_CHECKS, actionHash } from '@warrant/core'
+import { MAX_CHECKS, actionHash } from 'warrant-core'
 import {
   ContextMismatchError,
   InvalidSpecError,
@@ -60,7 +60,7 @@ export interface EvaluationContext {
    */
   registryRef?: Hex
   /**
-   * `actionHash` from `@warrant/core`. Injected so that the evaluator and the
+   * `actionHash` from `warrant-core`. Injected so that the evaluator and the
    * Gateway share exactly one canonicalisation.
    */
   hashAction?: ActionHasher

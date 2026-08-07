@@ -149,7 +149,7 @@ describe('validation', () => {
 
   it('surfaces core errors together with their path', async () => {
     const gateway = stubGateway()
-    // `value` passes the Zod regex but overflows uint256: it is @warrant/core
+    // `value` passes the Zod regex but overflows uint256: it is warrant-core
     // that catches it, and it is indeed the authority on what is hashable.
     const huge = (2n ** 256n).toString()
     await expect(

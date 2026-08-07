@@ -21,7 +21,7 @@ import type {
   ConditionSpec,
   Hex,
   WarrantStatus,
-} from '@warrant/core'
+} from 'warrant-core'
 import type { PaymentPayload, PaymentRequired, SettlementResponse } from './x402.js'
 
 // ─────────────────────────────────────────────────────────────────────────────

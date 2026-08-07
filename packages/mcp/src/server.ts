@@ -5,7 +5,7 @@
  * claude mcp add --transport http warrant https://mcp.example
  * ```
  *
- * Four tools, projected from `@warrant/sdk` — the server redefines no schema, no
+ * Four tools, projected from `warrant-sdk` — the server redefines no schema, no
  * description, no logic. It does only the two things the SDK cannot do: speak
  * JSON-RPC, and implement the x402 v2 transport over MCP (docs/05 § 1.7).
  *
@@ -37,7 +37,7 @@ import {
   warrantToolByName,
   type AnyWarrantTool,
   type GatewayClient,
-} from '@warrant/sdk'
+} from 'warrant-sdk'
 import { z } from 'zod'
 
 import { dualFormat, extractPayment, paymentRequiredResult, withSettlement } from './x402-mcp.js'
@@ -128,7 +128,7 @@ export function describeTool(tool: AnyWarrantTool): Tool {
     // client.
     //
     // The output schemas do exist all the same (`tool.output`, in
-    // `@warrant/sdk`): they type the SDK and will feed the OpenAPI. They are
+    // `warrant-sdk`): they type the SDK and will feed the OpenAPI. They are
     // simply not announced on this particular transport.
     annotations: {
       title: tool.title,

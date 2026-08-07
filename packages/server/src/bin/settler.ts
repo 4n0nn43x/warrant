@@ -46,7 +46,7 @@
 
 import { readFileSync } from 'node:fs'
 import { serve } from '@hono/node-server'
-import { ERC8004, type Address, type Hex } from '@warrant/core'
+import { ERC8004, type Address, type Hex } from 'warrant-core'
 import { createPublicClient, createWalletClient, http, type PublicClient } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { base, baseSepolia, mainnet, sepolia } from 'viem/chains'

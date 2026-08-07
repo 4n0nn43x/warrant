@@ -64,7 +64,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { canonicalize, hashCanonical } from '@warrant/core'
+import { canonicalize, hashCanonical } from 'warrant-core'
 import { buildVerdictIndex } from '../packages/server/src/verdicts.js'
 
 /** Where a Settler may have left documents, in order of increasing staleness. */

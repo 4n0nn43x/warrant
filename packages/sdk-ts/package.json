@@ -1,5 +1,5 @@
 {
-  "name": "@warrant/sdk",
+  "name": "warrant-sdk",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@warrant/core": "workspace:*",
+    "warrant-core": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

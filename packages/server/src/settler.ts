@@ -20,7 +20,7 @@
  *     Every read error leads to a retry and then to expiry, never to a slash.
  */
 
-import type { Address, Hex } from '@warrant/core'
+import type { Address, Hex } from 'warrant-core'
 import { encodePacked, keccak256 } from 'viem'
 import type { PublicClient, WalletClient } from 'viem'
 import { warrantEscrowAbi } from './escrow-abi.js'

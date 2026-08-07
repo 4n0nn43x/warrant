@@ -14,7 +14,7 @@
  *
  *   • classification, pricing and the `ConditionSpec` come out of
  *     `classify` / `priceRisk`, exactly as in `priceAction`;
- *   • `conditionHash` and `actionHash` are computed by `@warrant/core`;
+ *   • `conditionHash` and `actionHash` are computed by `warrant-core`;
  *   • the opening goes through `keeperHubEscrow`, the port actually deployed;
  *   • **the bond is pulled by `open()` against an EIP-3009 authorization the
  *     agent signs**, exactly as the Gateway does with the authorization the x402
@@ -66,7 +66,7 @@ import {
   type Address,
   type Hex,
   type Policy,
-} from '@warrant/core'
+} from 'warrant-core'
 import { createPublicClient, createWalletClient, encodeFunctionData, http, toHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { base, baseSepolia, mainnet, sepolia } from 'viem/chains'

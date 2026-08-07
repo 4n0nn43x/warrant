@@ -17,7 +17,7 @@
  * longer reachable from a binary.
  */
 
-import { WarrantClient, type GatewayClient } from '@warrant/sdk'
+import { WarrantClient, type GatewayClient } from 'warrant-sdk'
 
 import { createWarrantHttpServer } from '../http.js'
 

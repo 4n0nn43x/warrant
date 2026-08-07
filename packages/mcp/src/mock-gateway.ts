@@ -15,7 +15,7 @@
  * production code may depend on it.
  */
 
-import { actionHash, conditionHash, WarrantStatus, type ActionSpec, type Hex } from '@warrant/core'
+import { actionHash, conditionHash, WarrantStatus, type ActionSpec, type Hex } from 'warrant-core'
 import type {
   GatewayClient,
   ListWarrantsQuery,
@@ -27,7 +27,7 @@ import type {
   RequestWarrantResult,
   WarrantRequest,
   WarrantView,
-} from '@warrant/sdk'
+} from 'warrant-sdk'
 
 const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 
@@ -45,7 +45,7 @@ const CATEGORIES: Record<string, { category: QuoteResult['category']; riskBps: n
  * Notional derived from the calldata — never declared.
  *
  * An approximation we own: we read the last 32-byte word and assume six
- * decimals. The real Classifier decodes the ABI (`@warrant/core`), but the point
+ * decimals. The real Classifier decodes the ABI (`warrant-core`), but the point
  * being demonstrated is the same — the value comes from the calldata, not from
  * the request.
  */

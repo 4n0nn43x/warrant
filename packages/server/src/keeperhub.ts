@@ -13,7 +13,7 @@
  * See docs/08-integration-keeperhub.md § 4.
  */
 
-import type { Address, Hex } from '@warrant/core'
+import type { Address, Hex } from 'warrant-core'
 
 export interface KeeperHubConfig {
   /**

@@ -7,7 +7,7 @@
  * siblings.
  *
  * ```ts
- * import { warrantTools } from '@warrant/sdk/ai'
+ * import { warrantTools } from 'warrant-sdk/ai'
  *
  * const result = await generateText({
  *   model: anthropic('claude-opus-5'),

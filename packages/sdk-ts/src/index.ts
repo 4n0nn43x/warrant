@@ -1,5 +1,5 @@
 /**
- * `@warrant/sdk` — the single source.
+ * `warrant-sdk` — the single source.
  *
  * This package contains everything that defines Warrant's four tools: their
  * schemas, their descriptions, their execution, the x402 payment loop and the

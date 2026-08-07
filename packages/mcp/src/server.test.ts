@@ -19,8 +19,8 @@
 
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, type CallToolResult } from '@modelcontextprotocol/server'
-import type { PaymentPayload, PaymentRequired } from '@warrant/sdk'
-import { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY } from '@warrant/sdk'
+import type { PaymentPayload, PaymentRequired } from 'warrant-sdk'
+import { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY } from 'warrant-sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createMockGateway, type MockGateway } from './mock-gateway.js'

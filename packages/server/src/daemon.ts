@@ -51,7 +51,7 @@ import {
   type EvaluationResult,
   type Hex,
   type VerdictDocument,
-} from '@warrant/core'
+} from 'warrant-core'
 import type { PublicClient } from 'viem'
 import { warrantEscrowAbi } from './escrow-abi.js'
 import { evaluate } from './evaluator.js'

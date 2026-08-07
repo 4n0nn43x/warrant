@@ -85,7 +85,7 @@ def _keccak_json(value: Any) -> str:
 
     Close to RFC 8785 but not it: keys are sorted by code point rather than UTF-16
     code unit, which coincides for every key we use. The mock only needs to be
-    self-consistent; ``@warrant/core`` owns the real canonicalisation.
+    self-consistent; ``warrant-core`` owns the real canonicalisation.
     """
     from eth_utils import keccak
 
@@ -210,7 +210,7 @@ class MockGateway:
             "chainId": action_spec.get("chainId"),
             "evaluateAt": "tx+1",
             "confirmations": 3,
-            # `op` / `value`, like the `@warrant/core` DSL — not a `min` invented
+            # `op` / `value`, like the `warrant-core` DSL — not a `min` invented
             # here: an example that renames a DSL field teaches the reader a DSL
             # that does not exist.
             "checks": [

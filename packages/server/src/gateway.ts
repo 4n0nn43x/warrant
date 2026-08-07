@@ -61,7 +61,7 @@ import {
   type Policy,
   type Quote,
   type RegistryFileEntry,
-} from '@warrant/core'
+} from 'warrant-core'
 import {
   decodeFunctionData,
   encodeAbiParameters,
@@ -186,7 +186,7 @@ function abiFunctionOf(signature: string): AbiFunction {
 /**
  * Resolves the registry entry for the `(chainId, target, selector)` triple.
  *
- * Reuses `entryKey` from `@warrant/core` — the key is the whole triple, never
+ * Reuses `entryKey` from `warrant-core` — the key is the whole triple, never
  * the selector alone — rather than writing a second indexing scheme. Since
  * `lookupEntry` is not exposed by the package barrel, we redo the loop over the
  * same key, which keeps a single definition of "the same action".

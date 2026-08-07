@@ -33,7 +33,7 @@
  *      contract rejects any other pairing with `TermsMismatch`.
  *   4. POST again, echoing `body.nonce` and carrying the payment on one rail.
  *
- * The MPP rail goes through `@warrant/sdk/mpp`, not through a local copy of the
+ * The MPP rail goes through `warrant-sdk/mpp`, not through a local copy of the
  * format: the point is to prove the SDK an integrator would use, and a private
  * implementation here would prove nothing about it.
  *
@@ -49,8 +49,8 @@ import {
   challengeFromResponse,
   decodeReceipt,
   mppAuthorization,
-} from '@warrant/sdk/mpp'
-import type { PaymentPayload, PaymentRequired, PaymentSigner } from '@warrant/sdk'
+} from 'warrant-sdk/mpp'
+import type { PaymentPayload, PaymentRequired, PaymentSigner } from 'warrant-sdk'
 import { readFileSync } from 'node:fs'
 import {
   parseRegistry,
@@ -58,7 +58,7 @@ import {
   type ActionSpec,
   type Address,
   type Hex,
-} from '@warrant/core'
+} from 'warrant-core'
 import { createPublicClient, encodeFunctionData, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { base, baseSepolia, mainnet, sepolia } from 'viem/chains'

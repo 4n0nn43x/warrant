@@ -37,7 +37,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import type { Hex } from '@warrant/core'
+import type { Hex } from 'warrant-core'
 import type { Action, Scenario } from './ledger.js'
 
 export interface OpenerConfig {

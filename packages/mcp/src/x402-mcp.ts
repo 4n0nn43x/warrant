@@ -80,7 +80,7 @@ import {
   type PaymentPayload,
   type PaymentRequired,
   type SettlementResponse,
-} from '@warrant/sdk'
+} from 'warrant-sdk'
 
 export { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY }
 

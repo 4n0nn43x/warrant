@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { canonicalize, hashCanonical, type Hex } from '@warrant/core'
+import { canonicalize, hashCanonical, type Hex } from 'warrant-core'
 import {
   DEFAULT_VERDICT_BASE_URI,
   GIT_RAW_HOST,

@@ -20,8 +20,8 @@ import type { AddressInfo } from 'node:net'
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import type { CallToolResult } from '@modelcontextprotocol/server'
-import type { PaymentRequired } from '@warrant/sdk'
-import { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY } from '@warrant/sdk'
+import type { PaymentRequired } from 'warrant-sdk'
+import { X402_PAYMENT_META_KEY, X402_PAYMENT_RESPONSE_META_KEY } from 'warrant-sdk'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createWarrantHttpServer } from './http.js'

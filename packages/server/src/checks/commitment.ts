@@ -50,7 +50,7 @@ export async function checkCalldataMatchesCommitment(
 
 /**
  * Normalised reconstruction: addresses lowercased, `value` as a decimal string,
- * calldata lowercased. Normalisation happens here so that `@warrant/core`'s
+ * calldata lowercased. Normalisation happens here so that `warrant-core`'s
  * canonicalisation never has to guess which fields are addresses.
  *
  * A contract creation (`to === null`) falls back to the zero address: the hash

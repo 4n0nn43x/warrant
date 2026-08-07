@@ -1,5 +1,5 @@
 /**
- * @warrant/core — Warrant's agnostic kernel.
+ * warrant-core — Warrant's agnostic kernel.
  *
  * No I/O, no network, no keys. Everything here is pure and replayable by a third
  * party: that is the condition for a verdict to be verifiable without trusting

@@ -1,9 +1,10 @@
 {
   "name": "@warrant/mcp",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Warrant MCP server — four tools, x402 v2 MCP transport, HTTP streamable",
+  "description": "Warrant MCP server \u2014 four tools, x402 v2 MCP transport, HTTP streamable",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -27,8 +28,8 @@
   "dependencies": {
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
-    "@warrant/core": "workspace:*",
-    "@warrant/sdk": "workspace:*",
+    "warrant-core": "workspace:*",
+    "warrant-sdk": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

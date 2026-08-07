@@ -100,7 +100,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { connect } from 'node:net'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { WarrantStatus, type Address, type Hex } from '@warrant/core'
+import { WarrantStatus, type Address, type Hex } from 'warrant-core'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createWalletClient, http, type PublicClient } from 'viem'
 import {

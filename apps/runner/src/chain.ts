@@ -23,7 +23,7 @@
  * package.
  */
 
-import { WarrantStatus, type Address, type Hex } from '@warrant/core'
+import { WarrantStatus, type Address, type Hex } from 'warrant-core'
 import { createPublicClient, http, type PublicClient } from 'viem'
 import { base, baseSepolia, mainnet, sepolia } from 'viem/chains'
 import { warrantEscrowAbi } from '../../../packages/server/src/escrow-abi.js'

@@ -2,7 +2,7 @@ import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { WarrantStatus, type Hex } from '@warrant/core'
+import { WarrantStatus, type Hex } from 'warrant-core'
 import type { WarrantRecord } from './gateway.js'
 import { fileWarrantStore, serializeRecord } from './journal.js'
 

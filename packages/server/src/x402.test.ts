@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Hex } from '@warrant/core'
+import type { Hex } from 'warrant-core'
 import {
   ChallengeStore,
   DEFAULT_TRANSFER_METHOD,

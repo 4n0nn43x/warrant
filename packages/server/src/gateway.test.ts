@@ -6,7 +6,7 @@ import {
   type Address,
   type Hex,
   type Policy,
-} from '@warrant/core'
+} from 'warrant-core'
 import {
   createGateway,
   decodeActionSpec,
@@ -33,9 +33,9 @@ import {
   challengeFromResponse,
   decodeReceipt as decodeSdkReceipt,
   mppAuthorization,
-} from '@warrant/sdk/mpp'
-import { X402_VERSION } from '@warrant/sdk'
-import type { PaymentRequired, PaymentSigner } from '@warrant/sdk'
+} from 'warrant-sdk/mpp'
+import { X402_VERSION } from 'warrant-sdk'
+import type { PaymentRequired, PaymentSigner } from 'warrant-sdk'
 import type { KeeperHubClient } from './keeperhub.js'
 import {
   HEADER_AUTHORIZATION,
@@ -981,7 +981,7 @@ describe('POST /v1/warrants — MPP rail', () => {
 
 describe('the MPP rail, driven by the published SDK', () => {
   /**
-   * The rail exercised through `@warrant/sdk/mpp` rather than through this
+   * The rail exercised through `warrant-sdk/mpp` rather than through this
    * file's own helper.
    *
    * `payWithMpp` above builds the Credential by hand, so it proves the server

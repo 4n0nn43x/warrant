@@ -1,7 +1,7 @@
 /**
  * The single entry point for the shared types, on the evaluator's side.
  *
- * Everything borrowed from `@warrant/core` goes through this file, and every
+ * Everything borrowed from `warrant-core` goes through this file, and every
  * borrowing is **types only** (`import type` / `export type`), hence erased at
  * compile time: the evaluator has no runtime dependency on `core`, and its tests
  * run even while `packages/core/dist` is still empty. Only `tsc --noEmit` will
@@ -32,9 +32,9 @@ export type {
   NonceAdvancedCheck,
   Op,
   StaticcallResultCheck,
-} from '@warrant/core'
+} from 'warrant-core'
 
-import type { ActionSpec, Address, Hex } from '@warrant/core'
+import type { ActionSpec, Address, Hex } from 'warrant-core'
 import type { PublicClient, Transaction, TransactionReceipt } from 'viem'
 
 /** An observed native transfer, top-level or internal. */
@@ -53,10 +53,10 @@ export interface NativeTransfer {
 export type NativeTracer = (txHash: Hex) => Promise<NativeTransfer[]>
 
 /**
- * Signature of `actionHash` from `@warrant/core` (docs/07 § 4).
+ * Signature of `actionHash` from `warrant-core` (docs/07 § 4).
  *
  * Injectable for tests only. In production the evaluator uses the
- * `@warrant/core` implementation and nothing else: two diverging
+ * `warrant-core` implementation and nothing else: two diverging
  * canonicalisations between client and server would make every warrant
  * unevaluable — that is risk R1 in docs/13-risques.md.
  */

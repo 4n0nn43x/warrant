@@ -112,7 +112,7 @@ export class WarrantError extends Error {
 export function toWarrantError(err: unknown): WarrantError {
   if (err instanceof WarrantError) return err
 
-  // DslError from @warrant/core: it already carries the path of the offending
+  // DslError from warrant-core: it already carries the path of the offending
   // field, which is exactly what the DX checklist asks us to surface.
   if (
     typeof err === 'object' &&

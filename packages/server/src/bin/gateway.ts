@@ -37,7 +37,7 @@ import {
   registryRefOf,
   type Address,
   type Policy,
-} from '@warrant/core'
+} from 'warrant-core'
 import { createHash } from 'node:crypto'
 import { createPublicClient, createWalletClient, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'

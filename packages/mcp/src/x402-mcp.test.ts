@@ -7,7 +7,7 @@
  */
 
 import type { InputRequiredResult } from '@modelcontextprotocol/server'
-import type { PaymentRequired, SettlementResponse } from '@warrant/sdk'
+import type { PaymentRequired, SettlementResponse } from 'warrant-sdk'
 import { describe, expect, it, expectTypeOf } from 'vitest'
 
 import {

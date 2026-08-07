@@ -15,7 +15,7 @@
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import type { Address } from '@warrant/core'
+import type { Address } from 'warrant-core'
 import { publicClientFor } from '../chain.js'
 import { address, integer, optional, required } from '../env.js'
 import { computeCounters, openLedger, type Tally } from '../ledger.js'
