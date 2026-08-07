@@ -33,8 +33,17 @@ from .x402 import PaymentSigner, is_payment_required
 
 __all__ = ["WarrantClient", "DEFAULT_BASE_URL", "normalize_warrant_view"]
 
-#: The local Gateway, the one `pnpm --filter @warrant/server gateway` serves.
-DEFAULT_BASE_URL = "http://127.0.0.1:8402"
+#: The hosted Gateway on Base Sepolia.
+#:
+#: It defaults to the public deployment rather than to ``127.0.0.1:8402`` because
+#: of who installs this package: an agent developer who has never run our server
+#: and has no reason to. Pointing the default at a local port meant the first
+#: call after ``pip install`` failed with a connection refused, which reads as a
+#: broken package rather than as missing infrastructure.
+#:
+#: Override it with ``WARRANT_BASE_URL`` — anyone running their own Gateway
+#: should, and it is the same one line either way.
+DEFAULT_BASE_URL = "https://warrant.fyra.fun"
 
 #: v2 transport headers. The names changed since v1: `X-PAYMENT` no longer
 #: exists, and accepting both would amount to accepting two payload formats under

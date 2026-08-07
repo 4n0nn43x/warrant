@@ -11,7 +11,11 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "registry", "fixtures"],
+  "files": [
+    "dist",
+    "registry",
+    "fixtures"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -23,5 +27,24 @@
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/4n0nn43x/warrant.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/4n0nn43x/warrant#readme",
+  "bugs": {
+    "url": "https://github.com/4n0nn43x/warrant/issues"
+  },
+  "keywords": [
+    "ethereum",
+    "erc-8004",
+    "post-conditions",
+    "ai-agents",
+    "x402"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

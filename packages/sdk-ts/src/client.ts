@@ -41,9 +41,22 @@ const HEADER_PAYMENT_REQUIRED = 'PAYMENT-REQUIRED'
 const HEADER_PAYMENT_SIGNATURE = 'PAYMENT-SIGNATURE'
 const HEADER_PAYMENT_RESPONSE = 'PAYMENT-RESPONSE'
 
+/**
+ * The hosted Gateway on Base Sepolia.
+ *
+ * Used when the caller names none. The default points at the public deployment
+ * and not at `127.0.0.1:8402` because of who installs this package: an agent
+ * developer who has never run our server and has no reason to. A localhost
+ * default made the first call after `npm i` fail with a connection refused,
+ * which reads as a broken package rather than as missing infrastructure.
+ *
+ * Anyone running their own Gateway passes `baseUrl` — one line, either way.
+ */
+export const DEFAULT_BASE_URL = 'https://warrant.fyra.fun'
+
 export interface WarrantClientOptions {
-  /** Root of the Gateway, e.g. `https://gateway.example`. */
-  baseUrl: string
+  /** Root of the Gateway. Defaults to {@link DEFAULT_BASE_URL}. */
+  baseUrl?: string
   /** Signer of the bond. Without it, `call()` surfaces the PaymentRequired. */
   wallet?: PaymentSigner
   /** Injectable for tests and for runtimes without a global `fetch`. */
@@ -74,8 +87,8 @@ export class WarrantClient implements GatewayClient {
   private readonly maxPaymentAttempts: number
   readonly wallet?: PaymentSigner
 
-  constructor(options: WarrantClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '')
+  constructor(options: WarrantClientOptions = {}) {
+    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
     this.doFetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.headers = { 'content-type': 'application/json', ...options.headers }
     this.maxPaymentAttempts = options.maxPaymentAttempts ?? 1

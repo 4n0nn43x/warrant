@@ -43,5 +43,26 @@
   "devDependencies": {
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/4n0nn43x/warrant.git",
+    "directory": "packages/sdk-ts"
+  },
+  "homepage": "https://github.com/4n0nn43x/warrant#readme",
+  "bugs": {
+    "url": "https://github.com/4n0nn43x/warrant/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "x402",
+    "mpp",
+    "langchain",
+    "mcp",
+    "ethereum",
+    "base"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }
