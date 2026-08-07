@@ -12,8 +12,10 @@ capital owner and the verdict is written to the ERC-8004 Reputation Registry.
 pip install 'warrant-sdk[langchain]'    # or [crewai], or nothing for the CLI
 ```
 
-Before the first PyPI release, that is `pip install -e 'packages/sdk-py[langchain]'`
-from a checkout. Everything below is unchanged either way.
+That is all the setup there is. The tools talk to the hosted Gateway at
+`https://warrant.fyra.fun` — Base Sepolia, real Circle USDC — so there is no
+server to run, no account to create and no API key to obtain. Point
+`WARRANT_BASE_URL` at your own Gateway when you would rather not use ours.
 
 ---
 
@@ -130,7 +132,7 @@ from warrant_sdk.langchain import warrant_tools
 
 agent = create_agent(
     model="anthropic:claude-opus-4-5",
-    tools=warrant_tools(base_url="http://127.0.0.1:8402"),
+    tools=warrant_tools(),
     system_prompt=(
         "Before any onchain action, call quote_risk. Only open a warrant if the "
         "bond is under 10 USDC. Never claim an action is safe — say what "
@@ -170,7 +172,7 @@ treasurer = Agent(
     role="Treasury operator",
     goal="Move funds only under a bonded mandate",
     backstory="Prices every action before executing it, and never negotiates a bond.",
-    tools=warrant_tools(base_url="http://127.0.0.1:8402"),
+    tools=warrant_tools(),
 )
 ```
 
@@ -207,7 +209,7 @@ that cannot run without a paid API key is not a quickstart.
 
 | variable | meaning |
 | --- | --- |
-| `WARRANT_BASE_URL` | Gateway root. Default `http://127.0.0.1:8402`. |
+| `WARRANT_BASE_URL` | Gateway root. Defaults to the hosted one, `https://warrant.fyra.fun`. |
 | `WARRANT_PRIVATE_KEY` | Agent key that signs the EIP-3009 bond authorization. Only `request_warrant` needs it; the three read tools spend nothing and need no key. |
 
 Everything can also be passed explicitly, which is what you want in a server:
@@ -228,7 +230,7 @@ From the repo root:
 ```bash
 set -a; . ./.env; set +a          # escrow, asset, policy, facilitator, KeeperHub
 PORT=8402 pnpm --filter @warrant/server gateway
-export WARRANT_BASE_URL=http://127.0.0.1:8402
+export WARRANT_BASE_URL=http://127.0.0.1:8402   # only if you run your own
 ```
 
 **1. `registryRef` is pinned, not decorative.** The mock accepts any value; a real

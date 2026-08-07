@@ -93,6 +93,25 @@ test-local helper — the two shapes that could drift without either side's own 
 > something that never happened. `pnpm --filter @warrant/server open-via-gateway -- --rail mpp` is the
 > path that produces a real one, and it has not been run against the live deployment yet.
 
+## Using it from an agent
+
+A Gateway is hosted at **`https://warrant.fyra.fun`** — Base Sepolia, real Circle USDC. Both SDKs
+default to it, so there is no server to run, no account to create and no API key to obtain.
+
+```bash
+npm i warrant-sdk          # https://www.npmjs.com/package/warrant-sdk
+pip install warrant-sdk    # https://pypi.org/project/warrant-sdk/
+```
+
+```python
+from warrant_sdk.langchain import warrant_tools
+tools = warrant_tools()    # the four tools, ready for your agent
+```
+
+The three read tools — `quote_risk`, `get_warrant`, `list_warrants` — need no key and spend nothing.
+Only `request_warrant` costs money, and it answers a 402 with the terms before it does. Set
+`WARRANT_BASE_URL` to run against your own Gateway instead.
+
 ## Repository layout
 
 ```

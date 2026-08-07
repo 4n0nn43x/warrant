@@ -57,8 +57,8 @@ uvx --from warrant-sdk warrant tools
 ```
 
 That prints the four tool definitions and exits. If it works, the skill is ready.
-Before the first PyPI release, point `--from` at a checkout instead —
-`uvx --from ./packages/sdk-py warrant tools` — everything else is unchanged.
+`warrant-sdk` is on PyPI, so `uvx` fetches it directly — there is nothing to
+clone and nothing to build.
 
 With `pipx` instead of `uv`, every command below is the same with
 `pipx run --spec warrant-sdk warrant …` in place of
