@@ -31,7 +31,13 @@
 import { readFileSync } from 'node:fs'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
-import { loadRegistry, parseRegistry, type Address, type Policy } from '@warrant/core'
+import {
+  loadRegistry,
+  parseRegistry,
+  registryRefOf,
+  type Address,
+  type Policy,
+} from '@warrant/core'
 import { createHash } from 'node:crypto'
 import { createPublicClient, createWalletClient, http } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -417,6 +423,33 @@ async function main(): Promise<void> {
     registryFile && registryFile.trim() !== ''
       ? parseRegistry(readFileSync(registryFile.trim(), 'utf8'))
       : loadRegistry()
+
+  // `registryRef = keccak256(JCS(registry))` is inscribed in the `actionSpec` of
+  // every warrant this deployment has ever opened. Load a different registry —
+  // by forgetting `WARRANT_REGISTRY_FILE`, or by editing a `label` a translation
+  // pass thought was prose — and the ref moves, so every quote is refused with
+  // `registry_mismatch`. The refusal is correct; discovering it one request at a
+  // time is not.
+  //
+  // This check existed in CI and left with it. It belongs here anyway: CI proves
+  // the file in the repository is the right one, and says nothing about the file
+  // the running container actually loaded.
+  const expectedRegistryRef = optional('WARRANT_REGISTRY_REF', '')
+  if (expectedRegistryRef !== '') {
+    const actual = registryRefOf(registry)
+    if (actual.toLowerCase() !== expectedRegistryRef.toLowerCase()) {
+      throw new Error(
+        `registry mismatch: WARRANT_REGISTRY_REF expects ${expectedRegistryRef}, ` +
+          `the loaded registry hashes to ${actual}. ` +
+          (registryFile
+            ? `Loaded from ${registryFile}.`
+            : 'No WARRANT_REGISTRY_FILE set, so the built-in registry was used — ' +
+              'which is almost certainly the cause.') +
+          ' Every quote would be refused with registry_mismatch, because the ' +
+          'commitment would not be replayable against the warrants already opened.',
+      )
+    }
+  }
 
   const policy = loadPolicy()
   const escrowAddress = address(

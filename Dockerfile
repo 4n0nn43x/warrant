@@ -22,6 +22,7 @@ RUN corepack enable
 # Manifests first, sources second: the dependency layer is then cached across
 # every source edit, which is most of them.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY deployments deployments
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
 # `@warrant/sdk` is a *dev* dependency of the server, but a real one: the
@@ -66,6 +67,14 @@ COPY --from=build --chown=node:node /app/packages/core/registry ./packages/core/
 COPY --from=build --chown=node:node /app/packages/server/node_modules ./packages/server/node_modules
 COPY --from=build --chown=node:node /app/packages/server/dist ./packages/server/dist
 COPY --from=build --chown=node:node /app/packages/server/package.json ./packages/server/package.json
+
+# The classification registry of the target deployment, and not an optional
+# extra. `registryRef = keccak256(JCS(registry))` is inscribed in the
+# `actionSpec` of every warrant ever opened, so a Gateway loading a *different*
+# registry rejects each quote with `registry_mismatch` — which is the correct
+# refusal, since the commitment would not be replayable. The image therefore
+# carries the file, and `WARRANT_REGISTRY_FILE` must point at it.
+COPY --from=build --chown=node:node /app/deployments ./deployments
 
 USER node
 
