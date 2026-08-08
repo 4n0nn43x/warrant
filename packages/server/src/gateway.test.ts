@@ -35,7 +35,11 @@ import {
   mppAuthorization,
 } from 'warrant-sdk/mpp'
 import { X402_VERSION } from 'warrant-sdk'
-import type { PaymentRequired, PaymentSigner } from 'warrant-sdk'
+// `PaymentSigner` only. `PaymentRequired` is imported from `./x402.js` below —
+// the server's own definition, which is what these tests exercise. Importing
+// both names shadowed one with the other; every parser until vite 8 accepted it
+// silently, and the test passed against whichever definition won.
+import type { PaymentSigner } from 'warrant-sdk'
 import type { KeeperHubClient } from './keeperhub.js'
 import {
   HEADER_AUTHORIZATION,

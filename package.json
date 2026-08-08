@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "Bonded execution for onchain agents — KeeperHub Agents Onchain hackathon",
+  "description": "Bonded execution for onchain agents \u2014 KeeperHub Agents Onchain hackathon",
   "engines": {
     "node": ">=22"
   },
@@ -23,7 +23,7 @@
     "warrant-core": "workspace:*",
     "tsx": "^4.23.1",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.6"
   },
   "packageManager": "pnpm@11.17.0"
 }

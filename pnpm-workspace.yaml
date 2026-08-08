@@ -5,3 +5,19 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - '@modelcontextprotocol/sdk@1.30.0'
+
+# Transitive versions forced to a patched release.
+#
+# Neither is reachable in anything this repository ships — the runtime image
+# installs production dependencies only — but both carry an open advisory and a
+# pinned floor costs nothing:
+#
+#   vite   dev server `server.fs.deny` bypass on Windows alternate paths.
+#          Pulled in by vitest; no vite dev server has existed here since the
+#          explorer was removed.
+#   axios  Node HTTP adapter can use an inherited proxy. Pulled in by
+#          @coinbase/cdp-sdk, a root devDependency.
+overrides:
+  vite: '>=6.4.3'
+  axios: '>=1.18.0'
+
