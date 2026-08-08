@@ -84,18 +84,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { persist-credentials: false }
 
+      # The pinned image, not the marketplace action. The action swallows
+      # Trivy's own stdout, so a failure arrives as a bare "exit code 1" with no
+      # finding and no error — which is what happened on this workflow's first
+      # run and cost an hour. One fewer third party in a job that parses
+      # untrusted input, and a log that says what went wrong.
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'        # the gate. Without this Trivy always exits 0.
-          format: sarif
-          output: trivy.sarif
-          skip-dirs: contracts/lib,node_modules
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c \
+            fs --scanners vuln --severity CRITICAL,HIGH --ignore-unfixed \
+               --skip-dirs contracts/lib --skip-dirs node_modules \
+               --exit-code 1 --format sarif --output /src/trivy.sarif .
 
       - name: Upload SARIF
         if: always()            # upload even when the gate failed
@@ -172,13 +172,11 @@ jobs:
             hadolint --failure-threshold warning - < Dockerfile
 
       - name: Trivy config
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: config
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          exit-code: '1'
-          skip-dirs: contracts/lib,node_modules
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src \
+            aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c \
+            config --severity CRITICAL,HIGH --exit-code 1 \
+                   --skip-dirs contracts/lib --skip-dirs node_modules .
 
   # --------------------------------------------------------------------------
   # The workflows are themselves attack surface, and the highest-value one in

@@ -91,31 +91,31 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/sdk-py
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { persist-credentials: false }
 
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with: { python-version: '3.12' }
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
 
-      - run: uv venv && uv pip install -e '.[dev]'
-      - run: uv run pytest -q
+      # Node first, and not as an afterthought. `tests/test_codegen_drift.py`
+      # shells out to the TypeScript emitter to prove the Python SDK, the
+      # OpenAPI snapshot and the OpenClaw skill still match the tool definitions
+      # they are generated from. Without the JS dependency tree that test fails
+      # on a missing `zod` rather than on any real drift — which is exactly how
+      # this job failed on its first run.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter warrant-core build
 
-      # The Python SDK, the OpenAPI snapshot and the OpenClaw skill are all
-      # generated from the TypeScript tool definitions. This fails when someone
-      # edits a generated file by hand, which is the only way the projections
-      # can silently disagree with their source.
-      - name: generated artefacts match their single source
-        working-directory: .
-        run: |
-          npm install -g pnpm@11.17.0
-          pnpm install --frozen-lockfile
-          pnpm --filter warrant-core build
-          pnpm --filter @warrant/sdk-py codegen:check
+      - name: pytest
+        working-directory: packages/sdk-py
+        run: uv venv && uv pip install -e '.[dev]' && uv run pytest -q
 
   contracts:
     runs-on: ubuntu-latest
