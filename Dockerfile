@@ -76,6 +76,11 @@ COPY --from=build --chown=node:node /app/packages/server/package.json ./packages
 # carries the file, and `WARRANT_REGISTRY_FILE` must point at it.
 COPY --from=build --chown=node:node /app/deployments ./deployments
 
+# The landing page `GET /` serves. Optional at runtime — the Gateway starts
+# without it and stays a pure API — but the image ships it so the public
+# domain has a face at its root.
+COPY --chown=node:node site ./site
+
 USER node
 
 EXPOSE 8402

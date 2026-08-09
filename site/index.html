@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warrant — Bonded execution for onchain AI agents</title>
+<meta name="description" content="An agent doesn't get permission to act. It buys a mandate, and it loses the mandate if it lied. Bond in USDC, commit to a post-condition, verify at a pinned block.">
+<style>
+/* ────────────────────────── tokens ────────────────────────── */
+:root{
+  --bg:#F7F8FC;
+  --surface:#FFFFFF;
+  --wash:#EEF1FB;
+  --ink:#101736;
+  --muted:#525E80;
+  --faint:#8A93B4;
+  --line:#E3E7F2;
+  --accent:#2545E0;
+  --accent-ink:#FFFFFF;
+  --accent-wash:#E4E9FF;
+  --honor:#0C8A50;
+  --honor-wash:#E1F4EA;
+  --slash:#D22F3F;
+  --slash-wash:#FBE7E9;
+  --code-bg:#0E1430;
+  --code-ink:#D7DDF3;
+  --code-dim:#7C87AE;
+  --shadow:0 1px 2px rgba(16,23,54,.05),0 12px 32px -16px rgba(16,23,54,.18);
+  --shadow-lift:0 2px 4px rgba(16,23,54,.06),0 24px 48px -20px rgba(16,23,54,.28);
+  --radius:14px;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --serif:Georgia,"Times New Roman",serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+}
+/* The site deliberately commits to its light look — every color is painted
+   explicitly, so the page holds on any host ground, dark included. */
+
+/* ────────────────────────── base ────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:16px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+img,svg{max-width:100%}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+section{padding:96px 0}
+
+/* page frame — the two hairlines bounding the column, hatched gutters outside,
+   running the full height of the page like the rails of a ledger */
+@media (min-width:1280px){
+  body::before,body::after{
+    content:"";position:fixed;top:0;bottom:0;z-index:30;pointer-events:none;
+    width:max(0px,calc((100vw - 1240px)/2));
+    background:repeating-linear-gradient(-45deg,
+      color-mix(in srgb,var(--line) 60%,transparent) 0 1px,transparent 1px 8px);
+  }
+  body::before{left:0;border-right:1px solid var(--line)}
+  body::after{right:0;border-left:1px solid var(--line)}
+}
+h1,h2,h3{line-height:1.12;letter-spacing:-.03em;text-wrap:balance;font-weight:750}
+h2{font-size:clamp(28px,4vw,42px);margin-bottom:14px}
+.lede{color:var(--muted);max-width:62ch;font-size:17.5px}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+  display:block;margin-bottom:14px;
+}
+.serif-i{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--accent);letter-spacing:-.01em}
+.mono{font-family:var(--mono)}
+code,pre{font-family:var(--mono)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+/* reveal on scroll */
+.rv{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion: reduce){.rv{opacity:1;transform:none}}
+
+/* ────────────────────────── nav ────────────────────────── */
+.nav{
+  position:sticky;top:0;z-index:50;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.nav-in{display:flex;align-items:center;gap:28px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:750;font-size:18px;letter-spacing:-.02em}
+.brand svg{flex:none}
+.nav-links{display:flex;gap:22px;font-size:14.5px;color:var(--muted);margin-left:8px}
+.nav-links a:hover{color:var(--ink)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.gh{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);border:1px solid var(--line);border-radius:9px;padding:7px 12px;background:var(--surface)}
+.gh:hover{color:var(--ink);border-color:var(--faint)}
+@media (max-width:860px){.nav-links{display:none}}
+
+/* buttons */
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  border-radius:10px;padding:12px 20px;font-size:15px;font-weight:600;
+  border:1px solid transparent;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,background .15s ease;
+}
+.btn-primary{background:var(--accent);color:var(--accent-ink);box-shadow:0 8px 20px -10px var(--accent)}
+.btn-primary:hover{transform:translateY(-1px)}
+.btn-ghost{border-color:var(--line);background:var(--surface);color:var(--ink)}
+.btn-ghost:hover{border-color:var(--faint)}
+.btn .mono{font-weight:600;font-size:13.5px}
+
+/* ────────────────────────── hero ────────────────────────── */
+.hero{padding:88px 0 72px;position:relative;overflow:hidden}
+.hero::before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(720px 380px at 82% 8%,color-mix(in srgb,var(--accent) 9%,transparent),transparent 70%),
+    radial-gradient(560px 320px at 96% 78%,color-mix(in srgb,var(--slash) 7%,transparent),transparent 70%);
+}
+/* neural-network backdrop: nodes, synapses, and impulses travelling the edges */
+.net{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:block}
+.hero .wrap{position:relative;z-index:1}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:56px;align-items:center;position:relative}
+@media (max-width:960px){.hero-grid{grid-template-columns:1fr}}
+.hero h1{font-size:clamp(38px,5.4vw,60px);font-weight:800;letter-spacing:-.042em;margin-bottom:22px}
+.hero .lede{margin-bottom:30px}
+.hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:34px}
+.hero-proof{display:flex;gap:10px;flex-wrap:wrap}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.02em;
+  border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 13px;color:var(--muted);
+}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--honor);flex:none}
+.chip .dot.blue{background:var(--accent)}
+
+/* hero diorama */
+.diorama{position:relative;display:grid;gap:14px;padding:10px 4px}
+.dcard{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;box-shadow:var(--shadow);position:relative;
+  opacity:0;transform:translateY(18px);
+  animation:drop .7s cubic-bezier(.2,.7,.2,1) forwards;
+}
+.dcard:nth-child(1){animation-delay:.1s;transform:translateY(18px) rotate(-.5deg)}
+.dcard:nth-child(2){animation-delay:.32s;margin-left:26px;transform:translateY(18px) rotate(.4deg)}
+.dcard:nth-child(3){animation-delay:.54s;transform:translateY(18px) rotate(-.3deg)}
+.dcard:nth-child(4){animation-delay:.8s;margin-left:18px}
+@keyframes drop{to{opacity:1;transform:translateY(0) rotate(0)}}
+@media (prefers-reduced-motion: reduce){.dcard{opacity:1;transform:none;animation:none}}
+@media (max-width:960px){.dcard:nth-child(2),.dcard:nth-child(4){margin-left:0}}
+.dhead{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.dstep{
+  font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);
+  background:var(--accent-wash);border-radius:6px;padding:2px 7px;letter-spacing:.06em;
+}
+.dtitle{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.dbody{font-size:13px;color:var(--muted)}
+.dbody .mono{font-size:12px;word-break:break-all;color:var(--ink)}
+.drow{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.drow:last-child{border-bottom:0}
+.drow b{font-weight:650;color:var(--ink);font-family:var(--mono);font-size:12px}
+.dtag{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;border-radius:5px;padding:2px 7px;letter-spacing:.05em;
+}
+.dtag.rail{background:var(--accent-wash);color:var(--accent)}
+.dtag.ok{background:var(--honor-wash);color:var(--honor)}
+.stamp{
+  position:absolute;right:16px;top:14px;
+  font-family:var(--mono);font-weight:800;font-size:13px;letter-spacing:.18em;
+  color:var(--slash);border:2.5px solid var(--slash);border-radius:7px;padding:4px 10px;
+  transform:rotate(6deg);opacity:.92;
+  box-shadow:inset 0 0 0 1.5px var(--surface),0 0 0 1.5px color-mix(in srgb,var(--slash) 25%,transparent);
+  background:var(--slash-wash);
+  animation:thunk .4s cubic-bezier(.2,2,.4,1) 1.25s backwards;
+}
+@keyframes thunk{from{transform:rotate(6deg) scale(1.7);opacity:0}}
+.dcard.slashed{border-color:color-mix(in srgb,var(--slash) 38%,var(--line))}
+.dfail{
+  font-family:var(--mono);font-size:11.5px;line-height:1.55;
+  background:var(--slash-wash);color:var(--slash);
+  border-radius:8px;padding:9px 11px;margin-top:9px;word-break:break-word;
+}
+.dnote{font-size:12px;color:var(--faint);margin-top:8px}
+.dnote b{color:var(--honor);font-weight:650}
+
+/* ────────────────────────── stats band ────────────────────────── */
+.stats{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface);padding:36px 0}
+.stats-in{display:grid;grid-template-columns:repeat(5,1fr);gap:0}
+.stat{padding:0 26px;border-left:1px solid var(--line)}
+.stat:first-child{border-left:0;padding-left:0}
+@media (max-width:960px){
+  .stats-in{grid-template-columns:repeat(2,1fr);gap:24px 0}
+  .stat:nth-child(odd){border-left:0;padding-left:0}
+}
+.stat b{display:block;font-size:clamp(24px,3vw,34px);font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--muted)}
+.stat b em{font-style:normal;color:var(--honor)}
+.stat b .sl{color:var(--slash)}
+
+/* ────────────────────────── thesis ────────────────────────── */
+.regimes{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+@media (max-width:900px){.regimes{grid-template-columns:1fr}}
+.regime{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:28px 26px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;
+}
+.regime .k{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+.regime h3{font-size:20px}
+.regime p{font-size:14.5px;color:var(--muted)}
+.regime .verdict{margin-top:auto;padding-top:14px;font-size:13.5px;font-weight:650}
+.regime .verdict.bad{color:var(--slash)}
+.regime.win{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:var(--shadow-lift);position:relative}
+.regime.win::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:14px 14px 0 0;background:var(--accent)}
+.regime.win .k{color:var(--accent)}
+.regime .verdict.good{color:var(--honor)}
+
+/* ────────────────────────── how it works ────────────────────────── */
+.alt{background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:44px}
+@media (max-width:960px){.steps{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:600px){.steps{grid-template-columns:1fr}}
+.step{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px}
+.step .n{
+  font-family:var(--mono);font-weight:800;font-size:13px;color:var(--accent);
+  display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;
+  background:var(--accent-wash);border-radius:8px;margin-bottom:14px;
+}
+.step h3{font-size:16.5px;margin-bottom:8px}
+.step p{font-size:13.5px;color:var(--muted)}
+.step p code{font-size:12px;background:var(--wash);border:1px solid var(--line);border-radius:5px;padding:1px 5px;white-space:nowrap}
+.keyfact{
+  margin-top:34px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));
+  background:linear-gradient(180deg,var(--accent-wash),transparent 220%);
+  border-radius:var(--radius);padding:24px 28px;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;
+}
+.keyfact .mono-big{font-family:var(--mono);font-size:13.5px;font-weight:700;color:var(--accent);white-space:nowrap}
+.keyfact p{font-size:14.5px;color:var(--muted);max-width:70ch}
+.keyfact p b{color:var(--ink)}
+
+/* ────────────────────────── terminal / verify ────────────────────────── */
+.verify-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:52px;align-items:center;margin-top:12px}
+@media (max-width:960px){.verify-grid{grid-template-columns:1fr}}
+.term{
+  background:var(--code-bg);border-radius:16px;box-shadow:var(--shadow-lift);
+  overflow:hidden;border:1px solid color-mix(in srgb,var(--code-bg) 60%,var(--line));
+}
+.term-bar{display:flex;align-items:center;gap:6px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.07)}
+.term-bar i{width:11px;height:11px;border-radius:50%;display:block}
+.term-bar i:nth-child(1){background:#FF5F57}.term-bar i:nth-child(2){background:#FEBC2E}.term-bar i:nth-child(3){background:#28C840}
+.term-bar span{margin-left:10px;font-family:var(--mono);font-size:11.5px;color:var(--code-dim)}
+.term pre{
+  padding:20px 22px;font-size:12.5px;line-height:1.75;color:var(--code-ink);
+  overflow-x:auto;white-space:pre;
+}
+.t-dim{color:var(--code-dim)}
+.t-ok{color:#3ECF8E;font-weight:600}
+.t-cmd{color:#9FB2FF}
+.t-final{color:#3ECF8E;font-weight:800;letter-spacing:.12em}
+.checklist{display:grid;gap:14px;margin-top:26px}
+.checkrow{display:flex;gap:12px;font-size:14.5px;color:var(--muted);align-items:baseline}
+.checkrow b{color:var(--ink);font-weight:650}
+.checkrow .tick{color:var(--honor);font-weight:800;font-family:var(--mono);flex:none}
+
+/* ────────────────────────── rails ────────────────────────── */
+.rails{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:44px}
+@media (max-width:820px){.rails{grid-template-columns:1fr}}
+.rail-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+.rail-card .k{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.1em;margin-bottom:10px;display:block}
+.rail-card h3{font-size:18px;margin-bottom:8px}
+.rail-card p{font-size:14px;color:var(--muted)}
+.rail-card code{font-size:12px;background:var(--wash);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+.rail-join{
+  grid-column:1/-1;text-align:center;font-size:14.5px;color:var(--muted);
+  border:1px dashed color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:var(--radius);
+  padding:18px 24px;background:linear-gradient(180deg,var(--accent-wash),transparent 300%);
+}
+.rail-join b{color:var(--ink)}
+
+/* ────────────────────────── escrow invariants ────────────────────────── */
+.inv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:44px}
+@media (max-width:900px){.inv-grid{grid-template-columns:1fr}}
+.inv{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:26px}
+.inv .id{
+  font-family:var(--mono);font-weight:800;font-size:12px;letter-spacing:.1em;
+  color:var(--accent);background:var(--accent-wash);display:inline-block;border-radius:6px;padding:3px 9px;margin-bottom:14px;
+}
+.inv h3{font-size:16.5px;margin-bottom:8px}
+.inv p{font-size:13.5px;color:var(--muted)}
+.inv p code{font-size:11.5px;background:var(--wash);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.contract-line{
+  margin-top:34px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font-size:13.5px;color:var(--muted);
+}
+.contract-line a{font-family:var(--mono);font-size:12.5px;color:var(--accent);border-bottom:1px dashed color-mix(in srgb,var(--accent) 50%,transparent)}
+.contract-line a:hover{border-bottom-style:solid}
+
+/* ────────────────────────── integrations ────────────────────────── */
+.tabs{margin-top:40px;background:var(--code-bg);border-radius:16px;box-shadow:var(--shadow-lift);overflow:hidden}
+.tab-bar{display:flex;gap:2px;padding:10px 12px 0;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+.tab-btn{
+  font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--code-dim);
+  background:transparent;border:0;padding:9px 15px;cursor:pointer;border-radius:9px 9px 0 0;
+}
+.tab-btn[aria-selected="true"]{color:var(--code-ink);background:rgba(255,255,255,.07)}
+.tab-panel{display:none;padding:22px 24px;overflow-x:auto}
+.tab-panel.active{display:block}
+.tab-panel pre{font-size:13px;line-height:1.8;color:var(--code-ink);white-space:pre}
+.c-kw{color:#9FB2FF}.c-str{color:#8FE3B4}.c-cm{color:#66719A}.c-fn{color:#E3C588}
+.surfaces{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+.surfaces .chip{background:var(--surface)}
+
+/* ────────────────────────── limit quote ────────────────────────── */
+.limit{
+  border:1px solid var(--line);border-left:4px solid var(--accent);
+  background:var(--surface);border-radius:12px;padding:30px 34px;margin-top:8px;
+  box-shadow:var(--shadow);max-width:820px;
+}
+.limit p.q{font-family:var(--serif);font-style:italic;font-size:clamp(19px,2.4vw,24px);line-height:1.45;letter-spacing:-.01em;margin-bottom:12px}
+.limit p.a{font-size:14px;color:var(--muted)}
+
+/* ────────────────────────── FAQ ────────────────────────── */
+.faq{max-width:820px;margin:44px auto 0}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{
+  cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:18px;
+  padding:20px 4px;font-size:16.5px;font-weight:650;letter-spacing:-.01em;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";font-family:var(--mono);font-size:20px;color:var(--faint);transition:transform .2s}
+.faq details[open] summary::after{transform:rotate(45deg);color:var(--accent)}
+.faq .ans{padding:0 4px 22px;font-size:14.5px;color:var(--muted);max-width:68ch}
+.faq .ans code{font-size:12.5px;background:var(--wash);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+
+/* ────────────────────────── CTA ────────────────────────── */
+.cta{
+  background:var(--code-bg);border-radius:22px;padding:64px 48px;text-align:center;
+  position:relative;overflow:hidden;box-shadow:var(--shadow-lift);
+}
+.cta::before{
+  content:"";position:absolute;inset:0;
+  background:radial-gradient(600px 300px at 50% -20%,rgba(130,150,255,.25),transparent 70%);
+  pointer-events:none;
+}
+.cta h2{color:#F2F4FF;position:relative}
+.cta p{color:#A2ACCD;margin:10px auto 30px;max-width:56ch;position:relative}
+.cta .hero-ctas{justify-content:center;position:relative;margin-bottom:0}
+.cta .btn-ghost{background:transparent;border-color:#3A466F;color:#E9ECF8}
+.cta .install{
+  display:inline-flex;gap:24px;flex-wrap:wrap;justify-content:center;margin-top:26px;position:relative;
+  font-family:var(--mono);font-size:13px;color:#8FA0D8;
+}
+
+/* ────────────────────────── footer ────────────────────────── */
+footer{border-top:1px solid var(--line);padding:56px 0 40px;background:var(--surface)}
+.foot-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:36px}
+@media (max-width:860px){.foot-grid{grid-template-columns:1fr 1fr}}
+.foot-brand p{font-size:13.5px;color:var(--muted);margin-top:12px;max-width:34ch}
+.foot-col b{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+.foot-col a{display:block;font-size:14px;color:var(--muted);padding:4px 0}
+.foot-col a:hover{color:var(--ink)}
+.foot-col .addr{font-family:var(--mono);font-size:11.5px;word-break:break-all;color:var(--muted)}
+.foot-bottom{
+  margin-top:44px;padding-top:24px;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+  font-size:13px;color:var(--faint);
+}
+.status-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:12.5px;color:var(--muted);background:var(--bg)}
+.status-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--honor);box-shadow:0 0 0 3px var(--honor-wash)}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ NAV ══════════════════ -->
+<nav class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Warrant home">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="23" height="23" rx="6" stroke="var(--accent)" stroke-width="2.4"/>
+        <path d="M7 8l3 10 3-7 3 7 3-10" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Warrant
+    </a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#verify">Verify</a>
+      <a href="#escrow">Escrow</a>
+      <a href="#sdk">SDKs</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <div class="nav-right">
+      <a class="gh" href="https://github.com/4n0nn43x/warrant" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-primary" href="#sdk" style="padding:9px 16px;font-size:14px">Open a warrant</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════ HERO ══════════════════ -->
+<header class="hero" id="top">
+  <canvas class="net" data-net="light" aria-hidden="true"></canvas>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">Bonded execution for onchain AI agents</span>
+      <h1>Agents don&rsquo;t get permission.<br>They buy a <span class="serif-i">mandate.</span></h1>
+      <p class="lede">
+        Before it acts, an agent posts a USDC bond and commits to the onchain post-condition
+        its action must produce. KeeperHub executes. An independent read at a pinned block decides:
+        condition held, bond returned &mdash; condition violated, bond seized and the verdict
+        written to ERC-8004. If it lied, it pays.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="#sdk">Get started<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h11M9 3.5 13.5 8 9 12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+        <a class="btn btn-ghost" href="#verify"><span class="mono">$</span> Replay a verdict</a>
+      </div>
+      <div class="hero-proof">
+        <span class="chip"><span class="dot"></span>Live on Base Sepolia</span>
+        <span class="chip">Real Circle USDC</span>
+        <span class="chip"><span class="dot blue"></span>x402 + MPP</span>
+        <span class="chip">ERC-8004 verdicts</span>
+      </div>
+    </div>
+
+    <!-- the lifecycle of a real slashed warrant -->
+    <div class="diorama" aria-label="Lifecycle of a real slashed warrant">
+      <div class="dcard">
+        <div class="dhead"><span class="dstep">402</span><span class="dtitle">Payment required &mdash; terms first</span><span class="dtag rail" style="margin-left:auto">x402 v2</span><span class="dtag rail">MPP</span></div>
+        <div class="dbody">
+          <div class="drow"><span>bond</span><b>0.20 USDC</b></div>
+          <div class="drow"><span>duration</span><b>15 min</b></div>
+          <div class="drow"><span>conditionHash</span><b>0x5aef&hellip;27f6</b></div>
+        </div>
+      </div>
+      <div class="dcard">
+        <div class="dhead"><span class="dstep">SIGN</span><span class="dtitle">One signature funds and commits</span></div>
+        <div class="dbody">
+          <span class="mono">nonce = termsHash(id, beneficiary, bond, conditionHash, actionHash, duration)</span>
+          <p class="dnote">The EIP-3009 nonce <b style="color:var(--accent)">is</b> the hash of the terms &mdash; signing the payment is signing the mandate.</p>
+        </div>
+      </div>
+      <div class="dcard">
+        <div class="dhead"><span class="dstep">EXEC</span><span class="dtitle">Executed through KeeperHub</span><span class="dtag ok" style="margin-left:auto">gas sponsored</span></div>
+        <div class="dbody">
+          <div class="drow"><span>action tx</span><b>0xa2e8&hellip;4299</b></div>
+          <div class="drow"><span>evaluated at block</span><b>45187344 (pinned)</b></div>
+        </div>
+      </div>
+      <div class="dcard slashed">
+        <span class="stamp">SLASHED</span>
+        <div class="dhead"><span class="dstep" style="background:var(--slash-wash);color:var(--slash)">VERDICT</span><span class="dtitle">Post-condition violated</span></div>
+        <div class="dbody">
+          <p>Transferred 1 USDC to <span class="mono">0x&hellip;dEaD</span> &mdash; the policy&rsquo;s allowlist names another address.</p>
+          <div class="dfail">erc20_balance_delta: expected &gt;= 1000000 to allowed_dest &mdash; observed 0</div>
+          <p class="dnote">Bond paid to the beneficiary in full. Protocol takes <b>zero</b> on a slash &mdash; enforced onchain.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════ STATS ══════════════════ -->
+<div class="stats">
+  <div class="wrap stats-in">
+    <div class="stat rv"><b>61</b><span>warrants opened and funded in one transaction each</span></div>
+    <div class="stat rv"><b>57</b><span>published verdict documents, byte-for-byte hashable</span></div>
+    <div class="stat rv"><b><em>57/57</em></b><span>replayed by third-party script &mdash; zero divergence</span></div>
+    <div class="stat rv"><b><span class="sl">100%</span> &rarr; 0%</b><span>of a slash goes to the capital owner; protocol fee on a slash is zero</span></div>
+    <div class="stat rv"><b>2 rails</b><span>x402 v2 and MPP, answered on the same 402 response</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════ THESIS ══════════════════ -->
+<section id="thesis">
+  <div class="wrap">
+    <span class="eyebrow rv">Why bonded execution</span>
+    <h2 class="rv">Between the guardrail that blocks and<br>the receipt that shrugs, there was nothing.</h2>
+    <p class="lede rv">
+      A blocking rule is only as good as the attack it anticipated &mdash; Bankr had rules, and a
+      prompt injection walked past them by poisoning the input, not the output. A receipt proves
+      what happened after the fact and offers no recourse. Warrant adds the third regime.
+    </p>
+    <div class="regimes">
+      <div class="regime rv">
+        <span class="k">Regime 1 &mdash; the guardrail</span>
+        <h3>Blocks what it anticipated</h3>
+        <p>Policy engines, spend caps, allowlists. The rule inspects the action the model <i>proposes</i> &mdash; but a manipulated model proposes convincingly. Bypassed by construction the day the attack is novel.</p>
+        <p class="verdict bad">Fails silently: a blocked attack leaves no evidence.</p>
+      </div>
+      <div class="regime rv">
+        <span class="k">Regime 2 &mdash; the receipt</span>
+        <h3>Proves, after the fact</h3>
+        <p>Signed logs, notarized traces, attestations. Useful forensics &mdash; but it guarantees nothing before the loss and compensates nothing after it. The money is already gone.</p>
+        <p class="verdict bad">No recourse: proof of the theft is not a refund.</p>
+      </div>
+      <div class="regime win rv">
+        <span class="k">Regime 3 &mdash; the warrant</span>
+        <h3>Bets, and pays if it lied</h3>
+        <p>The agent commits to the final onchain state <b>before</b> reading anything poisoned, with money behind the claim. An injection can redirect a transfer; it cannot make the end state match a commitment made earlier &mdash; written by the policy, never by the agent.</p>
+        <p class="verdict good">Failure becomes an onchain artifact &mdash; and the victim is paid.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ HOW IT WORKS ══════════════════ -->
+<section class="alt" id="how">
+  <div class="wrap">
+    <span class="eyebrow rv">How it works</span>
+    <h2 class="rv">Four steps, one signature, zero trust in the agent&rsquo;s word</h2>
+    <div class="steps">
+      <div class="step rv">
+        <span class="n">1</span>
+        <h3>Quote &mdash; free</h3>
+        <p>The agent submits the raw transaction it intends to run. Category and notional are <b>derived from the calldata</b>, never declared. The bond is priced <code>clamp(min, riskBps &times; notional, max)</code> &mdash; and doubt always costs the maximum.</p>
+      </div>
+      <div class="step rv">
+        <span class="n">2</span>
+        <h3>402 &mdash; terms before money</h3>
+        <p>One response carries both challenges: an x402 v2 <code>PAYMENT-REQUIRED</code> and an MPP <code>WWW-Authenticate: Payment</code>. Every term the agent must sign is published in the challenge itself.</p>
+      </div>
+      <div class="step rv">
+        <span class="n">3</span>
+        <h3>Sign &mdash; fund &amp; commit atomically</h3>
+        <p>The EIP-3009 authorization&rsquo;s nonce is constrained to equal the <code>termsHash</code>. Opening pulls the bond and records the commitment in a single transaction &mdash; nothing to intercept, nothing orphaned.</p>
+      </div>
+      <div class="step rv">
+        <span class="n">4</span>
+        <h3>Execute &amp; settle</h3>
+        <p>KeeperHub executes with simulation and sponsored gas. An independent archive RPC re-reads the post-condition at a <b>pinned block</b>. Held &rarr; refund minus 2.5%. Violated &rarr; bond to the capital owner, verdict to ERC-8004.</p>
+      </div>
+    </div>
+    <div class="keyfact rv">
+      <span class="mono-big">nonce == termsHash</span>
+      <p><b>The trick that closes the loop:</b> an EIP-3009 signature only covers who pays, whom, and how much &mdash; not what was agreed. By requiring the payment nonce to equal the hash of the warrant&rsquo;s terms, one signature binds the payment <i>and</i> the mandate, and the token itself guarantees it can never be replayed. The contract exposes <code>termsHash()</code> so clients derive exactly what it expects.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ VERIFY ══════════════════ -->
+<section id="verify">
+  <div class="wrap">
+    <div class="verify-grid">
+      <div>
+        <span class="eyebrow rv">Don&rsquo;t trust &mdash; replay</span>
+        <h2 class="rv">Every verdict is a claim you can re-run yourself</h2>
+        <p class="lede rv">
+          A verdict document publishes the pinned block, the RPC, and every check with expected and
+          observed values. Its <span class="mono">keccak256</span> is what ERC-8004 committed to.
+          You need <span class="mono">cast</span>, <span class="mono">jq</span> and a public RPC &mdash;
+          no account, no API key, nothing of ours.
+        </p>
+        <div class="checklist">
+          <div class="checkrow rv"><span class="tick">&#10003;</span><span><b>Escrow status</b> read from the contract itself</span></div>
+          <div class="checkrow rv"><span class="tick">&#10003;</span><span><b>Served bytes</b> hash back to the committed <span class="mono">feedbackHash</span></span></div>
+          <div class="checkrow rv"><span class="tick">&#10003;</span><span><b>All hashes recomputed</b> from the document: condition, action, funding</span></div>
+          <div class="checkrow rv"><span class="tick">&#10003;</span><span><b>Checks replayed</b> at the pinned block &mdash; same inputs, same verdict, or a divergence you just found</span></div>
+        </div>
+      </div>
+      <div class="term rv" role="img" aria-label="Terminal replaying a slashed verdict: six checks pass, verdict reproduced">
+        <div class="term-bar"><i></i><i></i><i></i><span>replay-verdict.sh &mdash; no .env, public RPC only</span></div>
+        <pre><span class="t-dim">$</span> <span class="t-cmd">./scripts/replay-verdict.sh 0x43223a&hellip;8df5 \
+    --registry 0x8004b663&hellip;8713</span>
+
+<span class="t-ok">&#10003;</span> escrow status        <span class="t-dim">Slashed (3)</span>
+<span class="t-ok">&#10003;</span> document served      <span class="t-dim">raw.githubusercontent.com &middot; 200</span>
+<span class="t-ok">&#10003;</span> keccak256(bytes)     <span class="t-dim">== feedbackHash onchain</span>
+<span class="t-ok">&#10003;</span> hashes recomputed    <span class="t-dim">condition &middot; action &middot; fundingRef</span>
+<span class="t-ok">&#10003;</span> action transaction   <span class="t-dim">found &middot; block pinned</span>
+<span class="t-ok">&#10003;</span> checks[] replayed    <span class="t-dim">expected vs observed &middot; match</span>
+
+<span class="t-final">VERDICT REPRODUCED</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ RAILS ══════════════════ -->
+<section class="alt" id="rails">
+  <div class="wrap">
+    <span class="eyebrow rv">Payment</span>
+    <h2 class="rv">Two rails in, one warrant out</h2>
+    <p class="lede rv">
+      <span class="mono">POST /v1/warrants</span> answers its 402 with an x402 v2 challenge <b>and</b> an
+      MPP challenge on the same response, and takes either one back.
+    </p>
+    <div class="rails">
+      <div class="rail-card rv">
+        <span class="k">RAIL A &mdash; x402 v2</span>
+        <h3>The HTTP-native payment standard</h3>
+        <p>The <code>exact</code> scheme already carries an EIP-3009 authorization &mdash; Warrant constrains its nonce and hands it to the escrow. Settled by the public facilitator on Base Sepolia.</p>
+      </div>
+      <div class="rail-card rv">
+        <span class="k">RAIL B &mdash; MPP</span>
+        <h3><code>WWW-Authenticate: Payment</code></h3>
+        <p>Method <code>evm</code> from the MPP registry. The Credential&rsquo;s transaction payload unwraps into the same x402 payload &mdash; challenges are MAC-bound, single-use, replay answered with 409.</p>
+      </div>
+      <div class="rail-join rv">
+        Both rails carry the <b>identical EIP-3009 authorization</b>, so <span class="mono">fundingRef</span> &mdash; the nonce, which is the terms hash &mdash;
+        is the same on either path. A conformance test asserts the two openings field by field, and an MPP-rail warrant was
+        opened, executed and settled onchain end to end.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ ESCROW ══════════════════ -->
+<section id="escrow">
+  <div class="wrap">
+    <span class="eyebrow rv">The escrow</span>
+    <h2 class="rv">One contract. No proxy, no governance,<br>no emergency exit.</h2>
+    <p class="lede rv">
+      Funds leave through <span class="mono">honor</span>, <span class="mono">slash</span> or
+      <span class="mono">reclaim</span> &mdash; there is no fourth door. Audited against its own
+      declared invariants; findings, proofs-of-concept and fixes are public in the repository.
+    </p>
+    <div class="inv-grid">
+      <div class="inv rv">
+        <span class="id">INVARIANT I6</span>
+        <h3>A slash pays the protocol zero</h3>
+        <p>The full bond goes to the capital owner &mdash; the treasury cannot be the beneficiary, checked onchain. Whoever operates the settler has nothing to gain from slashing you.</p>
+      </div>
+      <div class="inv rv">
+        <span class="id">INVARIANT I9</span>
+        <h3>The settlement window closes</h3>
+        <p><code>honor</code> and <code>slash</code> revert after expiry. Past it, <code>reclaim</code> is <b>permissionless</b>: anyone can trigger the full refund. A failing settler can never hold a bond hostage &mdash; and no error path ever leads to a slash.</p>
+      </div>
+      <div class="inv rv">
+        <span class="id">INVARIANT I10</span>
+        <h3>Opening is not seizing</h3>
+        <p><code>opener != settler</code>, enforced in the constructor and both setters. Verified against the live contract: <code>setSettler(opener)</code> reverts <code>RolesMustDiffer()</code>. Compromising the component that opens grants no power to seize.</p>
+      </div>
+    </div>
+    <div class="contract-line rv">
+      <span class="chip"><span class="dot"></span>Deployed &amp; verifiable</span>
+      <span>Escrow&nbsp;<a href="https://sepolia.basescan.org/address/0x3ae9ad53686383c80889F550065e810f72c2ff4e" target="_blank" rel="noopener">0x3ae9ad53&hellip;c2ff4e</a></span>
+      <span>USDC&nbsp;<a href="https://sepolia.basescan.org/address/0x036CbD53842c5426634e7929541eC2318f3dCF7e" target="_blank" rel="noopener">0x036CbD53&hellip;3dCF7e</a></span>
+      <span>A real slash&nbsp;<a href="https://sepolia.basescan.org/tx/0xe105c5e237eadebb38afce62c6a2b20e2b7e22697596a7d960c09a792fd504c3" target="_blank" rel="noopener">0xe105c5e2&hellip;04c3</a></span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ SDK ══════════════════ -->
+<section class="alt" id="sdk">
+  <div class="wrap">
+    <span class="eyebrow rv">Integrate in minutes</span>
+    <h2 class="rv">Four tools, every agent framework</h2>
+    <p class="lede rv">
+      One source of tool definitions; every surface is a projection of it. Three of the four tools
+      are free reads &mdash; only <span class="mono">request_warrant</span> costs money, and it answers
+      a 402 with the full terms before it does. The hosted Gateway needs no account and no API key.
+    </p>
+    <div class="tabs rv">
+      <div class="tab-bar" role="tablist" aria-label="Integration examples">
+        <button class="tab-btn" role="tab" aria-selected="true" data-tab="ts">TypeScript &middot; Vercel AI</button>
+        <button class="tab-btn" role="tab" aria-selected="false" data-tab="py">Python &middot; LangChain</button>
+        <button class="tab-btn" role="tab" aria-selected="false" data-tab="mcp">MCP</button>
+        <button class="tab-btn" role="tab" aria-selected="false" data-tab="cli">CLI</button>
+      </div>
+      <div class="tab-panel active" id="panel-ts" role="tabpanel">
+<pre><span class="c-cm">// npm i warrant-sdk</span>
+<span class="c-kw">import</span> { warrantTools } <span class="c-kw">from</span> <span class="c-str">'warrant-sdk/ai'</span>
+
+<span class="c-kw">const</span> tools = <span class="c-fn">warrantTools</span>({ wallet })
+<span class="c-cm">// quote_risk, request_warrant, get_warrant, list_warrants —</span>
+<span class="c-cm">// a 402 is returned to the model as a value, never thrown.</span></pre>
+      </div>
+      <div class="tab-panel" id="panel-py" role="tabpanel">
+<pre><span class="c-cm"># pip install warrant-sdk</span>
+<span class="c-kw">from</span> warrant_sdk.langchain <span class="c-kw">import</span> warrant_tools
+
+tools = <span class="c-fn">warrant_tools</span>()   <span class="c-cm"># CrewAI: warrant_sdk.crewai</span>
+<span class="c-cm"># The SDK holds no key: signing stays with YOUR PaymentSigner,</span>
+<span class="c-cm"># and it refuses to sign terms that differ from the 402's.</span></pre>
+      </div>
+      <div class="tab-panel" id="panel-mcp" role="tabpanel">
+<pre><span class="c-cm">// .mcp.json — protocol revision 2026-07-28, x402 over MCP</span>
+{
+  <span class="c-str">"mcpServers"</span>: {
+    <span class="c-str">"warrant"</span>: { <span class="c-str">"command"</span>: <span class="c-str">"npx"</span>, <span class="c-str">"args"</span>: [<span class="c-str">"warrant-mcp"</span>] }
+  }
+}</pre>
+      </div>
+      <div class="tab-panel" id="panel-cli" role="tabpanel">
+<pre><span class="c-cm"># OpenClaw skill &amp; scripts — exit codes: 0 ok, 1 error, 2 payment required</span>
+<span class="c-dim">$</span> uvx --from warrant-sdk warrant tools
+<span class="c-dim">$</span> uvx --from warrant-sdk warrant call quote_risk <span class="c-str">'{"actionSpec": …}'</span></pre>
+      </div>
+    </div>
+    <div class="surfaces rv">
+      <span class="chip">Vercel AI SDK</span>
+      <span class="chip">LangChain</span>
+      <span class="chip">CrewAI</span>
+      <span class="chip">MCP server</span>
+      <span class="chip">OpenClaw skill</span>
+      <span class="chip">OpenAPI 3.1</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ LIMIT ══════════════════ -->
+<section id="limit">
+  <div class="wrap">
+    <span class="eyebrow rv">The limit, stated before you find it</span>
+    <div class="limit rv">
+      <p class="q">&ldquo;Warrant guarantees outcome conformance, not decision quality.&rdquo;</p>
+      <p class="a">
+        Post-conditions are strictly onchain-verifiable: balance deltas, allowance, health factor,
+        nonce, emitted events. Warrant does not judge the intent or the wisdom of a decision &mdash;
+        that is undecidable, and claiming otherwise collapses at the first counterexample.
+        This boundary is a documented design choice, not a gap.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ FAQ ══════════════════ -->
+<section class="alt" id="faq">
+  <div class="wrap">
+    <span class="eyebrow rv" style="text-align:center;display:block">FAQ</span>
+    <h2 class="rv" style="text-align:center">The questions worth asking</h2>
+    <div class="faq rv">
+      <details>
+        <summary>What actually happens under a prompt injection?</summary>
+        <p class="ans">The injected agent still acts &mdash; Warrant doesn&rsquo;t pretend to stop it. But the post-condition was committed <b>before</b> the poisoned content was read, and it is generated by the capital owner&rsquo;s policy, not proposed by the agent. A diverted transfer commits to a destination that is not the attacker&rsquo;s, so the commitment fails, the bond is seized, and the capital owner is made whole. We demonstrated exactly this onchain: 1 USDC sent to <code>0x&hellip;dEaD</code>, slashed, reason written in plain text on the chain.</p>
+      </details>
+      <details>
+        <summary>Who writes the post-condition?</summary>
+        <p class="ans">The policy &mdash; never the agent. The agent submits only the raw transaction it intends to run. Category and notional are derived from the calldata; <code>allowedDest</code> comes from the policy&rsquo;s allowlist; and the Gateway injects a <code>calldata_matches_commitment</code> check that cannot be supplied, removed or overridden by the caller. An agent under injection has nothing to lie about.</p>
+      </details>
+      <details>
+        <summary>What if the settler goes down &mdash; or turns malicious?</summary>
+        <p class="ans">Down: <code>honor</code>/<code>slash</code> close at expiry and <code>reclaim</code> is permissionless &mdash; anyone triggers the full refund, so a bond can&rsquo;t be held hostage. Malicious: a slash pays the protocol <b>zero</b> (invariant I6, onchain), so there is nothing to gain; and every verdict must publish the pinned block and full checks, so a wrong slash is a divergence anyone can prove with the replay script.</p>
+      </details>
+      <details>
+        <summary>What does it cost the agent?</summary>
+        <p class="ans">The bond is <code>clamp(minBond, riskBps &times; notional, maxBond)</code> &mdash; an unclassifiable action costs the maximum, because a system where uncertainty lowers the price is a system you attack by manufacturing uncertainty. Honored: the bond comes back minus a 2.5% fee frozen at open. Slashed: the whole bond goes to the capital owner. Expired without settlement: refunded in full.</p>
+      </details>
+      <details>
+        <summary>Why should I believe any of these numbers?</summary>
+        <p class="ans">You shouldn&rsquo;t &mdash; that&rsquo;s the point. Every claim on this page resolves to a transaction hash on Base Sepolia or a document whose <code>keccak256</code> is committed in the ERC-8004 registry. <code>replay-verdict.sh</code> re-runs the six checks from a public RPC alone. 57 of 57 published verdicts replay with no divergence; the day one diverges, that&rsquo;s a finding, and the script will print it.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ CTA ══════════════════ -->
+<section>
+  <div class="wrap">
+    <div class="cta rv">
+      <canvas class="net" data-net="dark" aria-hidden="true" style="border-radius:22px"></canvas>
+      <h2>Make your agent put money<br>behind its word</h2>
+      <p>Hosted Gateway on Base Sepolia against real Circle USDC. No server to run, no account to create, no API key to obtain. Three of the four tools are free.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="https://github.com/4n0nn43x/warrant" target="_blank" rel="noopener">Read the code</a>
+        <a class="btn btn-ghost" href="https://warrant.fyra.fun/openapi.json" target="_blank" rel="noopener">OpenAPI &middot; warrant.fyra.fun</a>
+      </div>
+      <div class="install">
+        <span>npm i warrant-sdk</span>
+        <span>pip install warrant-sdk</span>
+        <span>npx warrant-mcp</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ FOOTER ══════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="#top">
+          <svg width="24" height="24" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="23" height="23" rx="6" stroke="var(--accent)" stroke-width="2.4"/>
+            <path d="M7 8l3 10 3-7 3 7 3-10" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Warrant
+        </a>
+        <p>A bonded-execution layer for onchain AI agents, built on KeeperHub. We don&rsquo;t ask for trust &mdash; we make the verdict reproducible.</p>
+      </div>
+      <div class="foot-col">
+        <b>Protocol</b>
+        <a href="#how">How it works</a>
+        <a href="#escrow">The escrow</a>
+        <a href="#verify">Replay a verdict</a>
+        <a href="#limit">The stated limit</a>
+      </div>
+      <div class="foot-col">
+        <b>Build</b>
+        <a href="https://www.npmjs.com/package/warrant-sdk" target="_blank" rel="noopener">warrant-sdk (npm)</a>
+        <a href="https://pypi.org/project/warrant-sdk/" target="_blank" rel="noopener">warrant-sdk (PyPI)</a>
+        <a href="https://warrant.fyra.fun/openapi.json" target="_blank" rel="noopener">OpenAPI 3.1</a>
+        <a href="https://github.com/4n0nn43x/warrant" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="foot-col">
+        <b>Onchain &middot; Base Sepolia</b>
+        <a href="https://sepolia.basescan.org/address/0x3ae9ad53686383c80889F550065e810f72c2ff4e" target="_blank" rel="noopener"><span class="addr">Escrow 0x3ae9ad53&hellip;c2ff4e</span></a>
+        <a href="https://sepolia.basescan.org/address/0x8004b663056A597dfFE9eCcC1965a193B7388713" target="_blank" rel="noopener"><span class="addr">Reputation 0x8004b663&hellip;8713</span></a>
+        <a href="https://sepolia.basescan.org/address/0x036CbD53842c5426634e7929541eC2318f3dCF7e" target="_blank" rel="noopener"><span class="addr">USDC 0x036CbD53&hellip;3dCF7e</span></a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span class="status-chip"><span class="dot"></span>57/57 verdicts replayed &middot; no divergence</span>
+      <span>MIT License &middot; Built on KeeperHub &middot; Warrant</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// scroll reveals
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var els = document.querySelectorAll('.rv');
+  if (reduce || !('IntersectionObserver' in window)) {
+    els.forEach(function(el){ el.classList.add('in'); });
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+  els.forEach(function(el){ io.observe(el); });
+})();
+
+// code tabs
+(function(){
+  var btns = document.querySelectorAll('.tab-btn');
+  btns.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      btns.forEach(function(b){ b.setAttribute('aria-selected', 'false'); });
+      document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+      btn.setAttribute('aria-selected', 'true');
+      document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+})();
+
+// neural-network backdrops — nodes, synapses, impulses travelling the edges
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var THEMES = {
+    light: { line:'rgba(37,69,224,0.10)',  node:'rgba(37,69,224,0.28)',  pulse:'rgba(37,69,224,0.90)',  halo:'rgba(37,69,224,0.16)'  },
+    dark:  { line:'rgba(143,160,255,0.14)', node:'rgba(143,160,255,0.35)', pulse:'rgba(186,197,255,0.95)', halo:'rgba(143,160,255,0.22)' }
+  };
+
+  function build(canvas){
+    var colors = THEMES[canvas.dataset.net] || THEMES.light;
+    var ctx = canvas.getContext('2d');
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = 0, H = 0, nodes = [], edges = [], pulses = [], raf = 0, visible = false;
+
+    function resize(){
+      var r = canvas.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      W = r.width; H = r.height;
+      canvas.width = W * dpr; canvas.height = H * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      seed();
+    }
+
+    function seed(){
+      nodes = []; edges = []; pulses = [];
+      var count = Math.max(22, Math.min(64, Math.round(W * H / 26000)));
+      for (var i = 0; i < count; i++){
+        nodes.push({
+          x: Math.random() * W, y: Math.random() * H,
+          vx: (Math.random() - .5) * .12, vy: (Math.random() - .5) * .12,
+          r: 1.2 + Math.random() * 1.6
+        });
+      }
+      var reach = Math.min(190, Math.max(120, Math.sqrt(W * H / count) * 1.35));
+      for (var a = 0; a < count; a++){
+        for (var b = a + 1; b < count; b++){
+          var dx = nodes[a].x - nodes[b].x, dy = nodes[a].y - nodes[b].y;
+          if (Math.sqrt(dx * dx + dy * dy) < reach) edges.push([a, b]);
+        }
+      }
+      var n = Math.max(3, Math.round(edges.length / 14));
+      for (var p = 0; p < n; p++) pulses.push(spawn());
+    }
+
+    function spawn(){
+      return {
+        edge: (Math.random() * edges.length) | 0,
+        t: Math.random(),
+        speed: .0035 + Math.random() * .0075,
+        dir: Math.random() < .5 ? 1 : -1
+      };
+    }
+
+    function draw(){
+      ctx.clearRect(0, 0, W, H);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = colors.line;
+      ctx.beginPath();
+      for (var e = 0; e < edges.length; e++){
+        var A = nodes[edges[e][0]], B = nodes[edges[e][1]];
+        ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = colors.node;
+      for (var i = 0; i < nodes.length; i++){
+        var nd = nodes[i];
+        ctx.beginPath(); ctx.arc(nd.x, nd.y, nd.r, 0, 6.2832); ctx.fill();
+      }
+      if (reduce) return;
+      for (var p = 0; p < pulses.length; p++){
+        var pu = pulses[p], ed = edges[pu.edge];
+        if (!ed) { pulses[p] = spawn(); continue; }
+        var A2 = nodes[ed[0]], B2 = nodes[ed[1]];
+        var t = pu.dir === 1 ? pu.t : 1 - pu.t;
+        var x = A2.x + (B2.x - A2.x) * t, y = A2.y + (B2.y - A2.y) * t;
+        ctx.beginPath(); ctx.fillStyle = colors.halo; ctx.arc(x, y, 6.5, 0, 6.2832); ctx.fill();
+        ctx.beginPath(); ctx.fillStyle = colors.pulse; ctx.arc(x, y, 2.1, 0, 6.2832); ctx.fill();
+        pu.t += pu.speed;
+        if (pu.t >= 1) pulses[p] = spawn();
+      }
+    }
+
+    function step(){
+      for (var i = 0; i < nodes.length; i++){
+        var nd = nodes[i];
+        nd.x += nd.vx; nd.y += nd.vy;
+        if (nd.x < 0 || nd.x > W) nd.vx *= -1;
+        if (nd.y < 0 || nd.y > H) nd.vy *= -1;
+      }
+      draw();
+      raf = requestAnimationFrame(step);
+    }
+
+    function start(){ if (!raf && visible && !reduce){ raf = requestAnimationFrame(step); } }
+    function stop(){ if (raf){ cancelAnimationFrame(raf); raf = 0; } }
+
+    resize();
+    draw();
+    if ('IntersectionObserver' in window && !reduce){
+      new IntersectionObserver(function(entries){
+        visible = entries[0].isIntersecting;
+        visible ? start() : stop();
+      }, { threshold: 0.02 }).observe(canvas);
+    } else if (!reduce){
+      visible = true; start();
+    }
+    var rt;
+    window.addEventListener('resize', function(){
+      clearTimeout(rt); rt = setTimeout(function(){ resize(); draw(); }, 150);
+    });
+  }
+
+  document.querySelectorAll('canvas.net').forEach(build);
+})();
+</script>
+</body>
+</html>

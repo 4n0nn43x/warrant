@@ -617,6 +617,33 @@ async function main(): Promise<void> {
     )
   }
   guarded.use('*', bodyLimitGuard(maxBodyBytes))
+
+  // ── Landing page ─────────────────────────────────────────────────────────
+  //
+  // The Gateway is an API, but the domain it lives on is also the project's
+  // public face. When the landing file is present — the Docker image ships it
+  // under `site/` — `GET /` serves it; when it is absent, the route is simply
+  // not registered and the API's own 404 answers, as before. Optional by
+  // construction: a missing page must not stop a server whose job is opening
+  // warrants, and no test needs a landing page to exercise the protocol.
+  const siteFile = optional('WARRANT_SITE_FILE', 'site/index.html')
+  let landingHtml: string | undefined
+  try {
+    landingHtml = readFileSync(siteFile, 'utf8')
+  } catch {
+    landingHtml = undefined
+  }
+  if (landingHtml !== undefined) {
+    const html = landingHtml
+    guarded.get('/', (c) =>
+      c.html(html, 200, {
+        // Half-decent freshness without a build pipeline: the page is a single
+        // small file, and 5 minutes is invisible next to a redeploy.
+        'cache-control': 'public, max-age=300',
+      }),
+    )
+  }
+
   guarded.route('/', app)
 
   serve({ fetch: guarded.fetch, port }, (info) => {
@@ -638,6 +665,7 @@ async function main(): Promise<void> {
         beneficiary: policy.beneficiary,
         treasury: policy.treasury,
         bondRange: [policy.minBond, policy.maxBond],
+        landingPage: landingHtml !== undefined ? siteFile : 'absent',
         // A fingerprint of the secret, never the secret. Lets us check that we
         // deployed the same key as the client without ever exposing it.
         mppSecretFingerprint: createHash('sha256')
