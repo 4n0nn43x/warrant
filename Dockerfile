@@ -25,7 +25,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY deployments deployments
 COPY packages/core/package.json packages/core/
 COPY packages/server/package.json packages/server/
-# `@warrant/sdk` is a *dev* dependency of the server, but a real one: the
+# `warrant-sdk` is a *dev* dependency of the server, but a real one: the
 # `open-via-gateway` operations binary imports it, and `tsc` compiles the whole
 # package or none of it. It is built here and left behind in the runtime stage.
 COPY packages/sdk-ts/package.json packages/sdk-ts/
@@ -33,14 +33,14 @@ COPY packages/sdk-ts/package.json packages/sdk-ts/
 # `--frozen-lockfile` is the supply-chain control here: it refuses to resolve
 # anything the lockfile does not already pin, so a build cannot silently pull a
 # version nobody reviewed.
-RUN pnpm install --frozen-lockfile --filter @warrant/server... --filter @warrant/sdk... --filter .
+RUN pnpm install --frozen-lockfile --filter @warrant/server... --filter warrant-sdk... --filter .
 
 COPY packages/core packages/core
 COPY packages/sdk-ts packages/sdk-ts
 COPY packages/server packages/server
 
-RUN pnpm --filter @warrant/core build \
- && pnpm --filter @warrant/sdk build \
+RUN pnpm --filter warrant-core build \
+ && pnpm --filter warrant-sdk build \
  && pnpm --filter @warrant/server build
 
 # Second pass, production only: drops TypeScript, vitest and the rest of the
