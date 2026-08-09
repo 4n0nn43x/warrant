@@ -17,9 +17,9 @@
     "register-agent": "node --env-file-if-exists=../../.env --import tsx src/bin/register-agent.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.7",
+    "@hono/node-server": "^2.0.10",
     "warrant-core": "workspace:*",
-    "hono": "^4.6.14",
+    "hono": "^4.12.34",
     "viem": "^2.21.55"
   },
   "devDependencies": {
