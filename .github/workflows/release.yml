@@ -70,13 +70,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The pinned image, as everywhere else in this repository. The marketplace
+      # action swallows Trivy's stdout, so a failure arrives as a bare exit code
+      # with neither a finding nor an error — which is exactly how this workflow
+      # failed on its first tag.
+      #
+      # The image is scanned from a tarball rather than from the daemon, so the
+      # scanner never needs the Docker socket. A container that can reach the
+      # socket is root on the host, and a scanner parsing untrusted layers is
+      # the last place to hand that over.
       - name: Scan before publishing
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: scan-target:local
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: '1'
+        run: |
+          docker save scan-target:local -o /tmp/image.tar
+          docker run --rm -v /tmp:/tmp:ro \
+            aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c \
+            image --input /tmp/image.tar \
+                  --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1
 
       # The container must not start as root, and must not be able to write its
       # own code. Checked here rather than trusted, because the Dockerfile can

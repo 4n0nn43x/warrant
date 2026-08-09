@@ -54,6 +54,21 @@ FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc643
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Remove the package manager from the runtime.
+#
+# The entrypoint is `node dist/bin/gateway.js`; npm and corepack are never
+# invoked once the image is built. They are, however, the entire source of the
+# image's CVE surface: a scan before publishing reported eight CRITICAL/HIGH
+# findings, all eight inside `npm/node_modules` — tar, brace-expansion,
+# ip-address, picomatch, sigstore — and none in anything this project wrote.
+#
+# The base image is already on its newest published digest, so there was nothing
+# upstream to move to. The alternative was to ignore the findings; deleting the
+# code is better than agreeing not to look at it, and a production runtime has no
+# business shipping a package manager it cannot use.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+
 # The stock `node` user (uid 1000) rather than root, and rather than one we
 # invent: it already exists in the base image, owns nothing, and has no shell
 # worth having. A process that never needs to write outside its own tmp has no
