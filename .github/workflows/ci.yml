@@ -136,3 +136,66 @@ jobs:
       - name: forge fmt
         working-directory: contracts
         run: forge fmt --check
+
+  # The image is not covered by anything above. `pnpm -r build` compiles the
+  # workspace; it says nothing about whether the Dockerfile still refers to
+  # packages that exist, nor whether the files the runtime depends on made it in.
+  #
+  # Both failed silently this week. A rename updated 58 files by extension and
+  # skipped the Dockerfile, which has none — the image was unbuildable for two
+  # days, invisible because the running container predated the change. And an
+  # earlier image shipped without `deployments/`, so the Gateway loaded the wrong
+  # classification registry and refused every quote in production while its
+  # health check stayed green.
+  #
+  # Neither was caught by a gate. `release.yml` builds the image, but only on a
+  # `v*` tag — far too late. This job is the same build on every push, minus the
+  # publishing.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with: { persist-credentials: false }
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          load: true
+          push: false
+          tags: warrant-gateway:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Not root, and the runtime files are present. Three assertions that each
+      # correspond to a way the deployment has actually broken.
+      - name: The image is what the deployment expects
+        run: |
+          user=$(docker image inspect warrant-gateway:ci --format '{{.Config.User}}')
+          echo "USER = '${user}'"
+          case "$user" in
+            ''|root|0) echo "::error::the image would start as root"; exit 1 ;;
+          esac
+
+          for f in \
+            packages/server/dist/bin/gateway.js \
+            packages/server/dist/bin/settler.js \
+            deployments/registry-base-sepolia.json
+          do
+            docker run --rm --entrypoint sh warrant-gateway:ci -c "test -f /app/$f" \
+              || { echo "::error::missing from the image: $f"; exit 1; }
+            echo "  present: $f"
+          done
+
+      # A container that starts is worth more than one that merely built. With no
+      # configuration the Gateway must refuse *and say which variable is missing*
+      # — that refusal is a feature, and a crash here would mean the entrypoint
+      # itself is broken.
+      - name: It starts, and refuses cleanly when unconfigured
+        run: |
+          out=$(docker run --rm warrant-gateway:ci 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "missing environment variable" \
+            || { echo "::error::expected a named missing variable, got the above"; exit 1; }
