@@ -14,7 +14,7 @@
   "dependencies": {
     "warrant-core": "workspace:*",
     "@warrant/server": "workspace:*",
-    "viem": "^2.21.55"
+    "viem": "^2.55.11"
   },
   "devDependencies": {
     "tsx": "^4.23.1",
