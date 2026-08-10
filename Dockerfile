@@ -9,7 +9,7 @@
 # audited. Refresh it deliberately, as a commit one can read.
 
 # ─── Build ───────────────────────────────────────────────────────────────────
-FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS build
+FROM node@sha256:bde0dae02f2b12d2bce5ee72b2432f0e511767b7b2dc4dd3b064df11ae422fee AS build
 
 WORKDIR /app
 ENV CI=true
@@ -49,7 +49,7 @@ RUN pnpm install --frozen-lockfile --prod --filter @warrant/server... --filter .
  && pnpm store prune
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
-FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS runtime
+FROM node@sha256:bde0dae02f2b12d2bce5ee72b2432f0e511767b7b2dc4dd3b064df11ae422fee AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
