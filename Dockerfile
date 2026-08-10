@@ -4,12 +4,19 @@
 # and the whole workspace, and the runtime needs none of the three. What ships is
 # Node, the compiled JavaScript, and the production dependency closure.
 #
-# The base is pinned by **digest**, not by tag: `node:22-bookworm-slim` is a
-# moving target, and an image that cannot be rebuilt identically cannot be
-# audited. Refresh it deliberately, as a commit one can read.
+# The base carries **both a tag and a digest**, and needs both for different
+# reasons. The digest is what makes the build reproducible: a tag is a moving
+# target, and an image that cannot be rebuilt identically cannot be audited.
+#
+# The tag is what keeps Dependabot on the right line. With a bare
+# `FROM node@sha256:…` it has no idea which line this pin belongs to, so it
+# tracks `node:latest` — and proposed a "digest refresh" that was in fact Node
+# 22 → 26. That build fails at `corepack enable`, unbundled from the official
+# image since Node 25. The `image` job caught it; the tag stops it being
+# proposed at all.
 
 # ─── Build ───────────────────────────────────────────────────────────────────
-FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS build
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS build
 
 WORKDIR /app
 ENV CI=true
@@ -49,7 +56,7 @@ RUN pnpm install --frozen-lockfile --prod --filter @warrant/server... --filter .
  && pnpm store prune
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
-FROM node@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS runtime
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
