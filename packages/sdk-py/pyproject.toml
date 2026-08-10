@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "warrant-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bonded execution for onchain agents — LangChain and CrewAI tools, x402 payments, CLI"
 readme = "README.md"
 license = "MIT"
