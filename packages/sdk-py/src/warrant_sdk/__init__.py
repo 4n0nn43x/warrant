@@ -58,7 +58,7 @@ from .x402 import (
     warrant_id_of,
 )
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = [
     "DEFAULT_BASE_URL",
