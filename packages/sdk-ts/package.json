@@ -1,6 +1,6 @@
 {
   "name": "warrant-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "description": "Warrant TypeScript SDK \u2014 single source of tool definitions plus thin framework adapters",

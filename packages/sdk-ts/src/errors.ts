@@ -53,8 +53,11 @@ const DEFAULT_HINTS: Record<WarrantErrorCode, string> = {
   gateway_unreachable:
     'The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.',
   gateway_error: 'Retry; if it persists, the detail is in `details`.',
+  // Shared by both SDKs, so it names no language's HTTP call: the Python client
+  // is the one that would open a `file:` URL and return its bytes as a response,
+  // but the advice — check the variable — is the same on either side.
   invalid_base_url:
-    'The Gateway URL must be http(s). A file:, ftp: or data: URL is not a Gateway — urlopen would read it and return the bytes as if they were a response. Check WARRANT_BASE_URL.',
+    'The Gateway URL must be http(s). A file:, ftp: or data: URL is not a Gateway, and a client that opens one would return its bytes as though the Gateway had sent them. Check WARRANT_BASE_URL.',
 }
 
 export interface WarrantErrorJSON {
