@@ -269,5 +269,5 @@ it is an action whose stated outcome is now backed by money.
 ---
 
 Tool definitions above are generated from the Warrant single source of truth,
-manifest `sha256:367c087cbffe62183d7a99e2efdfdd419dd9c191ed3634df85fc70ff01046f1a`. If a tool here disagrees with what the Gateway
+manifest `sha256:e81c9db86cf17732d642ef326d2af8ee6a8d172f63bef68a403cdad28f92786e`. If a tool here disagrees with what the Gateway
 serves, this skill is stale — `clawhub update @warrant/warrant`.

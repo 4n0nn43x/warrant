@@ -88,6 +88,7 @@ const ERROR_CODES: Record<WarrantErrorCode, true> = {
   warrant_not_found: true,
   gateway_unreachable: true,
   gateway_error: true,
+  invalid_base_url: true,
 }
 
 function jsonSchema(schema: z.ZodType, io: 'input' | 'output'): Record<string, unknown> {

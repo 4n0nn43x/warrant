@@ -31,7 +31,7 @@ JSON_SCHEMA_DIALECT = "draft-7"
 #: sha256 of the manifest's canonical form. Identifies the revision of the single
 #: source of truth this file came from; published by `warrant tools` and by the
 #: OpenClaw skill so that a stale artifact can be spotted without reading code.
-MANIFEST_SHA256 = "sha256:367c087cbffe62183d7a99e2efdfdd419dd9c191ed3634df85fc70ff01046f1a"
+MANIFEST_SHA256 = "sha256:e81c9db86cf17732d642ef326d2af8ee6a8d172f63bef68a403cdad28f92786e"
 
 
 class ActionSpec(BaseModel):
@@ -121,6 +121,10 @@ ERROR_CATALOG: dict[str, dict[str, str]] = {
     },
     "gateway_error": {
         "hint": "Retry; if it persists, the detail is in `details`.",
+        "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway",
+    },
+    "invalid_base_url": {
+        "hint": "The Gateway URL must be http(s). A file:, ftp: or data: URL is not a Gateway — urlopen would read it and return the bytes as if they were a response. Check WARRANT_BASE_URL.",
         "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway",
     },
 }

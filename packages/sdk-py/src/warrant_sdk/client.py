@@ -61,6 +61,37 @@ def _un_b64_json(value: str) -> Any:
     return json.loads(base64.b64decode(value.strip()).decode("utf-8"))
 
 
+def _checked_base_url(value: str) -> str:
+    """Accept only an ``http(s)`` origin, and reject everything else here.
+
+    ``urllib.request.urlopen`` is not an HTTP client — it dispatches on the
+    scheme, and the standard opener also answers ``file:``, ``ftp:`` and
+    ``data:``. So a ``base_url`` of ``file:///etc/passwd`` does not fail: it
+    reads the file and hands the bytes back as though the Gateway had said them,
+    and :meth:`_request` cannot tell the difference because by then it holds an
+    ordinary response object.
+
+    That matters more for this package than for most. It is installed *into an
+    agent runtime*, where ``WARRANT_BASE_URL`` sits in the same environment the
+    agent's own configuration does, and where the value may well have been
+    written by something less trusted than the developer.
+
+    The check belongs at construction because that is where the value enters:
+    one place, once, before it can reach a call. A scheme rejected here is a
+    misconfiguration reported at startup; one rejected at the call site would be
+    a mystery in the middle of a payment loop.
+    """
+    url = value.rstrip("/")
+    scheme = urllib.parse.urlparse(url).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise WarrantError(
+            "invalid_base_url",
+            f"Gateway base URL must be http(s), got {scheme or 'no'} scheme: {url}",
+            details={"base_url": url, "scheme": scheme},
+        )
+    return url
+
+
 class WarrantClient:
     """Talks to a Warrant Gateway and, if it can, pays for the bond.
 
@@ -89,7 +120,9 @@ class WarrantClient:
         headers: dict[str, str] | None = None,
         max_payment_attempts: int = 1,
     ) -> None:
-        self.base_url = (base_url or os.environ.get("WARRANT_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = _checked_base_url(
+            base_url or os.environ.get("WARRANT_BASE_URL") or DEFAULT_BASE_URL
+        )
         self.timeout = timeout
         self.max_payment_attempts = max_payment_attempts
         self._headers = {"content-type": "application/json", "accept": "application/json"}
@@ -117,6 +150,13 @@ class WarrantClient:
             url, data=data, method=method, headers={**self._headers, **(headers or {})}
         )
         try:
+            # The rule below fires on any `urlopen` whose argument is not a
+            # literal, and cannot see that the only variable part of this URL had
+            # its scheme checked in `_checked_base_url` before the client
+            # existed. `path` is not caller input: every value comes from a
+            # method on this class. Suppressed because the check exists — not
+            # instead of it.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 raw = response.read().decode("utf-8")
                 return response.status, dict(response.headers), _maybe_json(raw)

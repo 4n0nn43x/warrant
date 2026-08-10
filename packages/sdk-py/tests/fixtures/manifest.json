@@ -492,6 +492,11 @@
       "code": "gateway_error",
       "hint": "Retry; if it persists, the detail is in `details`.",
       "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway"
+    },
+    {
+      "code": "invalid_base_url",
+      "hint": "The Gateway URL must be http(s). A file:, ftp: or data: URL is not a Gateway — urlopen would read it and return the bytes as if they were a response. Check WARRANT_BASE_URL.",
+      "docs": "https://github.com/4n0nn43x/warrant/troubleshooting#gateway"
     }
   ]
 }

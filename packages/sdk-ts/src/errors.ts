@@ -19,6 +19,7 @@ export type WarrantErrorCode =
   | 'warrant_not_found'
   | 'gateway_unreachable'
   | 'gateway_error'
+  | 'invalid_base_url'
 
 const DOCS_BASE = 'https://github.com/4n0nn43x/warrant'
 
@@ -32,6 +33,7 @@ const DOCS: Record<WarrantErrorCode, string> = {
   warrant_not_found: `${DOCS_BASE}/warrants#lookup`,
   gateway_unreachable: `${DOCS_BASE}/troubleshooting#gateway`,
   gateway_error: `${DOCS_BASE}/troubleshooting#gateway`,
+  invalid_base_url: `${DOCS_BASE}/troubleshooting#gateway`,
 }
 
 /** Fallback: a generic hint is better than a missing field. */
@@ -51,6 +53,8 @@ const DEFAULT_HINTS: Record<WarrantErrorCode, string> = {
   gateway_unreachable:
     'The Warrant Gateway is unreachable. Retry; no warrant and no payment were committed.',
   gateway_error: 'Retry; if it persists, the detail is in `details`.',
+  invalid_base_url:
+    'The Gateway URL must be http(s). A file:, ftp: or data: URL is not a Gateway — urlopen would read it and return the bytes as if they were a response. Check WARRANT_BASE_URL.',
 }
 
 export interface WarrantErrorJSON {
