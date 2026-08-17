@@ -17,10 +17,10 @@
     "register-agent": "node --env-file-if-exists=../../.env --import tsx src/bin/register-agent.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.10",
+    "@hono/node-server": "^2.1.1",
     "warrant-core": "workspace:*",
-    "hono": "^4.12.34",
-    "viem": "^2.55.11"
+    "hono": "^4.13.2",
+    "viem": "^2.55.15"
   },
   "devDependencies": {
     "warrant-sdk": "workspace:*",
