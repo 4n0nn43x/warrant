@@ -18,12 +18,12 @@
     "verdicts:publish": "tsx scripts/publish-verdicts.ts"
   },
   "devDependencies": {
-    "@coinbase/cdp-sdk": "^1.54.0",
-    "@types/node": "^22.10.2",
+    "@coinbase/cdp-sdk": "^1.55.0",
+    "@types/node": "^26.2.0",
     "warrant-core": "workspace:*",
-    "tsx": "^4.23.1",
-    "typescript": "^5.7.2",
-    "vitest": "^3.2.6"
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   },
   "packageManager": "pnpm@11.17.0"
 }
