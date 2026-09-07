@@ -31,7 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "viem": "^2.55.11"
+    "viem": "^2.56.3"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
