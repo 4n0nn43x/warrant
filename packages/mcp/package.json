@@ -26,11 +26,11 @@
     "start": "node --env-file-if-exists=../../.env --import tsx src/bin/mcp.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/node": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/node": "2.1.0",
+    "@modelcontextprotocol/server": "2.1.0",
     "warrant-core": "workspace:*",
     "warrant-sdk": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
